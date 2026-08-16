@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run-event@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "seq", "type", "step", "state", "display", "payload", "occurred_at"],
+  "properties": {
+    "schema_version": { "const": "run-event@1" },
+    "run_id": { "type": "string", "maxLength": 160 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "type": { "type": "string", "maxLength": 80 },
+    "step": { "type": "string", "maxLength": 80 },
+    "state": { "type": "string" },
+    "display": { "type": "string", "maxLength": 240 },
+    "payload": { "type": "object" },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "readiness-plan@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workflow", "required_evidence", "clarification"],
+  "properties": {
+    "schema_version": { "const": "readiness-plan@1" },
+    "workflow": { "const": "audience_data_readiness" },
+    "asset_query": { "type": "string", "maxLength": 200 },
+    "container_query": { "type": "string", "maxLength": 200 },
+    "purpose": { "type": "string", "maxLength": 120 },
+    "time_window": { "$ref": "run-request@1#/$defs/time_window" },
+    "required_evidence": { "type": "array", "const": ["asset", "quality", "governance", "lineage"] },
+    "clarification": { "type": ["object", "null"] }
+  }
+}

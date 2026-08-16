@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run-request@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "problem_statement"],
+  "properties": {
+    "schema_version": { "const": "run-request@1" },
+    "problem_statement": { "type": "string", "minLength": 1, "maxLength": 8000 },
+    "asset_hint": { "type": "string", "maxLength": 200 },
+    "container_hint": { "type": "string", "maxLength": 200 },
+    "purpose": { "type": "string", "maxLength": 120 },
+    "time_window": { "$ref": "#/$defs/time_window" },
+    "media_context": { "type": "object", "additionalProperties": false, "minProperties": 1, "properties": { "show_or_campaign": { "type": "string", "maxLength": 200 }, "asset_type": { "type": "string", "maxLength": 200 } } }
+  },
+  "$defs": {
+    "time_window": { "type": "object", "additionalProperties": false, "required": ["start", "end"], "properties": { "start": { "type": "string", "format": "date-time" }, "end": { "type": "string", "format": "date-time" } } }
+  }
+}

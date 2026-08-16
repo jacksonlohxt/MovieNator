@@ -1,0 +1,16 @@
+{
+  "name": "gemini-agents",
+  "version": "1.0.0",
+  "private": true,
+  "types": "src/contracts.d.ts",
+  "description": "Mock-safe Audience Data Readiness Brief workflow",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/contracts.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node src/check-schemas.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

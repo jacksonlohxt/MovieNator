@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "readiness-brief@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "workflow", "run_status", "decision", "headline", "summary", "resolved_asset", "checks", "risks", "recommendations", "gaps", "coverage", "policy_version", "provenance", "limitations"],
+  "properties": {
+    "schema_version": { "const": "readiness-brief@1" },
+    "run_id": { "type": "string", "maxLength": 160 },
+    "workflow": { "const": "audience_data_readiness" },
+    "run_status": { "type": "string" },
+    "decision": { "enum": ["READY", "REVIEW", "BLOCKED", "UNKNOWN"] },
+    "headline": { "type": "string", "maxLength": 180 },
+    "summary": { "type": "string", "maxLength": 1200 },
+    "resolved_asset": { "type": ["object", "null"], "additionalProperties": false, "properties": { "asset_id": { "type": "string", "maxLength": 160 }, "display_name": { "type": "string", "maxLength": 240 }, "workspace": { "type": "string", "maxLength": 200 }, "evidence_id": { "type": "string", "maxLength": 160 } } },
+    "summary_evidence_ids": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 160 } },
+    "summary_claims": { "type": "array", "maxItems": 4 },
+    "checks": { "type": "array", "maxItems": 4 },
+    "risks": { "type": "array", "maxItems": 5 },
+    "recommendations": { "type": "array", "maxItems": 3 },
+    "gaps": { "type": "array", "maxItems": 4 },
+    "coverage": { "type": "object" },
+    "policy_version": { "type": "string", "maxLength": 80 },
+    "policy_disclosure": { "type": "string", "maxLength": 300 },
+    "policy_reasons": { "type": "array", "maxItems": 12 },
+    "policy_decision": { "$ref": "policy-decision@1" },
+    "provenance": { "type": "object", "additionalProperties": false, "required": ["model", "provider", "label"], "properties": { "model": { "type": "string" }, "provider": { "type": "string" }, "label": { "type": "string" } } },
+    "limitations": { "type": "array", "maxItems": 5, "items": { "type": "string", "maxLength": 300 } }
+  }
+}

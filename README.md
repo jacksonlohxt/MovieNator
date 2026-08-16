@@ -30,10 +30,20 @@ No Google or IBM integration is enabled, no production credentials are present, 
 
 ## Current status
 
-This is a documentation-only discovery and design repository. It currently contains the product index and PRD, with no application implementation, dependency setup, production credentials, or partner integration. The PRD is an implementation-ready recommendation, pending open Captain decisions.
+The repository contains the Phase 1 deterministic mock engine and a Phase 2 browser vertical slice for the recommended workflow. The default path uses `FakeModel`, `MockProvider`, a local durable JSON store, and no credentials or network calls. No Google, IBM, partner, hosted-model, or side-effect integration is enabled.
+
+```sh
+npm test
+npm run check
+npm start
+# open http://127.0.0.1:4173
+```
+
+The local server exposes the documented `/v1/runs` API, safe projections, event stream, cancellation, clarification, retry-child, and evidence routes. Local run records are written under `.data/` and are ignored by git.
 
 ## Local documentation
 
-- [Product requirements document](docs/prd.md) - the authoritative detailed specification for the workflow, contracts, role authority, states, evidence, safety boundaries, roadmap, recommendations, and open Captain decisions.
+- [Product requirements document](docs/prd.md) - the authoritative detailed specification and the unresolved Captain decisions.
+- [Implementation guide](docs/implementation.md) - contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
 
-The PRD is the source of truth for product detail. It records recommendations and unresolved decisions; it does not authorize Google, IBM, partner access, production credentials, or side effects.
+The PRD remains the source of truth for product detail. This implementation keeps its workflow, policy, identity, retention, provider, and side-effect choices visible as configuration seams rather than treating recommendations as approvals. It does not claim legal, privacy, rights, publishing, live-provider, or production readiness.
