@@ -44,6 +44,21 @@ These are three different concepts:
 - **Implementation components** are services or modules that execute those roles. Examples are the API, durable worker, provider adapter, database, and telemetry pipeline.
 - **Model-powered agents** are optional implementations for bounded transformations. In v1, only the Planner and Brief Writer may use Gemini. A product role does not become an autonomous agent merely because it has an agent-shaped name.
 
+### Integration-first ecosystem direction
+
+The north star is a contextualized creative workspace for filmmakers: help a person move from a problem or idea to evidence-backed concepts, reusable artifacts, reviewable decisions, and future integrations while preserving project context, preferences, history, and trust. The Audience Data Readiness Brief is a bounded seed, not the whole ecosystem and not a generic workflow screen.
+
+The first release stays small: one workflow, one resolved asset, transparent evidence, deterministic policy, safe recovery, and no consequential external writes. Future ecosystem direction is phase-gated and must earn inclusion through a user outcome, a stable contract, provenance, privacy controls, and measurable value. Candidate extension points are contextual memory, artifact and project continuity, feedback and evaluation loops, reusable role packs, provider adapters, collaboration or review, and a partner or plugin ecosystem. None is a current capability or an invitation to expose a dynamic catalog.
+
+| Boundary | Reuse | Product-owned adaptation | Product-owned contract or decision |
+|---|---|---|---|
+| Orchestration | Fixed sequential/parallel workflow patterns, durable queue and worker practices, and evaluation/observability conventions | A small fixed graph with role-scope budgets and explicit handoffs | Run state, phase gates, recovery, and safe browser projection |
+| Model and provider access | Gemini structured output, a shared model backend, and candidate IBM WDI read operations | `ModelGateway`, `EvidenceProvider`, normalized evidence, capability manifest, and provenance labels | Which role may invoke a model or provider, semantic operations, authority, and no-fallback policy |
+| Evidence and policy | Mature evidence, lineage, data-quality, tracing, and approval patterns | Media launch context, bounded evidence classes, and reviewer-safe projections | `EvidenceBundle`, `PolicyDecision`, status oracle, evidence gaps, and policy versions |
+| Future ecosystem | Provider adapters, collaboration patterns, memory stores, role-pack packaging, and plugin mechanisms | Contextual connectors and artifact continuity introduced one contract at a time | Privacy, retention, consent, evaluation, compatibility, and Captain enablement |
+
+A genuinely custom subsystem must name the mature capability it replaces, explain why reuse or an adapter is insufficient, identify the safety or user outcome it improves, and pass a replacement evaluation before entering the ship path. A visually richer graph, extra agent, or broader tool catalog is not by itself a product benefit.
+
 ## 2. Target user and jobs
 
 ### Primary user hypothesis
@@ -101,6 +116,14 @@ The public experience is one responsive route. It shows product truth, not model
 | **Recovery** | Provide explicit actions for `NEEDS_INPUT`, unavailable, denied, timeout, malformed model output, expired, failed, canceled, and safe partial results. Retry creates a child run. `Use demo evidence` starts a separate labelled mock run only by explicit user choice. | Never silently fall back from a live provider to mock or another partner. Preserve the failed run and its provenance. A late response from an uncancellable provider is discarded if cancellation has won. |
 | **Trace** (reviewer only) | Role-gated redacted trace with state transitions, model/backend, provider/backend, semantic operation, actual tool name, manifest/schema/policy hashes, attempts, latency, evidence IDs, and safe outcomes. | Never show chain-of-thought, secrets, raw private rows, or unrestricted tool catalogs. Public users do not see this route by hiding a tab alone; authorization must enforce it. |
 | **Setup** (operator only) | Role-gated provider readiness view with manifest status, endpoint reference, transport/auth mode, tenant scope reference, schema hashes, last contract test, drift result, enablement flag, and disable reason. | It is `unknown`, `not_set`, `not_run`, `passed`, `failed`, or `disabled`. It shows references and hashes, not credentials. A failed contract test fails closed. IBM WDI remains hidden from the public selector until separately enabled. |
+
+### Lavish journey requirements
+
+If the journey is rendered or reviewed through Lavish, the artifact is a reviewable projection of product contracts, not evidence that each card is an agent or runtime process. Keep the progressive surfaces `Ask`, `Clarify`, `Role Run`, `Decision`, `Evidence`, `Trace`, `Recovery`, and on-demand `Role Map`; keep `Setup` operator-only. The default view shows one active role, its named next handoff, and the typed artifact exchanged. A full role map is on demand and must not use swarm animation, model thoughts, or autonomous language.
+
+Lavish acceptance requires the same field-of-vision rules as the product: each visible role has one job, one input, one output, one authority, explicit allowed/prohibited scope, and a failure state. `Policy Gate` is visibly distinct as the only status authority. `Quality`, `Governance`, and `Lineage` appear as deterministic evidence branches, not model specialists. `Verifier` is separate from future human `Reviewer`. The Decision surface must make its coverage count match the displayed evidence classes, and each claim or gap must open the matching evidence record rather than a generic card. Trace shows safe handoffs, versions, operations, hashes, latency, and failure class only. Recovery preserves the original run and makes a mock switch an explicit new provenance-labelled run.
+
+The prototype may show future role-pack, memory, continuity, collaboration, or provider concepts only as labelled ecosystem direction. It must not imply that those capabilities, partner access, or side effects exist in the MVP.
 
 ### Durable run states
 
@@ -417,6 +440,101 @@ None of these labels means legal approval, privacy certification, rights clearan
 9. A provider failure is visible and cannot trigger an unapproved live fallback.
 10. Any future side effect is after human approval and idempotency checks, never inside model prose.
 
+### Role-scope and field-of-vision contract
+
+The **field of vision** of a role is the smallest set of context, artifacts, operations, and authority it may inspect or change to produce one user-relevant outcome. It is a product contract, not decorative prompt text. A role must be narrow enough that a reviewer can say what it saw, what it returned, what it could not do, and why its handoff was safe.
+
+The mature role roster and its established names and responsibilities remain the default. This section binds those roles to the Gemini Agents context, bounded artifacts, evidence, policy, and handoff contracts. It does not rename or split a role merely to make the product look more sophisticated. `Request Interpreter` is the optional contextual form of the existing Planner or Intent Agent responsibility. Asset Resolution remains a named sub-step and artifact even when it is implemented inside the Evidence Coordinator.
+
+#### Required role contract
+
+Every product-facing role, deterministic role-like service, provider adapter, and future human role must declare:
+
+1. **One primary outcome:** one result that moves the run toward its user goal. Supporting checks are inputs to that outcome, not extra jobs.
+2. **Bounded input artifact and context:** a versioned input schema plus the server-owned identity, workflow, policy, provider, time, and deadline context it may see. It receives no unbounded tool catalog or hidden session state.
+3. **One typed output artifact:** one versioned primary artifact. A discriminated union such as plan-or-clarification still counts as one artifact. Events, hashes, status metadata, and evidence IDs may describe it but do not create a second authority.
+4. **One authority boundary:** the single fact, decision, or transition this role may own. A role may propose outside its boundary only as rejected or non-authoritative data.
+5. **Allowed operations and prohibited actions:** named semantic operations and explicit non-goals. The absence of a prohibition is not permission.
+6. **One named handoff:** the next role or service and the artifact it receives. A handoff is not a general conversation transfer.
+7. **Failure states:** typed invalid, missing, denied, stale, timed-out, unavailable, canceled, expired, or schema-drift outcomes as applicable. Failure must not be silently converted to success.
+8. **Evaluation metrics:** at least one contract metric and one safety or authority metric that can be measured independently.
+9. **User-visible disclosure:** the role's job, current status, provenance, and limitation in plain language without chain-of-thought.
+10. **Explicit non-goals:** the decisions, tools, domains, and side effects the role will never own in this workflow.
+
+A named role is not automatically an autonomous model agent. A **product-facing role** names a responsibility visible in the user outcome. A **deterministic service** validates, routes, normalizes, decides, persists, or projects with ordinary code. A **provider adapter** translates a stable semantic operation into a provider-specific interface and owns transport, auth, schema pinning, and failure mapping. A **model invocation** is one bounded request to a model backend under a prompt, schema, and budget. A **model instance** is a deployed model identity or backend, which may serve multiple invocations. An **operational component** such as API, worker, persistence, or observability makes the run durable but is not a product-facing agent.
+
+#### Proposed v1 scope budget for the mock-safe brief
+
+These are recommended **v1 defaults**, not universal laws or Captain-approved service guarantees. They make the mock-safe Audience Data Readiness Brief measurable and reviewable. Any expansion requires a measurement showing a safety, authority, evidence, quality, recovery, scale, or traceability benefit, or an explicit Captain decision.
+
+| Budget | Recommended v1 default | Why it exists | Expansion gate |
+|---|---:|---|---|
+| Primary objectives per role | 1 | Prevents one role from mixing intake, evidence interpretation, writing, and approval. | A paired ablation shows a second objective improves a named metric without reducing independent evaluation clarity. |
+| Primary output artifacts per role invocation | 1 | Keeps ownership and provenance unambiguous. Supporting fields, events, hashes, and evidence IDs remain within that artifact. | A second artifact has a distinct consumer, schema, authority, and failure test, and Captain approval if it changes the handoff. |
+| Authority boundaries per role | 1 | Prevents a role from both observing evidence and deciding what that evidence authorizes. | A separate boundary prevents a reproducible safety or traceability regression and can be evaluated independently. |
+| Semantic operations or tool scope | 1 semantic operation or tool family for a specialist; 5 fixed read operations maximum for the Evidence Coordinator: `resolve_asset`, `describe_asset`, `read_quality`, `read_governance`, and `read_lineage` | Keeps provider access finite, server-owned, and explainable. Actual MCP names stay inside the adapter. | Add an operation only with a manifest entry, a distinct evidence or recovery need, conformance tests, and no broader authority. |
+| Model calls | 0 live model calls in the mock-safe default. The optional model-backed path plans for 2 calls per run, one Request Interpreter and one Brief Writer, plus at most 1 bounded repair. | Proves the workflow without credentials and prevents recursive model routing. `FakeModel` exercises the same contracts without an external call. | Compare the added call against the deterministic path for quality, safety, latency, token use, and cost. No five-model deployment is justified by the current workflow. |
+| Evidence classes owned by an evidence role | 1 authoritative class per evidence branch: Quality, Governance, or Lineage. The Coordinator may assemble Asset, Quality, Governance, and Lineage into an `EvidenceBundle` but owns no source truth. | Keeps evidence coverage additive and makes missing versus denied versus stale independently visible. | A new class needs a user outcome, authority source, schema, policy mapping, fixture set, and Captain approval before it enters the workflow. |
+
+The budget is deliberately a starting point. Role count, prompt count, model invocation count, model instance count, branch count, and trace span count are independent dimensions. A five-role diagram does not require five prompts or five deployed models, and five prompts do not prove five useful roles. The current recommendation is one shared model backend for the optional Request Interpreter and Brief Writer, with separate prompt IDs, schemas, budgets, and evaluation slices. A model never owns provider choice, evidence authority, policy status, persistence, recovery, or approval.
+
+#### Role selection and scope saturation gates
+
+Retain a named role only when removing it causes a reproducible regression in at least one of safety, authority, evidence coverage, quality, recovery, or traceability, or when it owns a non-delegable human or code boundary. Otherwise merge the responsibility into the smallest existing role and retain only the artifact or trace step that remains useful. The test is an ablation on the same fixtures, provider mode, model backend, budgets, and output schema, not visual prominence in a diagram.
+
+A role is approaching scope saturation when it has any of these signals:
+
+- multiple unrelated primary objectives or several different user promises;
+- multiple authorities, especially evidence observation plus policy or approval;
+- competing primary outputs or handoffs that cannot be evaluated independently;
+- cross-domain tools such as governance reads plus public web, SQL, publishing, or messaging;
+- hidden routing, dynamic tool discovery, or model-selected provider and threshold behavior;
+- recovery, persistence, or approval decisions hidden inside a language transformation;
+- a handoff whose success cannot be tested without inspecting another role's private reasoning;
+- repeated retries, repairs, or exceptions that make the role's field of vision impossible to state in one paragraph.
+
+Scope saturation is a merge or split signal, not permission to add another autonomous model. A deterministic service should be split only when failure isolation, scaling, ownership, or evidence authority improves. A model role should be split only when a measured capability, policy, prompt-clarity, or trace-legibility benefit exceeds the decomposition tax of more calls, tokens, latency, cost, state, and injection surface. [MRC: Do not reward unnecessary decomposition; MI: Role contract pattern]
+
+#### Minimal and expanded role sets
+
+The **minimal mock-safe set** is Intake/Request Validator, Evidence Coordinator with Asset Resolution as a sub-step, Policy Gate, Brief Writer using a deterministic template by default, and Verifier/Safe Projection. Recovery is a durable worker responsibility supporting those roles. MockProvider, FakeModel, API, Persistence, and Observability are implementation components. Zero external model calls and zero partner calls are valid for this path.
+
+The **expanded staged set** keeps the same contracts and adds the optional Request Interpreter, independently observable Quality, Governance, and Lineage evidence branches, and a Provider Adapter for the selected read-only seam. Brief Writer may use the same shared model backend as the Request Interpreter. Reviewer is future-only and belongs only to a separately approved side-effect workflow. Expansion increases evidence or operational isolation, not autonomous authority.
+
+| Role | Set, class, and model status | Objectives | Primary output artifact | Authority boundary | Allowed operations | Prohibited scope | Named handoff | Promotion or merge rationale |
+|---|---|---:|---|---|---|---|---|---|
+| Intake / Request Validator | Minimal and expanded; user-facing deterministic service; must never be an agent | 1 | `RunRequest@1` | Preserves the user's bounded question and purpose | Browser validation, normalization, API submission, rate limits | Provider, tenant, endpoint, tool, model, threshold, status, credentials, SQL, URLs, and side effects | `RunRequest` to API accepted run | Keep because input safety and user intent are a distinct boundary. |
+| Request Interpreter, optional | Expanded only; product-facing bounded model transformation or deterministic fixture; may use the shared model backend | 1 | `RequestInterpretation@1` with plan-or-clarification kind | Proposes intent and one clarification, never authority | One structured `ModelGateway` call with no external tools | Asset identity, provider, tool, policy, threshold, status, approval, routing, and action | `RequestInterpretation` to Evidence Coordinator | Merge with Intake unless clarification or intent metrics show a reproducible benefit. |
+| Evidence Coordinator with Asset Resolution sub-step | Minimal and expanded; deterministic orchestration service and provider gateway; must never be an agent | 1 | `EvidenceBundle@1` containing `AssetResolution` | Fixes one asset, bounded branch scheduling, normalization, and evidence IDs | Five fixed semantic reads within server scope; bounded parallelism and cancellation checks | Guessing, tenant changes, arbitrary tool discovery, status, mutation, and provider fallback | `EvidenceBundle` to Quality, Governance, Lineage branches or Policy Gate | Keep for sequencing and bundle ownership; retain Asset Resolution as a sub-step rather than a separate agent. |
+| Quality | Expanded branch; deterministic evidence service; must never be an agent | 1 | `QualityEvidence@1` | Reports quality observations and freshness | One `read_quality` operation through MockProvider or approved adapter | Rule creation or execution, threshold changes, status, SQL, and writes | Quality evidence to EvidenceBundle and Policy Gate | Keep as a branch contract when independent failure and freshness evaluation matter; otherwise deploy within the Evidence Service. |
+| Governance | Expanded branch; deterministic evidence service; must never be an agent | 1 | `GovernanceEvidence@1` | Reports authoritative governance and purpose evidence | One `read_governance` operation and bounded normalization | Privacy approval, classification mutation, policy creation, legal conclusion, and writes | Governance evidence to EvidenceBundle and Policy Gate | Keep separate because authority and missing-evidence semantics differ. |
+| Lineage | Expanded branch; deterministic evidence service; must never be an agent | 1 | `LineageEvidence@1` | Reports bounded upstream or downstream impact | One `read_lineage` operation with fixed depth and node limits | Unbounded traversal, schema change, impact approval, and writes | Lineage evidence to EvidenceBundle and Policy Gate | Keep as a branch contract when truncation, timeout, or scale isolation is measurable; otherwise deploy within the Evidence Service. |
+| Policy Gate | Minimal and expanded; deterministic authority service; must never be an agent | 1 | `PolicyDecision@1` | Sole owner of `READY`, `REVIEW`, `BLOCKED`, or `UNKNOWN` | Pure policy code, configured thresholds, freshness rules, and versioned clock | Model calls, provider calls, explanation style, inferred rules, and side effects | `PolicyDecision` to Brief Writer and Verifier | Non-negotiable separate boundary because observation cannot approve itself. |
+| Brief Writer | Minimal and expanded; user-facing bounded model transformation or deterministic template; may use the shared model backend | 1 | `BriefDraft@1` | Explains verified facts, gaps, risks, and up to three checks | One structured `ModelGateway` call with normalized evidence only, or deterministic template | Status, evidence creation, provider/web/MCP/SQL tools, approval, and execution | `BriefDraft` to Verifier/Safe Projection | Keep for language value; merge to a template when model quality does not beat the deterministic path. |
+| Verifier / Safe Projection | Minimal and expanded; deterministic final service; must never be an agent | 1 | `VerifiedProjection@1` containing public and reviewer views | Enforces schema, claim coverage, status agreement, redaction, and provenance | Validation, hashing, redaction, safe template fallback, persistence | Status override, open-ended repair, raw prompts, secrets, unsafe HTML, and unapproved URLs | `VerifiedProjection` to API and authorized reviewer route | Keep separate because a writer cannot be its own verifier and it is the only browser boundary. |
+| Recovery / Worker | Minimal and expanded; operational deterministic component; must never be an agent | 1 | `RecoveryEvent@1` containing the durable state transition | Owns leases, deadlines, retry classification, cancellation, expiry, and child runs | Queue, persistence CAS, clock, bounded retry, cancellation checkpoints | Silent fallback, deleting history, status invention, untracked work, and remote cancellation claims | `RecoveryEvent` to user/API and the next worker step | Keep in the worker because lifecycle recovery is not a reasoning job. |
+| Reviewer, future-only | Future side-effect workflow; authenticated human role plus approval service; must never be an agent | 1 | `ApprovalRecord@1` | Approves or rejects one exact proposed effect | Review an action digest and approve, reject, or let it expire | Broad approval, changed arguments, v1 writes, and model-delegated approval | `ApprovalRecord` to a separately gated dispatcher | Do not include in the read-only MVP; add only with identity, policy, audit, idempotency, and reconciliation controls. |
+| Provider Adapter | Expanded staged component; deterministic adapter; must never be an agent | 1 | `ProviderObservation@1` | Maps one approved semantic operation to one provider under a pinned manifest | Transport, auth reference, semantic mapping, schema validation, redaction, timeout, and read-only checks | Model-selected tools, tenant override, unallowlisted operations, raw catalog exposure, and mutation | Provider observation to Evidence branch | Reuse mature provider surfaces behind an adaptation layer; add a custom adapter only when its conformance suite passes. |
+| API | Minimal and expanded; deterministic service; must never be an agent | 1 | `RunAccepted@1` | Auth, input bounds, tenant scope, idempotent run creation, and safe reads | HTTP validation, persistence transaction, SSE, polling, cancel, and retry | Long-running work inline, model/provider authority, and unsafe projection | `RunAccepted` to durable Worker | Keep as the web boundary, separate from orchestration authority. |
+| Persistence | Minimal and expanded; deterministic store; must never be an agent | 1 | `StoredRunRecord@1` | Canonical runs, artifacts, evidence, events, hashes, and retention metadata | Transactional reads/writes, CAS, append-only events, and scoped retrieval | Hidden reasoning, unbounded raw payload retention, policy decisions, and tool discovery | Stored records to Worker, API, and Observability | Keep as source of truth; never replace it with an agent session or memory feature. |
+| Observability | Minimal and expanded; operational deterministic pipeline; must never be an agent | 1 | `TraceRecord@1` | Redacted operational trace and metrics correlation | Safe events, spans, hashes, latency, attempts, and error classes | Secrets, raw private rows, chain-of-thought, or user-facing policy authority | Trace record to reviewer-safe Trace and operations | Keep for recovery and evaluation; it observes the product but does not decide it. |
+
+This matrix applies the contract to both role sets without changing role identity by phase. The expanded set may expose more branch detail, provider connectivity, recovery depth, or reviewer metadata, but it may not silently give a role a new authority at runtime.
+
+#### Model, role, branch, and handoff glossary
+
+| Term | Meaning in this PRD |
+|---|---|
+| **Role** | A named responsibility and authority boundary in the user outcome. It may be implemented by a service, human, adapter, or bounded model transformation. |
+| **Responsibility** | The outcome a role must reliably produce; it is not a list of every action the implementation can perform. |
+| **Job specification** | The role's bounded contract: objective, inputs, output, authority, operations, failure states, metrics, disclosure, and non-goals. Adding job specifications expands scope and must not be mistaken for capability. |
+| **Model invocation** | One request and response against a model backend under one prompt, schema, context, and budget. |
+| **Model instance** | A deployed model identity, endpoint, or backend that may serve multiple role invocations. |
+| **Branch** | A bounded independently observable path, such as Quality, Governance, or Lineage, with one output and terminal failure state. |
+| **Service** | Deterministic application or operational code that owns validation, state, policy, persistence, projection, or transport. |
+| **Provider adapter** | A deterministic translation and enforcement boundary between a stable semantic operation and a provider or MCP interface. |
+| **Handoff artifact** | The versioned typed output passed to one named next owner, with provenance, status, and an owning authority. |
+
 ## 6. Google platform assumptions versus product-owned contracts
 
 ### Google assumptions to validate later
@@ -652,31 +770,41 @@ A successful paragraph or screenshot is not sufficient. Evaluate final output an
 
 ## 13. Staged implementation roadmap
 
-This roadmap is a product requirement sequence, not an instruction to build in this documentation task.
+This roadmap is a product requirement sequence, not an instruction to build in this documentation task. The numbered phases below sit inside three explicit product journey stages. Role identities, narrow contracts, output schemas, authority boundaries, and named handoffs remain stable across stages. Only orchestration policy, evidence depth, provider connectivity, reliability targets, approval boundaries, and permitted side effects may mature, and each change must be disclosed and phase-gated rather than selected opaquely at runtime.
+
+### Early, middle, and late product journey
+
+| Stage | Entry criteria | Permitted maturity | Exit criteria |
+|---|---|---|---|
+| **Early: mock and replay** | Workflow and policy remain explicit proposals or Captain decisions; role contracts, handoff artifacts, fixtures, no-side-effect flag, and role-scope budget are documented. | Mock or recorded-replay execution, minimal role set, deterministic Policy Gate, transparent evidence and gaps, zero consequential external writes, and zero required live model or partner calls. | A first-time user completes pass, review, unknown, clarification, and recovery runs; the golden set and role ablations measure policy agreement, claim coverage, recovery, traceability, and scope saturation; no unallowlisted or mutating path exists. |
+| **Middle: guarded operational use** | Early exit criteria pass; a provider seam, identity model, manifest, schema suite, retention posture, and rollback path are Captain-approved for the selected staging environment. | Optional shared model backend, guarded provider adapters, richer branch recovery, measured latency and reliability targets, internal allowlists, and reviewer/operator trace. The role contract does not change when a provider becomes live. | Mock and guarded-provider semantics match; contract, security, redaction, drift, recovery, identity, and reconciliation tests pass; measured operational use demonstrates value without false-ready, unallowlisted-call, duplicate, or provenance failures. |
+| **Late: scale and approved effects** | Middle exit criteria pass and a new capability has a user outcome, stable contract, provenance, privacy controls, evaluation set, and measured value. | Scale, collaboration, artifact/project continuity, reusable role packs, provider/plugin ecosystem, and selectively approved side effects only after identity, policy, security, audit, approval, idempotency, and reconciliation controls exist. | Scale and recovery targets are measured, historical context remains attributable, partner/plugin boundaries are revocable, and every side effect has exact action binding, human authority where required, durable audit, and unknown-result reconciliation. |
+
+A phase changes execution policy, not role identity or authority. Do not let a live flag silently turn a deterministic branch into an agent, add a second objective, widen a tool scope, or make a model output authoritative. If a role must change its field of vision, treat that as a new contract and rerun the role selection, scope-saturation, and evaluation gates.
 
 ### Phase 0: Captain decisions and platform spike
 
 Confirm the workflow, policy, source boundary, identity, retention, Google surface, IBM seam, and future side-effect posture. If Google is selected, run a trivial local ADK or non-public Agent Runtime spike to validate current names and version assumptions. No partner credential or live endpoint is needed for this gate.
 
-**Exit:** decisions are recorded, platform assumptions are separated from domain contracts, and the fake path is specified.
+**Exit:** decisions are recorded, platform assumptions are separated from domain contracts, the fake path is specified, and any unresolved numeric role-scope budget is registered as a Captain decision rather than silently promoted to policy.
 
 ### Phase 1: contracts and deterministic mock engine
 
-Define versioned schemas, `MockProvider`, `FakeModel`, normalizer, policy oracle, verifier, redaction, fixtures, state machine, and local API/worker interfaces. No Google, IBM, or partner dependency.
+Define versioned schemas, the role contracts and handoff artifact chain, `MockProvider`, `FakeModel`, normalizer, policy oracle, verifier, redaction, fixtures, state machine, and local API/worker interfaces. Run the minimal-versus-expanded role ablation with no Google, IBM, or partner dependency.
 
-**Exit:** all statuses and fault cases have deterministic expected results and no-side-effect tests.
+**Exit:** all statuses and fault cases have deterministic expected results and no-side-effect tests; every retained role has one objective, one output, one authority, one handoff, and an independently measurable reason to exist.
 
 ### Phase 2: usable browser vertical slice
 
-Implement Ask, Clarify, Running, Result, Evidence, Recovery, `202` API integration, event cursor/polling, refresh, retry child runs, cancellation intent, safe provenance labels, accessibility, and responsive acceptance. Keep Trace and Setup role-gated or documented, not in public navigation.
+Implement Ask, Clarify, Role Run, Decision, Evidence, Recovery, the on-demand Role Map, `202` API integration, event cursor/polling, refresh, retry child runs, cancellation intent, safe provenance labels, accessibility, and responsive acceptance. Keep Trace and Setup role-gated or documented, not in public navigation. Lavish or equivalent review must show bounded handoffs and must not imply one card equals one agent.
 
-**Exit:** a first-time user completes pass, review, unknown, clarification, and recovery mock runs without credentials.
+**Exit:** a first-time user completes pass, review, unknown, clarification, and recovery mock runs without credentials, and each visible claim opens the matching evidence or explicit gap.
 
 ### Phase 3: optional Gemini with MockProvider
 
-Add a server-side `GeminiApiBackend` or selected ADK graph through `ModelGateway`, keeping `FakeModel` as the deterministic regression path. Record model/prompt/schema hashes and run trajectory evaluation. Provider remains mock.
+Add a server-side `GeminiApiBackend` or selected ADK graph through `ModelGateway`, keeping `FakeModel` as the deterministic regression path. Use at most the proposed Request Interpreter and Brief Writer calls, record model/prompt/schema hashes, and run trajectory evaluation. Provider remains mock.
 
-**Exit:** Gemini cannot select provider/tool/status; malformed and unsupported output is safely handled; quality and budget gates pass.
+**Exit:** Gemini cannot select provider/tool/status; malformed and unsupported output is safely handled; quality, scope, provenance, and token/call budget gates pass. A second model instance requires a measured benefit and Captain approval.
 
 ### Phase 4: conditional IBM WDI staging
 
@@ -686,9 +814,9 @@ Only after Captain approval, tenant access, endpoint/auth, synthetic data, exact
 
 ### Phase 5: future alternatives and side effects
 
-Evaluate Parallel for a separately approved public-source workflow, ClickHouse for a separate audience-pulse workflow, Grafana for operations, and Replit for build/host support. A future IBM Flow named flow or release-readiness submission requires a separate approval state machine, action hash, human approval, idempotency, unknown-result lookup, and evaluation set.
+Evaluate Parallel for a separately approved public-source workflow, ClickHouse for a separate audience-pulse workflow, Grafana for operations, and Replit for build/host support. Treat contextual memory, artifact and project continuity, feedback loops, reusable role packs, collaboration, and partner/plugin capabilities as late ecosystem opportunities with their own user outcome, stable contract, provenance, privacy, and value measurement. A future IBM Flow named flow or release-readiness submission requires a separate approval state machine, action hash, human approval, idempotency, unknown-result lookup, and evaluation set.
 
-**Exit:** each later workflow is independently selected and does not weaken the first workflow's contracts.
+**Exit:** each later workflow or ecosystem capability is independently selected, measurable, revocable, and does not weaken the first workflow's contracts.
 
 ## 14. PRD-level acceptance criteria
 
@@ -714,6 +842,13 @@ The implementation satisfies this PRD only when all of the following are true:
 18. IBM is considered integrated only after a Captain-approved WDI seam, tenant/endpoint/auth, exact read-only manifest, synthetic data, contract suite, redaction checks, and internal enablement pass. Until then it remains conditional and disconnected.
 19. No v1 path can submit, publish, mutate, export, send, purchase, deploy, change roles, or otherwise create a side effect.
 20. Evaluation reports policy agreement, claim coverage, false-ready rate, unallowlisted/mutating calls, cancellation correctness, duplicate rate, latency, and failure-state distribution.
+21. Every named role or role-like service declares one primary outcome, bounded input/context, one typed output artifact, one authority boundary, allowed operations, prohibited actions and non-goals, one named handoff, failure states, evaluation metrics, and user-visible disclosure.
+22. The role-scope gate retains a role only when removal causes a reproducible safety, authority, evidence coverage, quality, recovery, or traceability regression. Multiple unrelated objectives, authorities, outputs, cross-domain tools, hidden routing, or unevaluable handoffs are treated as scope saturation.
+23. The mock-safe Audience Data Readiness Brief uses the proposed v1 scope budget as a measured default: one objective, one primary output, one authority, bounded semantic operations, zero required live model calls, and one evidence class per evidence branch. Any expansion is measured or Captain-approved and is not presented as a universal law.
+24. Minimal and expanded role sets preserve the mature role names and responsibilities. Only the optional Request Interpreter and Brief Writer may use one shared model backend; API, worker, persistence, observability, provider adapter, evidence branches, Policy Gate, Verifier, and Recovery are not autonomous agents.
+25. Role count, prompt count, model invocation count, model instance count, and trace span count are reported separately. No five-model deployment is justified by this workflow without a distinct measured need and Captain decision.
+26. Early, middle, and late phase entry and exit criteria are recorded. Phase changes may mature orchestration, evidence depth, provider connectivity, reliability, approval, and side-effect policy, but may not silently change role authority or field of vision.
+27. The Lavish journey shows role contracts and typed handoffs rather than a swarm, keeps Setup operator-only, keeps Reviewer future-only, links every displayed claim to its matching evidence or gap, and labels ecosystem direction as future and phase-gated.
 
 ## 15. Open Captain decisions
 
@@ -731,6 +866,7 @@ Recommendations below are explicit proposals. They are not resolved decisions an
 | Reviewer identity | Browser user, IBM-authenticated user, or simulated persona for future approval | No v1 approval; choose explicitly before any live write | **Open.** Changes who can authorize and what audit means. |
 | Evidence surface | Public depth, reviewer roles, source links, raw samples, and trace visibility | Public normalized facts/gaps; reviewer redacted metadata; raw payloads off by default | **Open.** Changes privacy, supportability, and UI scope. |
 | Retention and budget | Prompt/evidence retention, residency, deletion, token/cost ceilings, concurrency, quotas | Short retention, no raw payloads, hard call/token/deadline budgets, fail closed | **Open.** Changes infrastructure and compliance posture. |
+| Role-scope budget | Whether the proposed one-objective, one-output, one-authority and operation/model/evidence defaults become Captain-approved v1 policy, and what measured expansion threshold applies | Use the section's defaults as a testable proposal; measure before expanding | **Open.** Registered through decision-hold-lifecycle as `role-scope-budget`; changes role contracts, topology evaluation, prompts, calls, and phase gates. |
 | Future side effect | Whether to add review submission, publish, export, or another write workflow | No v1 side effect; revisit as separate workflow with exact approval hash | **Open.** Changes state machine, approval, unknown-result, and idempotency requirements. |
 
 These choices correspond to the unresolved Captain records in the durable research backlog, including `gemini-agents-market-research-decision-*`, `gemini-agents-technical-plan-decision-*`, `gemini-agents-fullstack-implementation-research-decision-*`, and `gemini-agents-market-inspiration-implementation-decision-*`. This PRD consolidates them into product areas without resolving them.
@@ -756,6 +892,8 @@ The following reports were read as evidence for this PRD. They are durable artif
 - `/Users/jacksonloh/firstmate-clean/data/gemini-agents-fullstack-implementation-research/report.md` - full-stack vertical slice, browser contract, provider seam, fixtures, and delivery plan.
 - `/Users/jacksonloh/firstmate-clean/data/gemini-agents-technical-plan/report.md` - initial typed workflow, durable runtime, IBM candidate mapping, state/retry/approval plan, and Captain decisions.
 - `/Users/jacksonloh/firstmate-clean/data/gemini-agents-market-inspiration-implementation/report.md` - screen-by-screen critique, provenance and public/reviewer surfaces, responsive/accessibility requirements, and ranked mock-safe roadmap.
+- `/Users/jacksonloh/firstmate-clean/data/gemini-agents-market-inspiration-research-v2/report.md` - fresh market patterns for reviewed plans, role contracts, evidence history, recovery, role maps, and phase-gated ecosystem opportunities.
+- `/Users/jacksonloh/firstmate-clean/data/gemini-agents-role-architecture-critique/report.md` - role necessity, topology ablation, scope saturation, model-count independence, and deterministic-versus-agent dispositions.
 - `/Users/jacksonloh/firstmate-clean/data/captain.md` and the Gemini Agents entries in `/Users/jacksonloh/firstmate-clean/data/backlog.md` - Captain preferences and unresolved decision records.
 - `README.md` - current repository product baseline and safety direction.
 
@@ -775,7 +913,7 @@ References such as `[MRC]`, `[TIV2]`, `[MR]`, `[FS]`, `[TP]`, and `[MI]` point t
 - MCP authorization specification: <https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization>
 - MDN Server-sent events: <https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events>
 - WAI-ARIA dialog pattern: <https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/>
-- Playwright Test: <https://playwright.dev/docs/test-intro>
+- Playwright Test: <https://playwright.dev/docs/intro>
 
 Partner alternatives and market-pattern URLs are retained in the source registers of `[MRC]`, `[MR]`, and `[MI]`, including Parallel, ClickHouse, Grafana, Replit, Google Shopping, AWS Rufus/Alexa for Shopping, Dalet, Avid, Cloudinary, OpenAI orchestration/approval, and LangGraph workflows. No source above establishes that Gemini Agents has access to any of those services.
 
