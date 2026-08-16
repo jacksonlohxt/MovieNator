@@ -11,6 +11,7 @@ import {
   redactText,
 } from "./contracts.js";
 import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
+import { GeminiRestBackend, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 import { FileStore } from "./store.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -62,27 +63,31 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const actualProvider = provider || new MockProvider();
-  const actualModel = model || new FakeModel();
+  const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
+  const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: googleTokenProvider }) : new FakeModel());
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel });
 
   const server = http.createServer(async (req, res) => {
     try {
-      await route(req, res, { store: actualStore, engine });
+      await route(req, res, { store: actualStore, engine, googleConfig: configuredGoogle });
     } catch (error) {
       const status = error instanceof ContractError && error.code === "RUN_NOT_FOUND" ? 404 : error instanceof ContractError && ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code) ? 409 : error instanceof ContractError ? 400 : 500;
       sendError(res, status, error.code || "INTERNAL_ERROR", error instanceof ContractError ? error.message : "The demo server could not complete the request", error.field);
     }
   });
-  return { server, store: actualStore, engine, provider: actualProvider, model: actualModel };
+  return { server, store: actualStore, engine, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle };
 }
 
-async function route(req, res, { store, engine }) {
+async function route(req, res, { store, engine, googleConfig }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
-  if (req.method === "GET" && url.pathname === "/readyz") return sendJson(res, 200, { ok: true, mode: "mock-only", provider: "Demo evidence" });
+  if (req.method === "GET" && url.pathname === "/readyz") {
+    const google = engine.model?.readiness?.() || { state: googleConfig.readiness, configured: googleConfig.configured, missing: [...googleConfig.missing] };
+    return sendJson(res, 200, { ok: true, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", provider: "Demo evidence", google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend });
+  }
   if (req.method === "GET" && url.pathname === "/") return sendStatic(res, "index.html", "text/html; charset=utf-8");
   if (req.method === "GET" && ["/app.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
 
@@ -104,7 +109,7 @@ async function route(req, res, { store, engine }) {
 async function createRun(req, res, { store, engine }) {
   const request = parseRunRequest(await readBody(req));
   const key = parseIdempotencyKey(req.headers["idempotency-key"]);
-  const result = store.createRun({ request, requestHash: requestHash(request), idempotencyHash: hashValue(key) });
+  const result = store.createRun({ request, requestHash: requestHash(request), idempotencyHash: hashValue(key), provenance: engine.provenance });
   if (result.created) engine.enqueue(result.run.run_id);
   const projection = projectRun(result.run, store);
   return sendJson(res, 202, projection, { location: `/v1/runs/${result.run.run_id}` });
@@ -167,9 +172,10 @@ function safeEvidence(record) {
 }
 
 function streamEvents(req, res, store, runId) {
+  const requestUrl = new URL(req.url, "http://localhost");
   const run = store.getRun(runId);
   if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
-  let cursor = Number(req.headers["last-event-id"] || 0);
+  let cursor = Number(req.headers["last-event-id"] || requestUrl.searchParams.get("cursor") || 0);
   if (!Number.isSafeInteger(cursor) || cursor < 0) cursor = 0;
   res.writeHead(200, {
     ...SECURITY_HEADERS,

@@ -5,12 +5,12 @@ This repository implements the early mock and replay stage plus the usable brows
 ## Runtime shape
 
 - `src/contracts.js` and `src/contracts.d.ts` define the versioned request, plan, evidence, decision, draft, result, event, and run-state contracts. The matching files under `schemas/` are the cross-language JSON Schema source. Runtime validation rejects unknown fields and untrusted authority fields.
-- `src/engine.js` contains `FakeModel`, `MockProvider`, the fixed semantic operations, deterministic policy oracle, bounded provider retry, verifier, redacted projections, and recovery behavior.
+- `src/engine.js` contains `FakeModel`, `MockProvider`, the fixed semantic operations, deterministic policy oracle, bounded provider retry, EvidenceBundle validation, final policy recomputation, verifier, redacted projections, and recovery behavior. `src/model-gateway.js` defines the product-owned model boundary and `src/gemini-rest.js` contains the disabled-by-default, server-only REST adapter with injectable transport and token provider.
 - `src/store.js` is an atomic local JSON store for runs, idempotency hashes, append-only events, and normalized evidence. It is suitable for local mock use only.
 - `src/server.js` provides the API and same-origin SSE. Work is queued after `202 Accepted`; the browser reads safe projections and evidence records only.
 - `web/` is a dependency-free responsive browser route with Ask, Clarify, Role Run, Decision, Evidence, Recovery, and an on-demand bounded role map.
 
-The server fixes `audience_data_readiness`, `mock`, `fake`, `Demo Media Workspace`, the fixed evidence classes, and the recommended policy configuration. The browser has no provider, endpoint, tool, model, threshold, tenant, credential, approval, publish, SQL, or URL input.
+The server fixes `audience_data_readiness`, `Demo Media Workspace`, the fixed evidence classes, and the recommended policy configuration. `FakeModel` plus `MockProvider` remains the default. The optional Google backend is selected only by server configuration after a passed readiness state. The browser has no provider, endpoint, tool, model, threshold, tenant, credential, approval, publish, SQL, or URL input.
 
 ## Demo fixtures
 
@@ -44,4 +44,4 @@ npm run check
 npm start
 ```
 
-The test suite uses temporary stores and the default fake components. It does not require credentials, network access, Google, IBM, partner services, or a hosted model. Open Captain decisions in the PRD remain decisions above this implementation: workflow selection, exact policy posture, identity, retention, provider enablement, runtime, and any future side effect.
+The test suite uses temporary stores and the default fake components, plus injected fake transport tests for the disabled-by-default Google adapter. It does not require credentials, network access, Google, IBM, partner services, or a hosted model. `docs/google-setup.md` labels gcloud and ADC commands as operator actions that are not run by tests or the application. Open Captain decisions in the PRD remain decisions above this implementation: workflow selection, exact policy posture, project, billing, region, model, SDK/API version, identity, retention, provider enablement, runtime, and any future side effect.

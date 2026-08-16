@@ -19,15 +19,21 @@ import {
   RETRYABLE_PROVIDER_ERRORS,
   TERMINAL_STATES,
   WORKFLOW,
+  combineProvenance,
   containsUnsafeText,
   hashValue,
   normalizeText,
   redactText,
   safeId,
   safeSourceLink,
+  stableStringify,
   validateDraft,
+  validateEvidenceBundle,
   validatePlan,
 } from "./contracts.js";
+import { ModelGateway } from "./model-gateway.js";
+export { ModelGateway } from "./model-gateway.js";
+export { GeminiRestBackend } from "./gemini-rest.js";
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -45,6 +51,7 @@ const FIXTURES = Object.freeze({
   blocked: { asset_id: "asset_demo_003", display_name: "Season 2 restricted audience", fixture: "blocked" },
   denied: { asset_id: "asset_demo_004", display_name: "Season 2 audience with restricted governance", fixture: "denied" },
   stale: { asset_id: "asset_demo_005", display_name: "Season 2 stale audience", fixture: "stale" },
+  conflict: { asset_id: "asset_demo_007", display_name: "Season 2 conflicting audience", fixture: "conflict" },
   recovery: { asset_id: "asset_demo_006", display_name: "Recovery demonstration audience", fixture: "recovery" },
 });
 
@@ -58,6 +65,7 @@ function fixtureFor(query, isRetry = false) {
   if (text.includes("blocked") || text.includes("hard_stop")) return FIXTURES.blocked;
   if (text.includes("denied")) return FIXTURES.denied;
   if (text.includes("stale")) return FIXTURES.stale;
+  if (text.includes("conflict")) return FIXTURES.conflict;
   if (text.includes("recovery") || text.includes("timeout") || text.includes("unavailable")) return FIXTURES.recovery;
   if (text.includes("review") || text.includes("campaign") || text.includes("missing")) return FIXTURES.review;
   return FIXTURES.ready;
@@ -137,6 +145,9 @@ export class MockProvider {
     if (asset.fixture === "stale") {
       return { status: "stale", facts: { completeness: 98.1, validity: 97.4 }, units: { completeness: "percent", validity: "percent" }, source_reference: `Demo quality fixture ${asset.asset_id}` };
     }
+    if (asset.fixture === "conflict") {
+      return { status: "complete", facts: { completeness: 99.7, validity: 99.2, conflict: true }, units: { completeness: "percent", validity: "percent" }, source_reference: `Demo conflicting quality fixture ${asset.asset_id}` };
+    }
     return { status: "complete", facts: { completeness: 99.7, validity: 99.2, duplicate_rate: 0.3 }, units: { completeness: "percent", validity: "percent", duplicate_rate: "percent" }, source_reference: `Demo quality fixture ${asset.asset_id}` };
   }
 
@@ -163,10 +174,25 @@ export class MockProvider {
 }
 
 /** FakeModel exercises the same plan and brief schemas without external calls. */
-export class FakeModel {
+export class FakeModel extends ModelGateway {
   constructor({ failDraft = false } = {}) {
+    super();
     this.failDraft = failDraft;
     this.calls = [];
+  }
+
+  provenance() {
+    return {
+      backend: "fake",
+      model_id: null,
+      location: null,
+      api_version: null,
+      prompt_id: "fake-model@1",
+      prompt_hash: null,
+      schema_version: null,
+      schema_hash: null,
+      generation_config_hash: null,
+    };
   }
 
   async plan(request) {
@@ -253,6 +279,8 @@ export function evaluatePolicy(records, { policy = READINESS_POLICY } = {}) {
   const hardStop = branchRecords.find((record) => record?.status === "complete" && policy.hard_stop_codes.includes(record.facts?.hard_stop_code));
   if (hardStop) return decision("BLOCKED", [{ code: String(hardStop.facts.hard_stop_code), evidence_ids: [hardStop.evidence_id] }], true);
 
+  const conflict = branchRecords.find((record) => record?.status === "complete" && record.facts?.conflict === true);
+  if (conflict) reasons.push({ code: "EVIDENCE_CONFLICT", evidence_ids: [conflict.evidence_id] });
   const usableComplete = branchRecords.filter((record) => record?.status === "complete");
   if (usableComplete.length === 0) {
     return decision("UNKNOWN", [{ code: "NO_USABLE_EVIDENCE", evidence_ids: [] }], false);
@@ -279,7 +307,11 @@ function decision(value, reasons, hardStop) {
   return { schema_version: DECISION_SCHEMA, decision: value, policy_version: POLICY_VERSION, reasons, hard_stop: hardStop };
 }
 
-function makeEvidenceRecord(runId, kind, observation, provider, { policyVersion = POLICY_VERSION } = {}) {
+function stablePolicy(value) {
+  return stableStringify({ decision: value?.decision, policy_version: value?.policy_version, reasons: value?.reasons, hard_stop: value?.hard_stop });
+}
+
+function makeEvidenceRecord(runId, kind, observation, provider, { policyVersion = POLICY_VERSION, provenance = PROVENANCE } = {}) {
   const normalizedFacts = safeFacts(observation.facts);
   const unsafeObservation = normalizedFacts === null || containsUnsafeText(String(observation.source_reference || ""));
   const status = unsafeObservation ? "invalid" : EVIDENCE_STATUSES.includes(observation.status) ? observation.status : "invalid";
@@ -303,9 +335,40 @@ function makeEvidenceRecord(runId, kind, observation, provider, { policyVersion 
     response_hash: hashValue({ kind, status, facts }),
     schema_version: BUNDLE_SCHEMA,
     policy_version: policyVersion,
-    provenance: PROVENANCE.label,
+    provenance: provenance.label,
   };
   return record;
+}
+
+export function buildEvidenceBundle(records) {
+  const byKind = new Map(records.map((record) => [record.check_kind, record]));
+  const asset = byKind.get("asset");
+  const branch = (kind) => {
+    const record = byKind.get(kind);
+    return { status: record?.status || "missing", evidence_ids: record?.status === "complete" ? [record.evidence_id] : [] };
+  };
+  const statuses = Object.fromEntries(EVIDENCE_STATUSES.map((status) => [status, records.filter((record) => record.status === status).map((record) => record.check_kind)]));
+  const bundle = {
+    schema_version: BUNDLE_SCHEMA,
+    asset: {
+      status: asset?.status || "missing",
+      ...(asset?.status === "complete" ? { asset_id: asset.facts.asset_id, display_name: asset.facts.display_name } : {}),
+      evidence_ids: asset?.status === "complete" ? [asset.evidence_id] : [],
+    },
+    branches: { quality: branch("quality"), governance: branch("governance"), lineage: branch("lineage") },
+    coverage: {
+      required: [...REQUIRED_EVIDENCE],
+      complete: statuses.complete,
+      missing: statuses.missing,
+      denied: statuses.denied,
+      timed_out: statuses.timed_out,
+      stale: statuses.stale,
+      unavailable: statuses.unavailable,
+      invalid: statuses.invalid,
+    },
+  };
+  validateEvidenceBundle(bundle);
+  return bundle;
 }
 
 function safeFacts(value) {
@@ -313,7 +376,7 @@ function safeFacts(value) {
   if (typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 20) return null;
   const result = {};
   for (const [key, item] of Object.entries(value)) {
-    if (typeof key !== "string" || key.length > 80 || item === undefined || typeof item === "object" || (typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean" && item !== null)) return null;
+    if (typeof key !== "string" || key.length > 80 || /token|secret|password|credential|api[_ -]?key/i.test(key) || item === undefined || typeof item === "object" || (typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean" && item !== null)) return null;
     if (typeof item === "string" && containsUnsafeText(item)) return null;
     result[key] = typeof item === "string" ? redactText(item, 240) : item;
   }
@@ -372,9 +435,14 @@ export function fallbackDraft(decisionValue, records) {
   };
 }
 
-export function verifyAndProject({ runId, runStatus, policyDecision, draft, records }) {
+export function verifyAndProject({ runId, runStatus, policyDecision, draft, records, provenance = PROVENANCE }) {
+  const evidenceBundle = buildEvidenceBundle(records);
+  const preWritePolicy = policyDecision;
+  const finalPolicyDecision = evaluatePolicy(records);
+  const policyMatched = stablePolicy(preWritePolicy) === stablePolicy(finalPolicyDecision);
+  if (!policyMatched) policyDecision = finalPolicyDecision;
   for (const record of records) {
-    if (!record || typeof record.evidence_id !== "string" || !/^ev_(asset|quality|governance|lineage)_[a-f0-9]{32}$/.test(record.evidence_id) || record.run_id !== runId || !EVIDENCE_STATUSES.includes(record.status) || record.provenance !== PROVENANCE.label || containsUnsafeText(JSON.stringify(record.facts)) || record.response_hash !== hashValue({ kind: record.check_kind, status: record.status, facts: record.facts })) {
+    if (!record || typeof record.evidence_id !== "string" || !/^ev_(asset|quality|governance|lineage)_[a-f0-9]{32}$/.test(record.evidence_id) || record.run_id !== runId || !EVIDENCE_STATUSES.includes(record.status) || record.provenance !== provenance.label || containsUnsafeText(JSON.stringify(record.facts)) || record.response_hash !== hashValue({ kind: record.check_kind, status: record.status, facts: record.facts })) {
       throw new DraftVerificationError("Evidence record failed safe publication validation");
     }
   }
@@ -431,7 +499,10 @@ export function verifyAndProject({ runId, runStatus, policyDecision, draft, reco
     policy_disclosure: READINESS_POLICY.note,
     policy_reasons: policyDecision.reasons,
     policy_decision: policyDecision,
-    provenance: PROVENANCE,
+    final_policy_recomputed: true,
+    policy_comparison: { pre_write_decision: preWritePolicy.decision, final_decision: finalPolicyDecision.decision, matched: policyMatched },
+    provenance,
+    evidence_bundle: evidenceBundle,
     limitations: ["Demo evidence is synthetic and deterministic; it is not a current partner observation.", "This result is not legal, privacy, rights, or publishing approval.", "Next checks are suggestions for a person; the product does not execute them."],
   };
 }
@@ -486,7 +557,7 @@ export function projectRun(run, store) {
     retry_count: run.retry_count,
     attempts: Math.min(run.attempt_count || 0, MAX_ATTEMPTS),
     cancellation_requested: run.cancellation_requested,
-    provenance: PROVENANCE,
+    provenance: run.provenance || PROVENANCE,
     recovery: run.error ? { kind: "retryable_failure", message: run.error.message, recoverable: run.error.recoverable, original_run_id: run.run_id, actions: run.error.recoverable ? ["retry"] : [] } : terminal && run.state === "canceled" ? { kind: "canceled", message: "Cancellation was recorded. No late result will be published.", recoverable: true, original_run_id: run.run_id, actions: ["retry"] } : null,
   };
   return projection;
@@ -499,7 +570,27 @@ export class MockEngine {
     this.provider = provider;
     this.model = model;
     this.clock = clock;
+    const modelBackend = typeof model.provenance === "function" ? model.provenance() : undefined;
+    const providerBackend = {
+      backend: provider.manifest?.provider_id === "mock-provider" ? "mock" : "provider",
+      provider_id: provider.manifest?.provider_id || null,
+      manifest_hash: provider.manifest?.manifest_hash || null,
+      semantic_operation: "fixed-read-only",
+    };
+    this.provenance = combineProvenance({ modelBackend, providerBackend });
     this.jobs = new Map();
+  }
+
+  refreshProvenance() {
+    const modelBackend = typeof this.model.provenance === "function" ? this.model.provenance() : undefined;
+    const providerBackend = {
+      backend: this.provider.manifest?.provider_id === "mock-provider" ? "mock" : "provider",
+      provider_id: this.provider.manifest?.provider_id || null,
+      manifest_hash: this.provider.manifest?.manifest_hash || null,
+      semantic_operation: "fixed-read-only",
+    };
+    this.provenance = combineProvenance({ modelBackend, providerBackend });
+    return this.provenance;
   }
 
   enqueue(runId) {
@@ -508,6 +599,7 @@ export class MockEngine {
       if (!(error instanceof CancellationError)) {
         const run = this.store.getRun(runId);
         if (run && !TERMINAL_STATES.has(run.state)) {
+          this.store.transition(runId, run.state, { provenance: this.refreshProvenance() });
           this.store.markFailed(runId, { class: error.code || "failed", message: "The run stopped safely before a verified result was available.", recoverable: true });
           this.store.appendEvent(runId, "run.failed", "recovery", "failed", "Run needs recovery", { recoverable: true });
         }
@@ -542,7 +634,7 @@ export class MockEngine {
     const run = this.store.getRun(runId);
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     if (!["failed", "expired", "canceled"].includes(run.state)) throw new ContractError("RUN_NOT_RETRYABLE", "Only a recoverable terminal run can be retried");
-    const child = this.store.createRun({ request: run.request, requestHash: run.request_hash, idempotencyHash: idempotencyHash || hashValue(`${runId}|retry|${Date.now()}|${safeId("key")}`), parentRunId: runId, retryCount: run.retry_count + 1 }).run;
+    const child = this.store.createRun({ request: run.request, requestHash: run.request_hash, idempotencyHash: idempotencyHash || hashValue(`${runId}|retry|${Date.now()}|${safeId("key")}`), parentRunId: runId, retryCount: run.retry_count + 1, provenance: this.provenance }).run;
     this.enqueue(child.run_id);
     return child;
   }
@@ -553,7 +645,7 @@ export class MockEngine {
     const candidate = run.clarification.candidates.find((item) => item.candidate_id === candidateId);
     if (!candidate) throw new ContractError("INVALID_CANDIDATE", "That clarification option is not available for this run");
     const request = { ...run.request, asset_hint: candidate.candidate_id };
-    const child = this.store.createRun({ request, requestHash: hashValue(request), idempotencyHash: idempotencyHash || hashValue(`${runId}|clarify|${candidateId}|${Date.now()}|${safeId("key")}`), parentRunId: runId, retryCount: 0 }).run;
+    const child = this.store.createRun({ request, requestHash: hashValue(request), idempotencyHash: idempotencyHash || hashValue(`${runId}|clarify|${candidateId}|${Date.now()}|${safeId("key")}`), parentRunId: runId, retryCount: 0, provenance: this.provenance }).run;
     this.enqueue(child.run_id);
     return child;
   }
@@ -564,7 +656,8 @@ export class MockEngine {
     this.advance(runId, "queued", "queue", "Queued");
     this.checkCancellation(runId);
     this.advance(runId, "planning", "planning", "Planning request");
-    const plan = validatePlan(await this.model.plan(run.request, { workflow: WORKFLOW }));
+    const plan = validatePlan(await this.model.plan(run.request, { workflow: WORKFLOW, run_id: runId, stage: "planner" }));
+    this.refreshProvenance();
     this.checkCancellation(runId);
     this.advance(runId, "resolving_asset", "resolution", "Resolving one demo asset");
     const query = plan.asset_query || run.request.asset_hint || "";
@@ -582,24 +675,26 @@ export class MockEngine {
       return this.store.getRun(runId);
     }
     if (resolution.status !== "resolved" || !resolution.asset) {
-      const records = [makeEvidenceRecord(runId, "asset", { status: "missing", facts: {}, units: {}, source_reference: "Demo asset resolution returned no match" }, this.provider)];
+      const records = [makeEvidenceRecord(runId, "asset", { status: "missing", facts: {}, units: {}, source_reference: "Demo asset resolution returned no match" }, this.provider, { provenance: this.provenance })];
       for (const record of records) this.store.addEvidence(runId, record);
       const policyDecision = evaluatePolicy(records);
       return this.finishWithResult(runId, policyDecision, records);
     }
     const asset = resolution.asset;
     const assetObservation = await this.provider.describe_asset({ retry_count: run.retry_count }, asset);
-    const records = [makeEvidenceRecord(runId, "asset", assetObservation, this.provider)];
+    const records = [makeEvidenceRecord(runId, "asset", assetObservation, this.provider, { provenance: this.provenance })];
     this.store.addEvidence(runId, records[0]);
-    this.advance(runId, "evidence_pending", "evidence", "Reading quality, governance, and lineage", { total: 3, completed: 0 });
+    this.advance(runId, "evidence_pending", "evidence", "Reading quality, governance, and lineage", { total: 3, completed: 0, branches: { quality: { state: "pending", status: null, attempts: 0 }, governance: { state: "pending", status: null, attempts: 0 }, lineage: { state: "pending", status: null, attempts: 0 } } });
     const branchKinds = ["quality", "governance", "lineage"];
     const branchResults = await Promise.all(branchKinds.map(async (kind) => {
       this.checkCancellation(runId);
+      this.updateBranchProgress(runId, kind, { state: "running", status: null });
       this.store.appendEvent(runId, "evidence.started", kind, "evidence_pending", `${capitalize(kind)} check started`, { operation: operationFor(kind) });
       const observation = await this.readBranch(runId, kind, asset, run.request.purpose, run.retry_count);
       this.checkCancellation(runId);
-      const record = makeEvidenceRecord(runId, kind, observation, this.provider);
+      const record = makeEvidenceRecord(runId, kind, observation, this.provider, { provenance: this.provenance });
       this.store.addEvidence(runId, record);
+      this.updateBranchProgress(runId, kind, { state: record.status === "complete" ? "complete" : "partial", status: record.status, attempts: Math.min(MAX_ATTEMPTS, this.store.getRun(runId).attempt_count) });
       return record;
     }));
     records.push(...branchResults);
@@ -608,11 +703,11 @@ export class MockEngine {
     if (failedRecoveryBranch && isRecoveryScenario(run) && run.retry_count === 0) return this.failRecoverably(runId, "Demo evidence was unavailable after bounded retries");
     const partial = branchResults.some((record) => record.status !== "complete");
     if (partial) {
-      this.store.transition(runId, "evidence_partial", { phase: "evidence_partial", progress: { completed: 3, total: 3 } });
+      this.store.transition(runId, "evidence_partial", { phase: "evidence_partial", progress: { ...(this.store.getRun(runId).progress || {}), completed: 3, total: 3 } });
       this.store.appendEvent(runId, "evidence.partial", "evidence", "evidence_partial", "Partial evidence is visible", { missing: branchResults.filter((record) => record.status !== "complete").map((record) => record.check_kind) });
     }
     const policyDecision = evaluatePolicy(records);
-    this.store.transition(runId, partial ? "evidence_partial" : "evidence_pending", { policy_decision: policyDecision, decision: policyDecision.decision, progress: { completed: 3, total: 3 } });
+    this.store.transition(runId, partial ? "evidence_partial" : "evidence_pending", { policy_decision: policyDecision, decision: policyDecision.decision, progress: { ...(this.store.getRun(runId).progress || {}), completed: 3, total: 3 } });
     this.store.appendEvent(runId, "policy.computed", "policy", partial ? "evidence_partial" : "evidence_pending", `Policy computed: ${policyDecision.decision}`, { decision: policyDecision.decision, policy_version: POLICY_VERSION, reason_count: policyDecision.reasons.length });
     return this.compose(runId, policyDecision, records);
   }
@@ -642,10 +737,12 @@ export class MockEngine {
   async compose(runId, policyDecision, records) {
     this.checkCancellation(runId);
     this.store.transition(runId, "composing", { phase: "composing" });
-    this.store.appendEvent(runId, "writer.started", "writer", "composing", "Composing evidence-backed brief", { model_mode: "fake" });
+    this.store.appendEvent(runId, "writer.started", "writer", "composing", "Composing evidence-backed brief", { model_backend: this.provenance.model_backend.backend });
     let draft;
     try {
-      draft = await this.model.draft({ decision: policyDecision.decision, records: records.map((record) => ({ ...record, facts: { ...record.facts } })), policy_version: POLICY_VERSION });
+      const writerInput = { decision: policyDecision.decision, policy_decision: policyDecision, evidence_bundle: buildEvidenceBundle(records), records: records.map((record) => ({ ...record, facts: { ...record.facts } })), policy_version: POLICY_VERSION };
+      const write = typeof this.model.write === "function" ? this.model.write.bind(this.model) : this.model.draft.bind(this.model);
+      draft = await write(writerInput, { run_id: runId, stage: "writer" });
     } catch {
       draft = fallbackDraft(policyDecision.decision, records);
       this.store.appendEvent(runId, "writer.fallback", "writer", "composing", "Using deterministic brief template", { reason: "writer_unavailable" });
@@ -653,9 +750,9 @@ export class MockEngine {
     this.checkCancellation(runId);
     this.store.transition(runId, "validating", { phase: "validating" });
     this.store.appendEvent(runId, "verifier.started", "verifier", "validating", "Validating evidence and provenance", { projection: "public" });
-    const result = verifyAndProject({ runId, runStatus: "succeeded", policyDecision, draft, records });
-    this.store.addResult(runId, result, policyDecision.decision);
-    this.store.appendEvent(runId, "run.succeeded", "projection", "succeeded", `Brief ready: ${policyDecision.decision}`, { decision: policyDecision.decision, provenance: PROVENANCE.label });
+    const result = verifyAndProject({ runId, runStatus: "succeeded", policyDecision, draft, records, provenance: this.refreshProvenance() });
+    this.store.addResult(runId, result, result.decision);
+    this.store.appendEvent(runId, "run.succeeded", "projection", "succeeded", `Brief ready: ${result.decision}`, { decision: result.decision, provenance: this.provenance.label });
     return this.store.getRun(runId);
   }
 
@@ -671,8 +768,18 @@ export class MockEngine {
     return this.store.getRun(runId);
   }
 
+  updateBranchProgress(runId, kind, patch) {
+    const run = this.store.getRun(runId);
+    const branches = { ...(run?.progress?.branches || {}) };
+    branches[kind] = { ...(branches[kind] || {}), ...patch };
+    const completed = Object.values(branches).filter((branch) => ["complete", "partial"].includes(branch.state)).length;
+    this.store.transition(runId, run.state, { progress: { ...(run.progress || {}), branches, completed, total: 3 } });
+  }
+
   advance(runId, state, step, display, payload = {}) {
-    this.store.transition(runId, state, { phase: state });
+    const run = this.store.getRun(runId);
+    const patch = Object.keys(payload).length ? { progress: { ...(run?.progress || {}), ...payload } } : {};
+    this.store.transition(runId, state, { phase: state, ...patch });
     this.store.appendEvent(runId, `run.${state}`, step, state, display, payload);
   }
 

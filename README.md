@@ -26,7 +26,7 @@ The API, worker, persistence, and observability layers are deterministic impleme
 
 Phase 1 is designed to run with a deterministic `FakeModel` and `MockProvider` using synthetic fixtures labelled `Demo evidence`. No credentials or external calls are needed for the mock path.
 
-No Google or IBM integration is enabled, no production credentials are present, and no side effects are authorized. The Google platform and model deployment choices remain open. IBM watsonx.data intelligence is only a conditional, read-only staging seam that requires explicit Captain decisions, tenant and endpoint access, authentication, synthetic data, a pinned capability manifest, contract tests, and internal enablement.
+No Google or IBM integration is enabled by default, no production credentials are present, and no side effects are authorized. The repository includes a credential-gated, server-only Google REST adapter foundation, but it remains disabled until all server configuration and readiness gates pass. The Google platform and model deployment choices remain open. See [operator setup placeholders](docs/google-setup.md). IBM watsonx.data intelligence is only a conditional, read-only staging seam that requires explicit Captain decisions, tenant and endpoint access, authentication, synthetic data, a pinned capability manifest, contract tests, and internal enablement.
 
 ## Current status
 

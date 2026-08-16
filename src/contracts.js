@@ -16,6 +16,32 @@ export const PROVENANCE = Object.freeze({
   model: "Deterministic mock",
   provider: "Demo evidence",
   label: "Deterministic mock / Demo evidence",
+  model_backend: Object.freeze({
+    backend: "fake",
+    model_id: null,
+    location: null,
+    api_version: null,
+    prompt_id: "fake-model@1",
+    prompt_hash: null,
+    schema_version: null,
+    schema_hash: null,
+    generation_config_hash: null,
+  }),
+  provider_backend: Object.freeze({
+    backend: "mock",
+    provider_id: "mock-provider",
+    manifest_hash: "sha256:mock-provider-demo-fixtures",
+    semantic_operation: "fixed-read-only",
+  }),
+  metrics: Object.freeze({
+    call_count: 0,
+    repair_count: 0,
+    latency_ms: 0,
+    input_chars: 0,
+    output_chars: 0,
+    response_hash: null,
+    error_class: null,
+  }),
 });
 
 export const RUN_STATES = Object.freeze([
@@ -233,6 +259,43 @@ export function hashValue(value) {
   return crypto.createHash("sha256").update(serialized).digest("hex");
 }
 
+export function combineProvenance({ modelBackend, providerBackend, metrics } = {}) {
+  const model = modelBackend?.backend === "google_rest" ? "Gemini-backed" : "Deterministic mock";
+  const boundedMetrics = metrics || modelBackend?.metrics;
+  const provider = providerBackend?.backend === "mock" ? "Demo evidence" : "Provider evidence";
+  return {
+    model,
+    provider,
+    label: `${model} / ${provider}`,
+    model_backend: {
+      backend: modelBackend?.backend || "fake",
+      model_id: modelBackend?.model_id ?? null,
+      location: modelBackend?.location ?? null,
+      api_version: modelBackend?.api_version ?? null,
+      prompt_id: modelBackend?.prompt_id ?? null,
+      prompt_hash: modelBackend?.prompt_hash ?? null,
+      schema_version: modelBackend?.schema_version ?? null,
+      schema_hash: modelBackend?.schema_hash ?? null,
+      generation_config_hash: modelBackend?.generation_config_hash ?? null,
+    },
+    provider_backend: {
+      backend: providerBackend?.backend || "mock",
+      provider_id: providerBackend?.provider_id || null,
+      manifest_hash: providerBackend?.manifest_hash || null,
+      semantic_operation: providerBackend?.semantic_operation || "fixed-read-only",
+    },
+    metrics: {
+      call_count: Math.max(0, Math.min(2, Number(boundedMetrics?.call_count) || 0)),
+      repair_count: Math.max(0, Math.min(1, Number(boundedMetrics?.repair_count) || 0)),
+      latency_ms: Math.max(0, Math.min(120_000, Number(boundedMetrics?.latency_ms) || 0)),
+      input_chars: Math.max(0, Math.min(8_000, Number(boundedMetrics?.input_chars) || 0)),
+      output_chars: Math.max(0, Math.min(12_000, Number(boundedMetrics?.output_chars) || 0)),
+      response_hash: boundedMetrics?.response_hash || null,
+      error_class: boundedMetrics?.error_class || null,
+    },
+  };
+}
+
 export function stableStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -283,6 +346,28 @@ export function validatePlan(value) {
   if (value.asset_query !== undefined) normalizeText(value.asset_query, "asset_query", { max: 200 });
   if (value.container_query !== undefined) normalizeText(value.container_query, "container_query", { max: 200 });
   if (value.purpose !== undefined) normalizeText(value.purpose, "purpose", { max: 120 });
+  if (value.clarification !== null && !isPlainObject(value.clarification)) throw new ContractError("INVALID_CLARIFICATION", "clarification must be null or an object");
+  return value;
+}
+
+export function validateEvidenceBundle(value) {
+  rejectUnknown(value, new Set(["schema_version", "asset", "branches", "coverage"]), "evidence bundle");
+  if (value.schema_version !== BUNDLE_SCHEMA || !isPlainObject(value.asset) || !isPlainObject(value.branches) || !isPlainObject(value.coverage)) {
+    throw new ContractError("INVALID_EVIDENCE_BUNDLE", "EvidenceBundle does not match the approved schema");
+  }
+  rejectUnknown(value.asset, new Set(["status", "asset_id", "display_name", "evidence_ids"]), "evidence bundle asset");
+  rejectUnknown(value.branches, new Set(["quality", "governance", "lineage"]), "evidence bundle branches");
+  rejectUnknown(value.coverage, new Set(["required", "complete", "missing", "denied", "timed_out", "stale", "unavailable", "invalid"]), "evidence bundle coverage");
+  if (!EVIDENCE_STATUSES.includes(value.asset.status)) throw new ContractError("INVALID_EVIDENCE_BUNDLE", "EvidenceBundle asset status is invalid");
+  if (!Array.isArray(value.asset.evidence_ids) || value.asset.evidence_ids.length > 4) throw new ContractError("INVALID_EVIDENCE_BUNDLE", "EvidenceBundle asset evidence IDs are invalid");
+  for (const kind of ["quality", "governance", "lineage"]) {
+    const branch = value.branches[kind];
+    if (!isPlainObject(branch) || !EVIDENCE_STATUSES.includes(branch.status) || !Array.isArray(branch.evidence_ids) || branch.evidence_ids.length > 8) throw new ContractError("INVALID_EVIDENCE_BUNDLE", `EvidenceBundle ${kind} branch is invalid`);
+  }
+  for (const key of ["required", "complete", "missing", "denied", "timed_out", "stale", "unavailable", "invalid"]) {
+    if (value.coverage[key] !== undefined && (!Array.isArray(value.coverage[key]) || value.coverage[key].length > REQUIRED_EVIDENCE.length)) throw new ContractError("INVALID_EVIDENCE_BUNDLE", `EvidenceBundle coverage ${key} is invalid`);
+  }
+  if (!Array.isArray(value.coverage.required) || value.coverage.required.join(",") !== REQUIRED_EVIDENCE.join(",")) throw new ContractError("INVALID_EVIDENCE_BUNDLE", "EvidenceBundle required coverage is not fixed");
   return value;
 }
 
@@ -290,8 +375,8 @@ export function validateDraft(value) {
   rejectUnknown(value, DRAFT_FIELDS, "brief draft");
   if (value.schema_version !== DRAFT_SCHEMA) throw new ContractError("INVALID_DRAFT_SCHEMA", `Draft schema must be ${DRAFT_SCHEMA}`);
   for (const field of ["headline", "summary"]) normalizeText(value[field], field, { min: 1, max: field === "headline" ? 180 : 1200, required: true });
-  if (!Array.isArray(value.summary_evidence_ids)) throw new ContractError("INVALID_DRAFT_EVIDENCE", "summary_evidence_ids must be an array");
-  if (!Array.isArray(value.cited_evidence_ids)) throw new ContractError("INVALID_DRAFT_EVIDENCE", "cited_evidence_ids must be an array");
+  if (!Array.isArray(value.summary_evidence_ids) || value.summary_evidence_ids.length > 8) throw new ContractError("INVALID_DRAFT_EVIDENCE", "summary_evidence_ids must contain at most eight items");
+  if (!Array.isArray(value.cited_evidence_ids) || value.cited_evidence_ids.length > 16) throw new ContractError("INVALID_DRAFT_EVIDENCE", "cited_evidence_ids must contain at most sixteen items");
   if (!Array.isArray(value.risks) || value.risks.length > 5) throw new ContractError("INVALID_DRAFT_RISKS", "risks must contain at most five items");
   for (const risk of value.risks) {
     rejectUnknown(risk, new Set(["severity", "kind", "text", "evidence_ids"]), "risk");

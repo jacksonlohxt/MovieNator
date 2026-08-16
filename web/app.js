@@ -49,6 +49,8 @@ const terminalStates = new Set(["needs_input", "succeeded", "canceled", "expired
 let currentRun = null;
 let eventSource = null;
 let pollTimer = null;
+let reconnectTimer = null;
+let lastEventSeq = 0;
 let lastFocused = null;
 
 function setText(selector, value) {
@@ -147,11 +149,17 @@ async function submitRun(request = buildRequest()) {
 
 function subscribe(runId) {
   closeStream();
+  lastEventSeq = Math.max(lastEventSeq, currentRun?.last_event_seq || 0);
   if ("EventSource" in window) {
-    eventSource = new EventSource(`/v1/runs/${encodeURIComponent(runId)}/events`);
+    eventSource = new EventSource(`/v1/runs/${encodeURIComponent(runId)}/events?cursor=${encodeURIComponent(lastEventSeq)}`);
     const eventNames = ["run.accepted", "run.queued", "run.planning", "run.resolving_asset", "evidence.started", "evidence.attempt", "evidence.partial", "policy.computed", "writer.started", "writer.fallback", "verifier.started", "run.needs_input", "run.succeeded", "run.failed", "run.cancel_requested", "run.canceled"];
     for (const name of eventNames) eventSource.addEventListener(name, onEvent);
-    eventSource.onerror = () => startPolling(runId);
+    eventSource.onerror = () => {
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      startPolling(runId);
+      if (!reconnectTimer) reconnectTimer = setTimeout(() => { reconnectTimer = null; if (currentRun && !terminalStates.has(currentRun.state)) subscribe(runId); }, 1000);
+    };
   }
   startPolling(runId);
 }
@@ -161,6 +169,8 @@ function closeStream() {
   eventSource = null;
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
 }
 
 function startPolling(runId) {
@@ -171,6 +181,7 @@ function startPolling(runId) {
 function onEvent(event) {
   try {
     const payload = JSON.parse(event.data);
+    lastEventSeq = Math.max(lastEventSeq, Number(event.lastEventId || payload.seq || 0));
     const display = payload.display || "Run updated";
     setText(runLive, display);
     refreshRun(payload.run_id);
@@ -186,6 +197,7 @@ async function refreshRun(runId) {
     if (!response.ok) throw new Error("Run is no longer available");
     const data = await response.json();
     currentRun = data;
+    lastEventSeq = Math.max(lastEventSeq, data.last_event_seq || 0);
     renderRun(data);
     if (terminalStates.has(data.state)) closeStream();
   } catch {
@@ -234,7 +246,9 @@ function renderProgress(run) {
   const stateIndex = { accepted: 0, queued: 1, planning: 2, resolving_asset: 3, evidence_pending: 4, evidence_partial: 7, composing: 7, validating: 8, succeeded: 8 }[run.state];
   progressLabels.forEach((label, index) => {
     const item = document.createElement("li");
-    item.textContent = label;
+    const branchKind = label.toLowerCase().replace(" evidence", "");
+    const branch = run.progress?.branches?.[branchKind];
+    item.textContent = branch ? `${label} - ${branch.status || branch.state}` : label;
     if (stateIndex != null && index < stateIndex) item.className = "is-done";
     if (stateIndex === index && !["succeeded", "failed", "canceled"].includes(run.state)) item.className = "is-current";
     list.append(item);

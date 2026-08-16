@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "check": "node --check src/contracts.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node src/check-schemas.js"
+    "check": "node --check src/contracts.js && node --check src/model-gateway.js && node --check src/gemini-rest.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node src/check-schemas.js"
   },
   "engines": {
     "node": ">=20"

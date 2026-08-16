@@ -46,7 +46,7 @@ export class FileStore {
     fs.renameSync(tempPath, this.filePath);
   }
 
-  createRun({ request, requestHash, idempotencyHash, parentRunId = null, retryCount = 0, actor = "anonymous-demo" }) {
+  createRun({ request, requestHash, idempotencyHash, parentRunId = null, retryCount = 0, actor = "anonymous-demo", provenance = PROVENANCE }) {
     const existing = this.state.idempotency[idempotencyHash];
     if (existing) {
       if (existing.request_hash !== requestHash) {
@@ -66,9 +66,9 @@ export class FileStore {
       retry_count: retryCount,
       actor,
       workflow: "audience_data_readiness",
-      provider_mode: "mock",
-      model_mode: "fake",
-      provenance: clone(PROVENANCE),
+      provider_mode: provenance?.provider_backend?.backend || "mock",
+      model_mode: provenance?.model_backend?.backend || "fake",
+      provenance: clone(provenance || PROVENANCE),
       state: "accepted",
       decision: null,
       phase: "accepted",
