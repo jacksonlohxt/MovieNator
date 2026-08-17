@@ -12,6 +12,7 @@ import {
 } from "./contracts.js";
 import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
 import { GeminiRestBackend, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
+import { createAdcTokenProvider } from "./google-auth.js";
 import { FileStore } from "./store.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -67,7 +68,8 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const actualStore = store || new FileStore(dataPath);
   const actualProvider = provider || new MockProvider();
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
-  const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: googleTokenProvider }) : new FakeModel());
+  const actualTokenProvider = googleTokenProvider || (configuredGoogle.authMode === "adc" ? createAdcTokenProvider() : undefined);
+  const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider }) : new FakeModel());
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel });
 
   const server = http.createServer(async (req, res) => {

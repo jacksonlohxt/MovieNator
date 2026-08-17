@@ -28,7 +28,7 @@ GOOGLE_PROJECT_ID=<CAPTAIN_SELECTED_PROJECT_ID>
 GOOGLE_LOCATION=<CAPTAIN_SELECTED_REGION>
 GOOGLE_MODEL_ID=<CAPTAIN_SELECTED_MODEL_ID>
 GOOGLE_PUBLISHER=google
-GOOGLE_ENDPOINT=<CAPTAIN_SELECTED_ENDPOINT_HOST>
+GOOGLE_ENDPOINT=<CAPTAIN_SELECTED_ENDPOINT_HOST> # for global, use https://aiplatform.googleapis.com
 GOOGLE_REST_API_VERSION=<CAPTAIN_SELECTED_API_VERSION>
 GOOGLE_SDK_VERSION=<CAPTAIN_SELECTED_SDK_VERSION>
 GOOGLE_AUTH_MODE=<CAPTAIN_SELECTED_AUTH_MODE>
@@ -75,6 +75,6 @@ The first request is the standard server-derived `generateContent` REST method:
 POST https://<region>-aiplatform.googleapis.com/<api-version>/projects/<project-id>/locations/<region>/publishers/google/models/<model-id>:generateContent
 ```
 
-The v1 adapter sends bounded contents, a fixed system instruction, and bounded generation settings. It deliberately omits `tools` and `toolConfig`. A fake transport and injected token provider cover the adapter tests, so validation never requires Google ADC, a project, a network credential, or a live endpoint.
+For the `global` location, the service origin is `https://aiplatform.googleapis.com` rather than `https://global-aiplatform.googleapis.com`. The server can use ADC automatically when `GOOGLE_AUTH_MODE=adc`; the credential client is created only for an approved, passed Google run. The v1 adapter sends bounded contents, a fixed system instruction, and bounded generation settings. It deliberately omits `tools` and `toolConfig`. A fake transport and injected token provider cover the adapter tests, so validation never requires Google ADC, a project, a network credential, or a live endpoint.
 
 Google output is proposal-only. Deterministic code owns asset resolution, provider selection, EvidenceBundle construction, policy status, evidence authority, safe projection, persistence, publishing, export, mutation, approval, purchase, deployment, and every other side effect.

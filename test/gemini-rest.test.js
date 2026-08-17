@@ -6,6 +6,7 @@ import test from "node:test";
 import { FileStore } from "../src/store.js";
 import { FakeModel, MockEngine, MockProvider } from "../src/engine.js";
 import { createApp } from "../src/server.js";
+import { createAdcTokenProvider, CLOUD_PLATFORM_SCOPE } from "../src/google-auth.js";
 import {
   GEMINI_READINESS_STATES,
   GeminiRestBackend,
@@ -75,6 +76,30 @@ test("server-only Google readiness is explicit and complete configuration is opt
   assert.equal(readGeminiConfig({ GOOGLE_GEMINI_ENABLED: "true", GOOGLE_PROJECT_ID: "p", GOOGLE_LOCATION: "us-central1", GOOGLE_MODEL_ID: "m", GOOGLE_AUTH_MODE: "adc" }).readiness, "not_run");
   assert.equal(readGeminiConfig({ GOOGLE_GEMINI_ENABLED: "true", GOOGLE_PROJECT_ID: "p", GOOGLE_LOCATION: "us-central1", GOOGLE_MODEL_ID: "m", GOOGLE_AUTH_MODE: "adc", GOOGLE_GEMINI_READINESS: "passed" }).readiness, "passed");
   assert.equal(buildGenerateContentUrl(baseConfig()), "https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-test-model:generateContent");
+  assert.equal(buildGenerateContentUrl(baseConfig({ location: "global" })), "https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/publishers/google/models/gemini-test-model:generateContent");
+});
+
+test("ADC token provider is lazy, scoped, and reuses its credential client", async () => {
+  let authFactoryCalls = 0;
+  let clientCalls = 0;
+  let tokenCalls = 0;
+  const provider = createAdcTokenProvider({
+    authFactory: ({ scope }) => {
+      authFactoryCalls += 1;
+      assert.equal(scope, CLOUD_PLATFORM_SCOPE);
+      return {
+        getClient: async () => {
+          clientCalls += 1;
+          return { getAccessToken: async () => { tokenCalls += 1; return { token: "adc-token" }; } };
+        },
+      };
+    },
+  });
+  assert.equal(await provider({ scope: CLOUD_PLATFORM_SCOPE }), "adc-token");
+  assert.equal(await provider({ scope: CLOUD_PLATFORM_SCOPE }), "adc-token");
+  assert.equal(authFactoryCalls, 1);
+  assert.equal(clientCalls, 1);
+  assert.equal(tokenCalls, 2);
 });
 
 test("disabled or incomplete configuration makes zero Google requests and keeps FakeModel", async (t) => {

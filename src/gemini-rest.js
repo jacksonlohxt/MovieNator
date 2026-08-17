@@ -152,6 +152,7 @@ export function googleServiceEndpoint(config) {
       return undefined;
     }
   }
+  if (normalized.location.toLowerCase() === "global") return "https://aiplatform.googleapis.com";
   return `https://${normalized.location}-aiplatform.googleapis.com`;
 }
 
@@ -350,8 +351,8 @@ export class GeminiRestBackend extends ModelGateway {
         };
     const prompt = boundedPrompt(safeInput, this.config.maxInputChars);
     const systemInstruction = isPlan
-      ? `You are the bounded Request Interpreter. Return only JSON matching ${PLAN_SCHEMA}. Never select a provider, tool, endpoint, project, location, model, threshold, credential, or side effect.`
-      : `You are the bounded Brief Writer. Return only JSON matching ${DRAFT_SCHEMA}. Cite only supplied evidence IDs. Never change policy, select providers or tools, create evidence, or request a side effect.`;
+      ? `You are the bounded Request Interpreter. Return exactly one JSON object with only these keys: schema_version, workflow, asset_query, container_query, purpose, time_window, required_evidence, clarification. Use schema_version="${PLAN_SCHEMA}", workflow="audience_data_readiness", required_evidence=["asset","quality","governance","lineage"], and clarification=null unless the request is genuinely missing required information. Use time_window only as an object with start and end strings. Never return readiness_question, asset_hints, or any other key. Never select a provider, tool, endpoint, project, location, model, threshold, credential, or side effect.`
+      : `You are the bounded Brief Writer. Return exactly one JSON object with only these keys: schema_version, headline, summary, summary_evidence_ids, risks, recommendations, cited_evidence_ids. Use schema_version="${DRAFT_SCHEMA}". Each risk must contain only severity (low, medium, or high), kind, text, and evidence_ids. Cite only supplied evidence IDs. Never change policy, select providers or tools, create evidence, or request a side effect.`;
     return {
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
