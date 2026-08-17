@@ -1,8 +1,14 @@
-# Gemini Agents
+# Movie-Inator
 
-Gemini Agents is a proposed web-first product for media launch planning. It turns one question about one audience or campaign data asset into an inspectable readiness brief. It is a decision and evidence surface, not a generic autonomous-agent platform.
+Movie-Inator is a web-first product for filmmaker launch planning and grounded script work. It turns one question about one audience or campaign data asset into an inspectable readiness brief, and separately grounds bounded PDF or plain-text script sources into cited excerpts. It is a decision and evidence surface, not a generic autonomous-agent platform.
 
-## Recommended v1 workflow
+## Explicit workflows
+
+### Filmmaker script / document grounding
+
+Upload one bounded PDF or plain-text script, ask a focused question, and receive a brief grounded only in selected local excerpts. Each citation opens its page or section excerpt. The MVP uses a deterministic local grounding source, has no approval screen, and does not generate video, audio, image, music, or VFX output.
+
+### Recommended audience data workflow
 
 The recommended first workflow is the **Audience Data Readiness Brief**. It assesses one resolved asset for one stated planning purpose using bounded evidence. This recommendation is not yet a formal Captain selection.
 
@@ -30,20 +36,24 @@ No Google or IBM integration is enabled by default, no production credentials ar
 
 ## Current status
 
-The repository contains the Phase 1 deterministic mock engine and a Phase 2 browser vertical slice for the recommended workflow. The default path uses `FakeModel`, `MockProvider`, a local durable JSON store, and no credentials or network calls. No Google, IBM, partner, hosted-model, or side-effect integration is enabled.
+The repository contains the deterministic audience readiness workflow and a Phase 2 Movie-Inator script-grounding vertical slice. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store, and no credentials or network calls. No Google, IBM, partner, hosted-model, or side-effect integration is enabled.
 
 ```sh
 npm test
 npm run check
 npm start
 # open http://127.0.0.1:4173
+
+# Optional explicitly enabled ADC-backed Gemini model path, using ignored .env.local
+npm run start:google
 ```
 
-The local server exposes the documented `/v1/runs` API, safe projections, event stream, cancellation, clarification, retry-child, and evidence routes. Local run records are written under `.data/` and are ignored by git.
+The local server exposes the existing `/v1/runs` API and evidence paths unchanged, plus `/v1/documents` upload, `/v1/documents/{document_id}/briefs` grounded brief requests, script progress events, and citation excerpt routes. Local run and source records are written under `.data/` and are ignored by git. Set `GOOGLE_GEMINI_ENABLED=true`, `MODEL_BACKEND=google_rest`, `GOOGLE_GEMINI_READINESS=passed`, and the verified server-only ADC configuration in `.env.local` or explicit exports before using `npm run start:google`; never commit tokens, ADC files, or source material.
 
 ## Local documentation
 
 - [Product requirements document](docs/prd.md) - the authoritative detailed specification and the unresolved Captain decisions.
 - [Implementation guide](docs/implementation.md) - contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
+- [Movie-Inator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - automation, operator boundaries, local grounding, future search seams, and separate media adapters.
 
 The PRD remains the source of truth for product detail. This implementation keeps its workflow, policy, identity, retention, provider, and side-effect choices visible as configuration seams rather than treating recommendations as approvals. It does not claim legal, privacy, rights, publishing, live-provider, or production readiness.

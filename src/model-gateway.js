@@ -15,6 +15,10 @@ export class ModelGateway {
     return this.draft(input, context);
   }
 
+  async groundedBrief() {
+    throw new Error("ModelGateway.groundedBrief is not implemented");
+  }
+
   provenance() {
     return undefined;
   }

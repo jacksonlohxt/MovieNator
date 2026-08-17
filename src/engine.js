@@ -32,6 +32,7 @@ import {
   validatePlan,
 } from "./contracts.js";
 import { ModelGateway } from "./model-gateway.js";
+import { deterministicGroundedBriefProposal } from "./grounding.js";
 export { ModelGateway } from "./model-gateway.js";
 export { GeminiRestBackend } from "./gemini-rest.js";
 
@@ -239,6 +240,12 @@ export class FakeModel extends ModelGateway {
       recommendations: recommendationsFor(decision, gaps),
       cited_evidence_ids: completeIds,
     };
+  }
+
+  async groundedBrief(input) {
+    this.calls.push("groundedBrief");
+    await sleep(4);
+    return deterministicGroundedBriefProposal(input);
   }
 }
 

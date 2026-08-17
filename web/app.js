@@ -43,6 +43,19 @@ const clarifySection = $("#clarify-section");
 const runSection = $("#run-section");
 const resultSection = $("#result-section");
 const recoverySection = $("#recovery-section");
+const groundingSection = $("#grounding-section");
+const documentForm = $("#document-form");
+const scriptFile = $("#script-file");
+const documentError = $("#document-error");
+const documentProgress = $("#document-progress");
+const documentSummary = $("#document-summary");
+const groundingForm = $("#grounding-form");
+const groundingQuestion = $("#grounding-question");
+const groundingError = $("#grounding-error");
+const groundingRun = $("#grounding-run");
+const groundingResult = $("#grounding-result");
+const groundingEventNames = ["script.accepted", "script.queued", "script.grounding_started", "script.grounding_gap", "script.composing", "script.writer_fallback", "script.verifying", "script.succeeded", "script.failed"];
+const groundingTerminalStates = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
 const runLive = $("#run-live");
 const progressLabels = ["Accepted", "Queued", "Planning", "Resolving asset", "Quality evidence", "Governance evidence", "Lineage evidence", "Composing", "Validating"];
 const terminalStates = new Set(["needs_input", "succeeded", "canceled", "expired", "failed"]);
@@ -52,6 +65,12 @@ let pollTimer = null;
 let reconnectTimer = null;
 let lastEventSeq = 0;
 let lastFocused = null;
+let currentDocument = null;
+let currentGroundingRun = null;
+let groundingEventSource = null;
+let groundingPollTimer = null;
+let groundingReconnectTimer = null;
+let groundingLastEventSeq = 0;
 
 function setText(selector, value) {
   const element = typeof selector === "string" ? $(selector) : selector;
@@ -78,6 +97,30 @@ function resetStatePanels() {
   show(runSection, false);
   show(resultSection, false);
   show(recoverySection, false);
+}
+
+function setWorkflow(mode) {
+  document.querySelectorAll("[data-workflow]").forEach((button) => {
+    const selected = button.dataset.workflow === mode;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  document.querySelectorAll("[data-workflow-surface]").forEach((surface) => {
+    surface.hidden = surface.dataset.workflowSurface !== mode;
+  });
+  if (mode === "readiness") {
+    setText("#hero-eyebrow", "Audience Data Readiness Brief");
+    setText("#page-title", "Know what your launch brief can support.");
+    setText("#hero-copy", "Ask one focused question about one audience asset. Movie-Inator gathers bounded demo evidence, applies a deterministic policy, and shows what a person should check next.");
+    resetStatePanels();
+    show(askSection, true);
+    if (currentRun) renderRun(currentRun);
+    updateJourney(currentRun?.state === "succeeded" ? "decision" : "ask");
+  } else {
+    setText("#hero-eyebrow", "Filmmaker script / document grounding");
+    setText("#page-title", "Ground a script or document brief.");
+    setText("#hero-copy", "Upload a bounded script source, select local excerpts, and inspect every grounded statement at its page or section location. Movie-Inator does not generate media in this workflow.");
+  }
 }
 
 function applyExample(name) {
@@ -134,7 +177,7 @@ async function submitRun(request = buildRequest()) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The run could not be accepted");
     currentRun = data;
-    sessionStorage.setItem("gemini-agents-run-id", data.run_id);
+    sessionStorage.setItem("movie-inator-readiness-run-id", data.run_id);
     renderRun(data);
     subscribe(data.run_id);
   } catch (error) {
@@ -291,7 +334,7 @@ async function clarifyRun(runId, candidateId, button) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Clarification could not be submitted");
     currentRun = data;
-    sessionStorage.setItem("gemini-agents-run-id", data.run_id);
+    sessionStorage.setItem("movie-inator-readiness-run-id", data.run_id);
     renderRun(data);
     subscribe(data.run_id);
   } catch (error) {
@@ -393,7 +436,7 @@ async function retryRun() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Retry could not be created");
     currentRun = data;
-    sessionStorage.setItem("gemini-agents-run-id", data.run_id);
+    sessionStorage.setItem("movie-inator-readiness-run-id", data.run_id);
     renderRun(data);
     subscribe(data.run_id);
   } catch (error) {
@@ -468,10 +511,260 @@ function closeEvidence() {
   if (lastFocused && typeof lastFocused.focus === "function") lastFocused.focus();
 }
 
+async function uploadDocument(event) {
+  event.preventDefault();
+  documentError.hidden = true;
+  const file = scriptFile.files?.[0];
+  if (!file) {
+    setText(documentError, "Choose a PDF or plain-text script source.");
+    documentError.hidden = false;
+    scriptFile.focus();
+    return;
+  }
+  if (file.size < 1 || file.size > 5 * 1024 * 1024) {
+    setText(documentError, "The source must be between 1 byte and 5 MiB.");
+    documentError.hidden = false;
+    scriptFile.focus();
+    return;
+  }
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  show(documentProgress, true);
+  setText("#document-progress-title", "Ingesting source");
+  setText("#document-progress-detail", "Uploading, extracting text, mapping source locations, and chunking.");
+  show(documentSummary, false);
+  show(groundingForm, false);
+  show(groundingResult, false);
+  $("#upload-document").disabled = true;
+  try {
+    const response = await fetch("/v1/documents", { method: "POST", body: formData });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "The source could not be ingested");
+    currentDocument = data;
+    sessionStorage.setItem("movie-inator-grounding-document-id", data.document_id);
+    setText("#document-progress-title", data.duplicate ? "Source already ingested" : "Source ready");
+    setText("#document-progress-detail", `${data.ingestion?.stages?.join(" · ") || "uploaded · extracted · mapped · ready"}. ${data.chunk_count} bounded chunks mapped.`);
+    documentSummary.replaceChildren();
+    const summary = document.createElement("p");
+    summary.textContent = `${data.filename} · ${data.media_type} · ${data.text_char_count.toLocaleString()} extracted characters · ${data.chunk_count} chunks`;
+    documentSummary.append(summary);
+    show(documentSummary, true);
+    show(groundingForm, true);
+    groundingQuestion.focus();
+  } catch (error) {
+    setText(documentError, error.message);
+    documentError.hidden = false;
+  } finally {
+    $("#upload-document").disabled = false;
+  }
+}
+
+async function submitGrounding(event) {
+  event.preventDefault();
+  groundingError.hidden = true;
+  if (!currentDocument) {
+    setText(groundingError, "Upload a source before requesting a grounded brief.");
+    groundingError.hidden = false;
+    return;
+  }
+  if (!groundingQuestion.value.trim()) {
+    setText(groundingError, "Describe what the source brief should answer.");
+    groundingError.hidden = false;
+    groundingQuestion.focus();
+    return;
+  }
+  show(groundingRun, true);
+  show(groundingResult, false);
+  $("#submit-grounding").disabled = true;
+  try {
+    const response = await fetch(`/v1/documents/${encodeURIComponent(currentDocument.document_id)}/briefs`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ schema_version: "grounded-brief-request@1", question: groundingQuestion.value }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "The grounded brief could not be accepted");
+    currentGroundingRun = data;
+    sessionStorage.setItem("movie-inator-grounding-run-id", data.run_id);
+    groundingLastEventSeq = data.last_event_seq || 0;
+    renderGroundingRun(data);
+    subscribeGrounded(data.run_id);
+  } catch (error) {
+    setText(groundingError, error.message);
+    groundingError.hidden = false;
+  } finally {
+    $("#submit-grounding").disabled = false;
+  }
+}
+
+function closeGroundingStream() {
+  if (groundingEventSource) groundingEventSource.close();
+  groundingEventSource = null;
+  if (groundingPollTimer) clearInterval(groundingPollTimer);
+  groundingPollTimer = null;
+  if (groundingReconnectTimer) clearTimeout(groundingReconnectTimer);
+  groundingReconnectTimer = null;
+}
+
+function subscribeGrounded(runId) {
+  closeGroundingStream();
+  if ("EventSource" in window) {
+    groundingEventSource = new EventSource(`/v1/script-briefs/${encodeURIComponent(runId)}/events?cursor=${encodeURIComponent(groundingLastEventSeq)}`);
+    for (const name of groundingEventNames) groundingEventSource.addEventListener(name, (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        groundingLastEventSeq = Math.max(groundingLastEventSeq, Number(event.lastEventId || payload.seq || 0));
+        setText("#document-progress-detail", payload.display || "Grounding updated");
+        refreshGroundedRun(runId);
+      } catch {
+        refreshGroundedRun(runId);
+      }
+    });
+    groundingEventSource.onerror = () => {
+      if (groundingEventSource) groundingEventSource.close();
+      groundingEventSource = null;
+      startGroundingPolling(runId);
+      if (!groundingReconnectTimer) groundingReconnectTimer = setTimeout(() => { groundingReconnectTimer = null; if (currentGroundingRun && !groundingTerminalStates.has(currentGroundingRun.state)) subscribeGrounded(runId); }, 1000);
+    };
+  }
+  startGroundingPolling(runId);
+}
+
+function startGroundingPolling(runId) {
+  if (groundingPollTimer) return;
+  groundingPollTimer = setInterval(() => refreshGroundedRun(runId), 450);
+}
+
+async function refreshGroundedRun(runId) {
+  if (!runId) return;
+  try {
+    const response = await fetch(`/v1/script-briefs/${encodeURIComponent(runId)}`);
+    if (!response.ok) throw new Error("Grounded brief is no longer available");
+    const data = await response.json();
+    currentGroundingRun = data;
+    groundingLastEventSeq = Math.max(groundingLastEventSeq, data.last_event_seq || 0);
+    renderGroundingRun(data);
+    if (groundingTerminalStates.has(data.state)) closeGroundingStream();
+  } catch {
+    // Keep the last safe projection visible while polling resumes.
+  }
+}
+
+function renderGroundingRun(run) {
+  show(groundingRun, true);
+  setText("#grounding-run-id", run.run_id);
+  setText("#grounding-phase", run.phase || "Accepted");
+  const labels = ["Accepted", "Queued", "Selecting excerpts", "Composing", "Validating", "Complete"];
+  const stateIndex = { accepted: 0, queued: 1, grounding: 2, composing: 3, validating: 4, succeeded: 5, grounding_gap: 5, failed: 5 }[run.state];
+  const list = $("#grounding-progress-list");
+  list.replaceChildren();
+  labels.forEach((label, index) => {
+    const item = document.createElement("li");
+    item.textContent = label;
+    if (stateIndex != null && index < stateIndex) item.className = "is-done";
+    if (stateIndex === index && !groundingTerminalStates.has(run.state)) item.className = "is-current";
+    list.append(item);
+  });
+  if (run.result && ["succeeded", "grounding_gap"].includes(run.state)) {
+    show(groundingResult, true);
+    renderGroundingResult(run.result);
+  } else if (run.state === "failed") {
+    show(groundingResult, true);
+    const result = { title: "Grounded brief needs recovery", summary: run.recovery?.message || "The source was preserved, but no verified brief was published.", key_points: [], citations: [], limitations: ["Retry creates a new child run and preserves the original."] };
+    renderGroundingResult(result);
+    const retry = document.createElement("button");
+    retry.className = "button button-secondary";
+    retry.type = "button";
+    retry.textContent = "Retry grounded brief";
+    retry.addEventListener("click", () => retryGroundedBrief(run.run_id, retry));
+    $("#grounding-citations").append(retry);
+  }
+}
+
+function renderGroundingResult(result) {
+  setText("#grounding-result-title", result.title || "Grounded script brief");
+  setText("#grounding-result-summary", result.summary || "No grounded summary was published.");
+  const points = $("#grounding-points");
+  points.replaceChildren();
+  for (const point of result.key_points || []) {
+    const card = document.createElement("div");
+    card.className = "grounding-point";
+    const text = document.createElement("p");
+    text.textContent = point.text;
+    card.append(text);
+    for (const citationId of point.citation_ids || []) {
+      const button = document.createElement("button");
+      button.className = "evidence-button";
+      button.type = "button";
+      button.textContent = `Open citation ${citationId.slice(-8)}`;
+      button.addEventListener("click", () => openGroundingCitation(currentDocument.document_id, citationId));
+      card.append(button);
+    }
+    points.append(card);
+  }
+  const citations = $("#grounding-citations");
+  citations.replaceChildren();
+  for (const citation of result.citations || []) {
+    const button = document.createElement("button");
+    button.className = "citation-card";
+    button.type = "button";
+    button.textContent = `${citation.citation_id} · ${citation.source_locations?.map((location) => location.page ? `page ${location.page}` : location.section || "source section").join(", ") || "source"}`;
+    button.addEventListener("click", () => openGroundingCitation(citation.document_id, citation.citation_id));
+    citations.append(button);
+  }
+  if (!citations.children.length && result.grounding?.gap) {
+    const empty = document.createElement("p");
+    empty.className = "field-help";
+    empty.textContent = "No citation was created because no source excerpt matched the question.";
+    citations.append(empty);
+  }
+  setText("#grounding-limitations", (result.limitations || []).join(" "));
+}
+
+async function openGroundingCitation(documentId, citationId) {
+  lastFocused = document.activeElement;
+  const response = await fetch(`/v1/documents/${encodeURIComponent(documentId)}/citations/${encodeURIComponent(citationId)}`);
+  if (!response.ok) return;
+  const citation = await response.json();
+  const content = $("#evidence-content");
+  content.replaceChildren();
+  const heading = document.createElement("h3");
+  heading.textContent = "Movie-Inator source excerpt";
+  const table = document.createElement("dl");
+  table.className = "evidence-table";
+  addField(table, "Citation", citation.citation_id);
+  addField(table, "Source", citation.source_label);
+  addField(table, "Location", citation.source_locations?.map((location) => location.page ? `Page ${location.page}` : `${location.section || "Section"} (lines ${location.line_start}-${location.line_end})`).join(", "));
+  const field = document.createElement("div");
+  field.className = "evidence-field";
+  const label = document.createElement("dt");
+  label.textContent = "Bounded source excerpt";
+  const excerpt = document.createElement("dd");
+  excerpt.className = "source-excerpt";
+  excerpt.textContent = citation.excerpt;
+  field.append(label, excerpt);
+  table.append(field);
+  content.append(heading, table);
+  $("#evidence-drawer").hidden = false;
+  $(".evidence-drawer").focus();
+}
+
+async function retryGroundedBrief(runId, button) {
+  button.disabled = true;
+  const response = await fetch(`/v1/script-briefs/${encodeURIComponent(runId)}/retry`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  const data = await response.json();
+  if (!response.ok) {
+    button.disabled = false;
+    return;
+  }
+  currentGroundingRun = data;
+  renderGroundingRun(data);
+  subscribeGrounded(data.run_id);
+}
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   if (validateForm()) submitRun();
 });
+documentForm.addEventListener("submit", uploadDocument);
+groundingForm.addEventListener("submit", submitGrounding);
+document.querySelectorAll("[data-workflow]").forEach((button) => button.addEventListener("click", () => setWorkflow(button.dataset.workflow)));
 problem.addEventListener("input", updateCount);
 document.querySelectorAll("[data-example]").forEach((button) => button.addEventListener("click", () => applyExample(button.dataset.example)));
 $("#cancel-run").addEventListener("click", cancelRun);
@@ -499,6 +792,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-const savedRunId = sessionStorage.getItem("gemini-agents-run-id");
+setWorkflow("readiness");
+const savedRunId = sessionStorage.getItem("movie-inator-readiness-run-id");
 if (savedRunId) refreshRun(savedRunId).then(() => { if (currentRun && !terminalStates.has(currentRun.state)) subscribe(savedRunId); });
 updateCount();

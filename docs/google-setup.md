@@ -1,4 +1,4 @@
-# Google model setup - operator-only, not enabled
+# Movie-Inator Google model setup - operator-only, not enabled
 
 This document describes the credential-gated foundation for a future internal Google model run. It does not select a project, billing account, region, model, identity, retention policy, source policy, or public enablement. The application and tests do not run the commands below.
 

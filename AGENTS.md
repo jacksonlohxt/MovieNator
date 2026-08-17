@@ -4,6 +4,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 - Product requirements, role authority, and unresolved Captain decisions are maintained in `docs/prd.md`.
+- The Movie-Inator script/document grounding contract, operator boundary, and future provider seam are maintained in `docs/phase2-script-grounding.md`.
 
 ## Maintaining this file
 

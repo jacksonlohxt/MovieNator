@@ -1,4 +1,6 @@
 node_modules/
 .data/
 coverage/
+.env.local
+application_default_credentials.json
 .DS_Store

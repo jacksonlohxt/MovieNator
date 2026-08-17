@@ -143,6 +143,27 @@ test("fake transport receives the exact server-derived REST request with no tool
   assert.equal(backend.provenance().metrics.call_count, 1);
 });
 
+test("grounded brief REST requests contain only bounded excerpts and reject unknown citations", async () => {
+  const grounded = {
+    schema_version: "grounded-script-brief@1",
+    title: "Grounded script brief",
+    summary: "The selected excerpt describes the opening.",
+    key_points: [{ text: "Mara enters the observatory.", citation_ids: ["cite_known"] }],
+    cited_citation_ids: ["cite_known"],
+  };
+  const { calls, transport } = transportFor(grounded);
+  const backend = new GeminiRestBackend({ config: baseConfig(), transport, tokenProvider: async () => "test-token" });
+  const result = await backend.groundedBrief({ schema_version: "grounded-script-brief@1", question: "Where does Mara enter?", excerpts: [{ citation_id: "cite_known", text: "Mara enters the observatory.", source_locations: [{ kind: "section", section: "Opening" }] }] }, { run_id: "grounded" });
+  assert.equal(result.cited_citation_ids[0], "cite_known");
+  const body = JSON.parse(calls[0].body);
+  assert.equal(Object.hasOwn(body, "tools"), false);
+  assert.equal(body.contents[0].parts[0].text.includes("Mara enters the observatory."), true);
+  assert.equal(body.contents[0].parts[0].text.includes("cite_known"), true);
+
+  const unknown = new GeminiRestBackend({ config: baseConfig(), transport: async () => responseFor({ ...grounded, cited_citation_ids: ["cite_unknown"], key_points: [{ text: "invented", citation_ids: ["cite_unknown"] }] }), tokenProvider: async () => "test-token" });
+  await assert.rejects(unknown.groundedBrief({ schema_version: "grounded-script-brief@1", question: "Where?", excerpts: [{ citation_id: "cite_known", text: "Known source", source_locations: [] }] }, { run_id: "grounded-unknown" }), (error) => error.code === "schema_invalid");
+});
+
 test("prompt injection remains data and cannot select a provider or endpoint", async () => {
   const { calls, transport } = transportFor(plan);
   const backend = new GeminiRestBackend({ config: baseConfig(), transport, tokenProvider: async () => "test-token" });

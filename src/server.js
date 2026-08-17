@@ -10,6 +10,16 @@ import {
   parseRunRequest,
   redactText,
 } from "./contracts.js";
+import {
+  DocumentContractError,
+  MAX_DOCUMENT_BYTES,
+  parseGroundingDocument,
+  safeCitationProjection,
+  safeDocumentProjection,
+  validateGroundingRequest,
+} from "./documents.js";
+import { GroundedBriefEngine, projectGroundedRun } from "./grounding-engine.js";
+import { LocalDeterministicGroundingSource } from "./grounding.js";
 import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
 import { GeminiRestBackend, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 import { createAdcTokenProvider } from "./google-auth.js";
@@ -18,7 +28,9 @@ import { FileStore } from "./store.js";
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
 const MAX_BODY_BYTES = 128 * 1024;
+const MAX_UPLOAD_BODY_BYTES = MAX_DOCUMENT_BYTES + 128 * 1024;
 const TERMINAL = new Set(["needs_input", "succeeded", "canceled", "expired", "failed"]);
+const SCRIPT_TERMINAL = new Set(["succeeded", "grounding_gap", "canceled", "failed"]);
 const SECURITY_HEADERS = Object.freeze({
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
@@ -34,6 +46,55 @@ function sendJson(res, status, value, headers = {}) {
 
 function sendError(res, status, code, message, field) {
   sendJson(res, status, { error: { code, message: redactText(message, 300), ...(field ? { field } : {}) } });
+}
+
+async function readRawBody(req, maxBytes) {
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared > maxBytes) throw new ContractError("BODY_TOO_LARGE", "Request body is too large");
+  let bytes = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new ContractError("BODY_TOO_LARGE", "Request body is too large");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+function parseMultipart(body, contentType) {
+  const match = String(contentType || "").match(/boundary=(?:\"([^\"]+)\"|([^;]+))/i);
+  if (!match) throw new DocumentContractError("INVALID_MULTIPART", "A multipart file upload is required", "file");
+  const boundary = Buffer.from(`--${match[1] || match[2]}`);
+  const parts = [];
+  let offset = 0;
+  while (offset < body.length) {
+    const start = body.indexOf(boundary, offset);
+    if (start < 0) break;
+    const contentStart = start + boundary.length;
+    if (body.subarray(contentStart, contentStart + 2).toString() === "--") break;
+    const partStart = body.subarray(contentStart, contentStart + 2).toString() === "\r\n" ? contentStart + 2 : contentStart;
+    const next = body.indexOf(boundary, partStart);
+    if (next < 0) break;
+    const part = body.subarray(partStart, Math.max(partStart, next - 2));
+    const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
+    if (headerEnd < 0) throw new DocumentContractError("INVALID_MULTIPART", "The file part headers are malformed", "file");
+    const headers = part.subarray(0, headerEnd).toString("latin1");
+    const content = part.subarray(headerEnd + 4);
+    const disposition = headers.match(/content-disposition:\s*form-data/i);
+    const name = headers.match(/\bname=\"([^\"]+)\"/i)?.[1];
+    const filename = headers.match(/\bfilename=\"([^\"]*)\"/i)?.[1];
+    if (!disposition || !name) throw new DocumentContractError("INVALID_MULTIPART", "The file part is malformed", "file");
+    parts.push({ name, filename, contentType: headers.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim() || "application/octet-stream", content });
+    offset = next + boundary.length;
+  }
+  const fileParts = parts.filter((part) => part.name === "file" && part.filename !== undefined);
+  if (parts.length !== 1 || fileParts.length !== 1) throw new DocumentContractError("INVALID_MULTIPART", "Upload exactly one file field", "file");
+  return fileParts[0];
+}
+
+async function readUpload(req) {
+  const part = parseMultipart(await readRawBody(req, MAX_UPLOAD_BODY_BYTES), req.headers["content-type"]);
+  return parseGroundingDocument({ filename: part.filename, contentType: part.contentType, bytes: part.content });
 }
 
 async function readBody(req) {
@@ -64,26 +125,30 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const actualProvider = provider || new MockProvider();
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
   const actualTokenProvider = googleTokenProvider || (configuredGoogle.authMode === "adc" ? createAdcTokenProvider() : undefined);
   const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider }) : new FakeModel());
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel });
+  const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
+  const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel });
 
   const server = http.createServer(async (req, res) => {
     try {
-      await route(req, res, { store: actualStore, engine, googleConfig: configuredGoogle });
+      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle });
     } catch (error) {
-      const status = error instanceof ContractError && error.code === "RUN_NOT_FOUND" ? 404 : error instanceof ContractError && ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code) ? 409 : error instanceof ContractError ? 400 : 500;
-      sendError(res, status, error.code || "INTERNAL_ERROR", error instanceof ContractError ? error.message : "The demo server could not complete the request", error.field);
+      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND"].includes(error.code);
+      const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
+      const status = notFound ? 404 : conflict ? 409 : error instanceof ContractError || error instanceof DocumentContractError ? 400 : 500;
+      sendError(res, status, error.code || "INTERNAL_ERROR", error instanceof ContractError || error instanceof DocumentContractError ? error.message : "The Movie-Inator server could not complete the request", error.field);
     }
   });
-  return { server, store: actualStore, engine, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle };
+  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle };
 }
 
-async function route(req, res, { store, engine, googleConfig }) {
+async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
@@ -94,6 +159,17 @@ async function route(req, res, { store, engine, googleConfig }) {
   if (req.method === "GET" && ["/app.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
 
   const parts = url.pathname.split("/").filter(Boolean);
+  if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "documents") return createDocument(req, res, store);
+  if (parts[0] === "v1" && parts[1] === "documents" && parts.length >= 3) {
+    if (req.method === "GET" && parts.length === 3) return getDocument(res, store, parts[2]);
+    if (req.method === "POST" && parts.length === 4 && parts[3] === "briefs") return createGroundedBrief(req, res, store, groundedEngine, parts[2]);
+    if (req.method === "GET" && parts.length === 5 && parts[3] === "citations") return getDocumentCitation(res, store, groundingSource, parts[2], parts[4]);
+  }
+  if (parts[0] === "v1" && parts[1] === "script-briefs" && parts.length >= 3) {
+    if (req.method === "GET" && parts.length === 3) return getGroundedBrief(res, store, parts[2]);
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "events") return streamScriptEvents(req, res, store, parts[2]);
+    if (req.method === "POST" && parts.length === 4 && parts[3] === "retry") return retryGroundedBrief(req, res, store, groundedEngine, parts[2]);
+  }
   if (parts[0] !== "v1") return sendError(res, 404, "NOT_FOUND", "Route not found");
   if (req.method === "POST" && parts.length === 2 && parts[1] === "runs") return createRun(req, res, { store, engine });
   if (parts.length >= 3 && parts[1] === "runs") {
@@ -115,6 +191,77 @@ async function createRun(req, res, { store, engine }) {
   if (result.created) engine.enqueue(result.run.run_id);
   const projection = projectRun(result.run, store);
   return sendJson(res, 202, projection, { location: `/v1/runs/${result.run.run_id}` });
+}
+
+async function createDocument(req, res, store) {
+  const document = await readUpload(req);
+  const result = store.createDocument(document);
+  return sendJson(res, result.created ? 201 : 200, { ...safeDocumentProjection(result.document), duplicate: !result.created, ingestion: { ...result.document.ingestion, stages: ["uploaded", "text extracted", "chunks mapped", "ready"] } });
+}
+
+function getDocument(res, store, documentId) {
+  const document = store.getDocument(documentId);
+  if (!document) throw new ContractError("DOCUMENT_NOT_FOUND", "Document not found");
+  return sendJson(res, 200, safeDocumentProjection(document));
+}
+
+async function createGroundedBrief(req, res, store, groundedEngine, documentId) {
+  const document = store.getDocument(documentId);
+  if (!document) throw new ContractError("DOCUMENT_NOT_FOUND", "Document not found");
+  const request = validateGroundingRequest(await readBody(req));
+  const key = parseIdempotencyKey(req.headers["idempotency-key"]);
+  const result = store.createScriptRun({ documentId, question: request.question, idempotencyHash: hashValue(key), provenance: groundedEngine.provenance() });
+  if (result.created) groundedEngine.enqueue(result.run.run_id);
+  return sendJson(res, 202, projectGroundedRun(result.run, store), { location: `/v1/script-briefs/${result.run.run_id}` });
+}
+
+function getGroundedBrief(res, store, runId) {
+  const run = store.getScriptRun(runId);
+  if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+  return sendJson(res, 200, projectGroundedRun(run, store));
+}
+
+function streamScriptEvents(req, res, store, runId) {
+  const requestUrl = new URL(req.url, "http://localhost");
+  const run = store.getScriptRun(runId);
+  if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+  let cursor = Number(req.headers["last-event-id"] || requestUrl.searchParams.get("cursor") || 0);
+  if (!Number.isSafeInteger(cursor) || cursor < 0) cursor = 0;
+  res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-store", connection: "keep-alive", "x-accel-buffering": "no" });
+  let closed = false;
+  const write = (event) => {
+    if (closed) return;
+    res.write(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    cursor = event.seq;
+  };
+  const flush = () => {
+    if (closed) return;
+    for (const event of store.getScriptEvents(runId, cursor)) write(event);
+    const current = store.getScriptRun(runId);
+    if (current && SCRIPT_TERMINAL.has(current.state)) {
+      clearInterval(poll);
+      clearInterval(heartbeat);
+      setTimeout(() => { if (!closed) { closed = true; res.end(); } }, 30);
+    }
+  };
+  const poll = setInterval(flush, 150);
+  const heartbeat = setInterval(() => { if (!closed) res.write(": heartbeat\n\n"); }, 10_000);
+  req.on("close", () => { closed = true; clearInterval(poll); clearInterval(heartbeat); });
+  flush();
+}
+
+async function retryGroundedBrief(req, res, store, groundedEngine, runId) {
+  requireEmpty(await readBody(req));
+  const child = await groundedEngine.retry(runId, { idempotencyHash: hashValue(`${runId}|retry|${Date.now()}`) });
+  return sendJson(res, 202, projectGroundedRun(child, store), { location: `/v1/script-briefs/${child.run_id}` });
+}
+
+async function getDocumentCitation(res, store, groundingSource, documentId, citationId) {
+  const document = store.getDocument(documentId);
+  if (!document) throw new ContractError("DOCUMENT_NOT_FOUND", "Document not found");
+  const citation = await groundingSource.citation(documentId, citationId);
+  if (!citation) throw new ContractError("DOCUMENT_NOT_FOUND", "Citation not found");
+  return sendJson(res, 200, safeCitationProjection(citation));
 }
 
 function getRun(res, store, runId) {
@@ -235,6 +382,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
   const port = Number(process.env.PORT || 4173);
   const app = createApp({ dataPath: process.env.DATA_PATH });
   app.server.listen(port, "127.0.0.1", () => {
-    console.log(`Gemini Agents mock workflow listening on http://127.0.0.1:${port}`);
+    console.log(`Movie-Inator local workflows listening on http://127.0.0.1:${port}`);
   });
 }

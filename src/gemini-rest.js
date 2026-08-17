@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { ModelGateway } from "./model-gateway.js";
+import { GROUNDED_BRIEF_SCHEMA } from "./grounding-contracts.js";
+import { validateGroundedBriefProposal } from "./grounding.js";
 import {
   DRAFT_SCHEMA,
   PLAN_SCHEMA,
@@ -276,6 +278,16 @@ function validateDraftOutput(value) {
   return value;
 }
 
+function validateGroundedBriefOutput(value, knownCitationIds) {
+  try {
+    validateGroundedBriefProposal(value, new Set(knownCitationIds));
+  } catch (error) {
+    throw new GeminiRestError("schema_invalid", "Google model grounded brief did not match the approved schema", { cause: error });
+  }
+  assertTextSafe(value);
+  return value;
+}
+
 function hashPrompt(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -333,7 +345,8 @@ export class GeminiRestBackend extends ModelGateway {
 
   #requestFor(stage, input) {
     const isPlan = stage === "planner";
-    const schemaVersion = isPlan ? PLAN_SCHEMA : DRAFT_SCHEMA;
+    const isGroundedBrief = stage === "grounded_brief";
+    const schemaVersion = isPlan ? PLAN_SCHEMA : isGroundedBrief ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA;
     const safeInput = isPlan
       ? {
           schema_version: input?.schema_version,
@@ -344,15 +357,23 @@ export class GeminiRestBackend extends ModelGateway {
           time_window: input?.time_window,
           media_context: input?.media_context,
         }
-      : {
-          schema_version: schemaVersion,
-          policy_decision: safePromptObject(input?.policy_decision),
-          evidence_bundle: safePromptObject(input?.evidence_bundle),
-        };
+      : isGroundedBrief
+        ? {
+            schema_version: schemaVersion,
+            question: input?.question,
+            excerpts: Array.isArray(input?.excerpts) ? input.excerpts.slice(0, 6).map((excerpt) => ({ citation_id: excerpt?.citation_id, text: excerpt?.text, source_locations: excerpt?.source_locations })) : [],
+          }
+        : {
+            schema_version: schemaVersion,
+            policy_decision: safePromptObject(input?.policy_decision),
+            evidence_bundle: safePromptObject(input?.evidence_bundle),
+          };
     const prompt = boundedPrompt(safeInput, this.config.maxInputChars);
     const systemInstruction = isPlan
       ? `You are the bounded Request Interpreter. Return exactly one JSON object with only these keys: schema_version, workflow, asset_query, container_query, purpose, time_window, required_evidence, clarification. Use schema_version="${PLAN_SCHEMA}", workflow="audience_data_readiness", required_evidence=["asset","quality","governance","lineage"], and clarification=null unless the request is genuinely missing required information. Use time_window only as an object with start and end strings. Never return readiness_question, asset_hints, or any other key. Never select a provider, tool, endpoint, project, location, model, threshold, credential, or side effect.`
-      : `You are the bounded Brief Writer. Return exactly one JSON object with only these keys: schema_version, headline, summary, summary_evidence_ids, risks, recommendations, cited_evidence_ids. Use schema_version="${DRAFT_SCHEMA}". Each risk must contain only severity (low, medium, or high), kind, text, and evidence_ids. Cite only supplied evidence IDs. Never change policy, select providers or tools, create evidence, or request a side effect.`;
+      : isGroundedBrief
+        ? `You are the bounded Movie-Inator Script Grounding Writer. Return exactly one JSON object with only these keys: schema_version, title, summary, key_points, cited_citation_ids. Use schema_version="${GROUNDED_BRIEF_SCHEMA}". Use only the supplied excerpts. Every key point must cite one or more supplied citation_id values. Never invent a source, citation, filmmaker claim, provider, tool, endpoint, model, threshold, credential, or side effect. Video, audio, image, music, and VFX generation are not available.`
+        : `You are the bounded Brief Writer. Return exactly one JSON object with only these keys: schema_version, headline, summary, summary_evidence_ids, risks, recommendations, cited_evidence_ids. Use schema_version="${DRAFT_SCHEMA}". Each risk must contain only severity (low, medium, or high), kind, text, and evidence_ids. Cite only supplied evidence IDs. Never change policy, select providers or tools, create evidence, or request a side effect.`;
     return {
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -370,7 +391,7 @@ export class GeminiRestBackend extends ModelGateway {
     const metrics = this.#budget(context.run_id, repair);
     const request = this.#requestFor(stage, input);
     const promptText = stableStringify(request.contents);
-    const schemaHash = hashValue(stage === "planner" ? PLAN_SCHEMA : DRAFT_SCHEMA);
+    const schemaHash = hashValue(stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA);
     const started = new this.clock();
     let response;
     try {
@@ -409,16 +430,17 @@ export class GeminiRestBackend extends ModelGateway {
         context.signal?.removeEventListener("abort", abortParent);
       }
       const parsed = parseResponse(response, this.config.maxOutputChars);
-      const value = stage === "planner" ? validatePlanOutput(parsed.value) : validateDraftOutput(parsed.value);
+      const knownCitationIds = stage === "grounded_brief" ? (input?.excerpts || []).map((excerpt) => excerpt?.citation_id).filter(Boolean) : [];
+      const value = stage === "planner" ? validatePlanOutput(parsed.value) : stage === "grounded_brief" ? validateGroundedBriefOutput(parsed.value, knownCitationIds) : validateDraftOutput(parsed.value);
       const elapsed = Math.max(0, new this.clock() - started);
       this.lastProvenance = {
         backend: "google_rest",
         model_id: this.config.modelId,
         location: this.config.location,
         api_version: this.config.apiVersion,
-        prompt_id: stage === "planner" ? "request-interpreter@1" : "brief-writer@1",
+        prompt_id: stage === "planner" ? "request-interpreter@1" : stage === "grounded_brief" ? "movie-inator-script-grounding@1" : "brief-writer@1",
         prompt_hash: hashPrompt(promptText),
-        schema_version: stage === "planner" ? PLAN_SCHEMA : DRAFT_SCHEMA,
+        schema_version: stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA,
         schema_hash: `sha256:${schemaHash}`,
         generation_config_hash: `sha256:${hashValue(request.generationConfig)}`,
         metrics: {
@@ -442,10 +464,10 @@ export class GeminiRestBackend extends ModelGateway {
         model_id: this.config.modelId || null,
         location: this.config.location || null,
         api_version: this.config.apiVersion,
-        prompt_id: stage === "planner" ? "request-interpreter@1" : "brief-writer@1",
+        prompt_id: stage === "planner" ? "request-interpreter@1" : stage === "grounded_brief" ? "movie-inator-script-grounding@1" : "brief-writer@1",
         prompt_hash: null,
-        schema_version: stage === "planner" ? PLAN_SCHEMA : DRAFT_SCHEMA,
-        schema_hash: `sha256:${hashValue(stage === "planner" ? PLAN_SCHEMA : DRAFT_SCHEMA)}`,
+        schema_version: stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA,
+        schema_hash: `sha256:${hashValue(stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA)}`,
         generation_config_hash: `sha256:${hashValue({ maxOutputTokens: this.config.maxOutputTokens, temperature: this.config.temperature })}`,
         metrics: { call_count: Math.min(metricsNow.callCount, this.config.maxCallsPerRun), repair_count: Math.min(metricsNow.repairCount, this.config.maxRepairsPerRun), latency_ms: Math.min(elapsed, this.config.timeoutMs), input_chars: 0, output_chars: 0, response_hash: null, error_class: mapped.code },
       };
@@ -459,6 +481,10 @@ export class GeminiRestBackend extends ModelGateway {
 
   async draft(input, context = {}) {
     return this.#generate("writer", input, context);
+  }
+
+  async groundedBrief(input, context = {}) {
+    return this.#generate("grounded_brief", input, context);
   }
 
   async write(planOrInput, evidenceBundleOrContext = {}, policyDecision, context) {

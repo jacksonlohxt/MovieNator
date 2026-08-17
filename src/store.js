@@ -18,7 +18,7 @@ function clone(value) {
 }
 
 function defaultState() {
-  return { version: 1, runs: {}, events: {}, evidence: {}, idempotency: {} };
+  return { version: 2, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {} };
 }
 
 /** Durable, append-only local store used by the mock worker and local browser slice. */
@@ -33,8 +33,8 @@ export class FileStore {
   #read() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      if (!parsed || parsed.version !== 1) return defaultState();
-      return { ...defaultState(), ...parsed };
+      if (!parsed || ![1, 2].includes(parsed.version)) return defaultState();
+      return { ...defaultState(), ...parsed, version: 2, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {} };
     } catch {
       return defaultState();
     }
@@ -195,6 +195,119 @@ export class FileStore {
     };
     run.updated_at = nowIso(this.clock);
     this.state.runs[runId] = run;
+    this.#persist();
+    return clone(run);
+  }
+
+  createDocument(document) {
+    const existing = this.state.documents[document.document_id];
+    if (existing) return { document: clone(existing), created: false };
+    this.state.documents[document.document_id] = clone(document);
+    this.#persist();
+    return { document: clone(document), created: true };
+  }
+
+  getDocument(documentId) {
+    return clone(this.state.documents[documentId]);
+  }
+
+  createScriptRun({ documentId, question, idempotencyHash, parentRunId = null, retryCount = 0, provenance }) {
+    const existing = this.state.scriptIdempotency[idempotencyHash];
+    if (existing) {
+      if (existing.document_id !== documentId || existing.question !== question) throw new ContractError("IDEMPOTENCY_KEY_REUSED", "Idempotency-Key was already used for a different grounded brief");
+      return { run: clone(this.state.scriptRuns[existing.run_id]), created: false };
+    }
+    if (!this.state.documents[documentId]) throw new ContractError("DOCUMENT_NOT_FOUND", "Document not found");
+    const runId = safeId("script_run");
+    const now = nowIso(this.clock);
+    const run = {
+      run_id: runId,
+      schema_version: "grounded-brief-run@1",
+      workflow: "grounded_script_brief",
+      document_id: documentId,
+      question,
+      parent_run_id: parentRunId,
+      retry_count: retryCount,
+      state: "accepted",
+      phase: "accepted",
+      created_at: now,
+      updated_at: now,
+      provenance: clone(provenance),
+      progress: { stage: "accepted", selected_excerpt_count: 0 },
+      result: null,
+      error: null,
+      citation_ids: [],
+    };
+    this.state.scriptRuns[runId] = run;
+    this.state.scriptEvents[runId] = [];
+    this.state.scriptIdempotency[idempotencyHash] = { document_id: documentId, question, run_id: runId, created_at: now };
+    this.#persist();
+    this.appendScriptEvent(runId, "script.accepted", "intake", "accepted", "Grounded brief accepted", {});
+    return { run: clone(run), created: true };
+  }
+
+  getScriptRun(runId) {
+    return clone(this.state.scriptRuns[runId]);
+  }
+
+  getScriptEvents(runId, after = 0) {
+    return clone((this.state.scriptEvents[runId] || []).filter((event) => event.seq > after));
+  }
+
+  transitionScriptRun(runId, state, patch = {}) {
+    const run = this.state.scriptRuns[runId];
+    if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+    const terminal = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
+    if (terminal.has(run.state) && run.state !== state) return clone(run);
+    const next = { ...run, ...clone(patch), state, updated_at: nowIso(this.clock) };
+    this.state.scriptRuns[runId] = next;
+    this.#persist();
+    return clone(next);
+  }
+
+  appendScriptEvent(runId, type, step, state, display, payload = {}) {
+    const run = this.state.scriptRuns[runId];
+    if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+    const events = this.state.scriptEvents[runId] || (this.state.scriptEvents[runId] = []);
+    if (events.length >= MAX_EVENTS_PER_RUN) return clone(events.at(-1));
+    const event = {
+      schema_version: EVENT_SCHEMA,
+      run_id: runId,
+      seq: events.length + 1,
+      type,
+      step,
+      state,
+      display: String(display).slice(0, 240),
+      payload: sanitizePayload(payload),
+      occurred_at: nowIso(this.clock),
+    };
+    events.push(event);
+    this.#persist();
+    return clone(event);
+  }
+
+  addScriptResult(runId, result) {
+    const run = this.state.scriptRuns[runId];
+    if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+    run.result = clone(result);
+    run.citation_ids = (result.citations || []).map((citation) => citation.citation_id);
+    run.state = result.status === "grounding_gap" ? "grounding_gap" : "succeeded";
+    run.phase = run.state;
+    run.updated_at = nowIso(this.clock);
+    this.state.scriptRuns[runId] = run;
+    this.#persist();
+    return clone(run);
+  }
+
+  markScriptFailed(runId, error) {
+    const run = this.state.scriptRuns[runId];
+    if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+    if (["succeeded", "grounding_gap", "failed", "canceled"].includes(run.state)) return clone(run);
+    run.state = "failed";
+    run.phase = "failed";
+    run.error = { class: String(error.class || "failed").slice(0, 60), message: String(error.message || "The grounded brief could not be completed").slice(0, 300), recoverable: Boolean(error.recoverable) };
+    run.updated_at = nowIso(this.clock);
+    this.state.scriptRuns[runId] = run;
     this.#persist();
     return clone(run);
   }
