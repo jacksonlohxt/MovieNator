@@ -2,6 +2,8 @@
 
 Movie-Inator is a web-first product for filmmaker launch planning and grounded script work. It turns one question about one audience or campaign data asset into an inspectable readiness brief, and separately grounds bounded PDF or plain-text script sources into cited excerpts. It is a decision and evidence surface, not a generic autonomous-agent platform.
 
+Movie-Inator is the exact product display name, with `movie-inator` as the machine-safe identifier for new package and browser-state keys. Existing run IDs, API routes, workflow IDs, and durable records remain compatible during the rename.
+
 ## Explicit workflows
 
 ### Filmmaker script / document grounding

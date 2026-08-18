@@ -1,4 +1,4 @@
-# Gemini Agents product requirements document
+# Movie-Inator product requirements document
 
 **Status:** implementation-ready recommendation, pending Captain decisions
 **Scope:** documentation only. This document authorizes no Google, IBM, or partner access and no side effects.
@@ -444,7 +444,7 @@ None of these labels means legal approval, privacy certification, rights clearan
 
 The **field of vision** of a role is the smallest set of context, artifacts, operations, and authority it may inspect or change to produce one user-relevant outcome. It is a product contract, not decorative prompt text. A role must be narrow enough that a reviewer can say what it saw, what it returned, what it could not do, and why its handoff was safe.
 
-The mature role roster and its established names and responsibilities remain the default. This section binds those roles to the Gemini Agents context, bounded artifacts, evidence, policy, and handoff contracts. It does not rename or split a role merely to make the product look more sophisticated. `Request Interpreter` is the optional contextual form of the existing Planner or Intent Agent responsibility. Asset Resolution remains a named sub-step and artifact even when it is implemented inside the Evidence Coordinator.
+The mature role roster and its established names and responsibilities remain the default. This section binds those roles to the Movie-Inator context, bounded artifacts, evidence, policy, and handoff contracts. It does not rename or split a role merely to make the product look more sophisticated. `Request Interpreter` is the optional contextual form of the existing Planner or Intent Agent responsibility. Asset Resolution remains a named sub-step and artifact even when it is implemented inside the Evidence Coordinator.
 
 #### Required role contract
 
@@ -915,7 +915,7 @@ References such as `[MRC]`, `[TIV2]`, `[MR]`, `[FS]`, `[TP]`, and `[MI]` point t
 - WAI-ARIA dialog pattern: <https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/>
 - Playwright Test: <https://playwright.dev/docs/intro>
 
-Partner alternatives and market-pattern URLs are retained in the source registers of `[MRC]`, `[MR]`, and `[MI]`, including Parallel, ClickHouse, Grafana, Replit, Google Shopping, AWS Rufus/Alexa for Shopping, Dalet, Avid, Cloudinary, OpenAI orchestration/approval, and LangGraph workflows. No source above establishes that Gemini Agents has access to any of those services.
+Partner alternatives and market-pattern URLs are retained in the source registers of `[MRC]`, `[MR]`, and `[MI]`, including Parallel, ClickHouse, Grafana, Replit, Google Shopping, AWS Rufus/Alexa for Shopping, Dalet, Avid, Cloudinary, OpenAI orchestration/approval, and LangGraph workflows. No source above establishes that Movie-Inator has access to any of those services.
 
 ### Research interpretation and traceability notes
 
