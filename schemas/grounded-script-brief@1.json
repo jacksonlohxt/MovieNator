@@ -1,0 +1,25 @@
+{
+  "$id": "grounded-script-brief@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "title", "summary", "key_points", "cited_citation_ids"],
+  "properties": {
+    "schema_version": {"const": "grounded-script-brief@1"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 180},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "key_points": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "citation_ids"],
+        "properties": {
+          "text": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "citation_ids": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 160}}
+        }
+      }
+    },
+    "cited_citation_ids": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 160}}
+  }
+}

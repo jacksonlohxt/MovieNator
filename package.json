@@ -1,0 +1,20 @@
+{
+  "name": "movie-inator",
+  "version": "1.0.0",
+  "private": true,
+  "types": "src/contracts.d.ts",
+  "description": "Movie-Inator grounded filmmaker workflows and mock-safe audience readiness",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "start:google": "sh -c 'set -a; if [ -f .env.local ]; then . ./.env.local; fi; set +a; exec node src/server.js'",
+    "test": "node --test",
+    "check": "node --check src/contracts.js && node --check src/model-gateway.js && node --check src/documents.js && node --check src/grounding-contracts.js && node --check src/grounding.js && node --check src/grounding-engine.js && node --check src/gemini-rest.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node --check web/app.js && node --check web/session-state.js && node src/check-schemas.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "google-auth-library": "^11.0.2"
+  }
+}

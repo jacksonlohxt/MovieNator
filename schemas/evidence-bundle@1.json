@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evidence-bundle@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "asset", "branches", "coverage"],
+  "properties": {
+    "schema_version": { "const": "evidence-bundle@1" },
+    "asset": { "type": "object", "additionalProperties": false, "required": ["status", "evidence_ids"], "properties": { "status": { "type": "string" }, "asset_id": { "type": "string", "maxLength": 200 }, "display_name": { "type": "string", "maxLength": 240 }, "evidence_ids": { "type": "array", "maxItems": 4, "items": { "type": "string", "maxLength": 160 } } } },
+    "branches": { "type": "object", "additionalProperties": false, "required": ["quality", "governance", "lineage"], "properties": { "quality": { "$ref": "#/$defs/branch" }, "governance": { "$ref": "#/$defs/branch" }, "lineage": { "$ref": "#/$defs/branch" } } },
+    "coverage": { "type": "object", "additionalProperties": false, "required": ["required", "complete", "missing", "denied", "timed_out"], "properties": { "required": { "type": "array", "items": { "type": "string" } }, "complete": { "type": "array", "items": { "type": "string" } }, "missing": { "type": "array", "items": { "type": "string" } }, "denied": { "type": "array", "items": { "type": "string" } }, "timed_out": { "type": "array", "items": { "type": "string" } }, "stale": { "type": "array", "items": { "type": "string" } }, "unavailable": { "type": "array", "items": { "type": "string" } }, "invalid": { "type": "array", "items": { "type": "string" } } } }
+  },
+  "$defs": { "branch": { "type": "object", "additionalProperties": false, "required": ["status", "evidence_ids"], "properties": { "status": { "type": "string" }, "evidence_ids": { "type": "array", "items": { "type": "string", "maxLength": 160 } } } } }
+}
