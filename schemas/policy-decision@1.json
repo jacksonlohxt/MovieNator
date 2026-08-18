@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "policy-decision@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision", "policy_version", "reasons", "hard_stop"],
+  "properties": {
+    "schema_version": { "const": "policy-decision@1" },
+    "decision": { "enum": ["READY", "REVIEW", "BLOCKED", "UNKNOWN"] },
+    "policy_version": { "type": "string", "maxLength": 80 },
+    "reasons": { "type": "array", "maxItems": 12, "items": { "type": "object", "additionalProperties": false, "required": ["code", "evidence_ids"], "properties": { "code": { "type": "string", "maxLength": 100 }, "evidence_ids": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 160 } } } } },
+    "hard_stop": { "type": "boolean" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "brief-draft@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "headline", "summary", "summary_evidence_ids", "risks", "recommendations", "cited_evidence_ids"],
+  "properties": {
+    "schema_version": { "const": "brief-draft@1" },
+    "headline": { "type": "string", "minLength": 1, "maxLength": 180 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 1200 },
+    "summary_evidence_ids": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 160 } },
+    "risks": { "type": "array", "maxItems": 5, "items": { "type": "object", "additionalProperties": false, "required": ["severity", "kind", "text", "evidence_ids"], "properties": { "severity": { "enum": ["low", "medium", "high"] }, "kind": { "type": "string", "maxLength": 80 }, "text": { "type": "string", "maxLength": 600 }, "evidence_ids": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 160 } } } } },
+    "recommendations": { "type": "array", "maxItems": 3, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+    "cited_evidence_ids": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 160 } }
+  }
+}

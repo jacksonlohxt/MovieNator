@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f8f5">
+    <title>Movie-Inator - Evidence-backed filmmaker workflows</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="brand-lockup" aria-label="Movie-Inator home">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span>Movie-Inator</span>
+      </div>
+      <div class="header-meta">
+        <span class="mode-dot" aria-hidden="true"></span>
+        <span>Mock workspace</span>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="workflow-switch" role="group" aria-label="Choose a Movie-Inator workflow">
+          <button class="workflow-switch-button is-selected" type="button" data-workflow="readiness" aria-pressed="true">Audience data readiness</button>
+          <button class="workflow-switch-button" type="button" data-workflow="grounding" aria-pressed="false">Script / document grounding</button>
+        </div>
+        <p id="hero-eyebrow" class="eyebrow">Audience Data Readiness Brief</p>
+        <h1 id="page-title">Know what your launch brief can support.</h1>
+        <p id="hero-copy" class="hero-copy">Ask one focused question about one audience asset. Movie-Inator gathers bounded demo evidence, applies a deterministic policy, and shows what a person should check next.</p>
+        <div class="trust-strip" role="note">
+          <span class="trust-item"><span class="trust-icon" aria-hidden="true">◈</span><strong>Demo evidence</strong><span>synthetic and deterministic</span></span>
+          <span class="trust-divider" aria-hidden="true"></span>
+          <span class="trust-item"><span class="trust-icon" aria-hidden="true">✓</span><strong>No partner data is changed</strong></span>
+        </div>
+      </section>
+
+      <nav class="journey" data-workflow-surface="readiness" aria-label="Audience data readiness journey">
+        <ol>
+          <li class="journey-step is-current" data-step="ask"><span>01</span> Ask</li>
+          <li class="journey-line" aria-hidden="true"></li>
+          <li class="journey-step" data-step="clarify"><span>02</span> Clarify</li>
+          <li class="journey-line" aria-hidden="true"></li>
+          <li class="journey-step" data-step="run"><span>03</span> Role run</li>
+          <li class="journey-line" aria-hidden="true"></li>
+          <li class="journey-step" data-step="decision"><span>04</span> Decision</li>
+          <li class="journey-line" aria-hidden="true"></li>
+          <li class="journey-step" data-step="evidence"><span>05</span> Evidence</li>
+        </ol>
+      </nav>
+
+      <section id="ask-section" data-workflow-surface="readiness" class="panel ask-panel" aria-labelledby="ask-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Start with the question</p>
+            <h2 id="ask-title">What do you need to know?</h2>
+          </div>
+          <span class="step-badge">01 / Ask</span>
+        </div>
+        <form id="run-form" novalidate>
+          <div class="field-group">
+            <label for="problem-statement">Problem statement <span class="required">Required</span></label>
+            <textarea id="problem-statement" name="problem_statement" rows="4" maxlength="8000" required aria-describedby="problem-help problem-error" placeholder="Before the Season 2 trailer launch, is the audience engagement dataset ready for a marketing brief?"></textarea>
+            <div class="field-footer"><span id="problem-help" class="field-help">Describe one planning purpose and one audience or campaign asset.</span><span id="problem-count" class="character-count">0 / 8,000</span></div>
+            <p id="problem-error" class="field-error" role="alert" hidden>Tell us what you need to know.</p>
+          </div>
+
+          <div class="examples" aria-labelledby="examples-title">
+            <div class="examples-heading"><span id="examples-title">Try a demo path</span><span class="examples-note">fill only</span></div>
+            <div class="example-grid">
+              <button class="example-card" type="button" data-example="pass"><span class="example-icon example-icon-ready" aria-hidden="true">✓</span><span><strong>Clear pass</strong><small>Complete checks</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+              <button class="example-card" type="button" data-example="review"><span class="example-icon example-icon-review" aria-hidden="true">!</span><span><strong>Needs review</strong><small>Governance gap</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+              <button class="example-card" type="button" data-example="clarify"><span class="example-icon example-icon-clarify" aria-hidden="true">?</span><span><strong>Needs clarity</strong><small>Multiple assets</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+              <button class="example-card" type="button" data-example="unknown"><span class="example-icon example-icon-unknown" aria-hidden="true">~</span><span><strong>Unknown</strong><small>No matching asset</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+              <button class="example-card" type="button" data-example="recovery"><span class="example-icon example-icon-recovery" aria-hidden="true">↻</span><span><strong>Recovery</strong><small>Safe retry</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+            </div>
+          </div>
+
+          <details class="optional-details">
+            <summary><span>Optional context</span><span class="summary-hint">Asset, workspace, purpose, time window</span></summary>
+            <div class="optional-grid">
+              <div class="field-group"><label for="asset-hint">Asset hint</label><input id="asset-hint" name="asset_hint" maxlength="200" placeholder="season_2_audience_engagement"><span class="field-help">A hint, not an asset authority.</span></div>
+              <div class="field-group"><label for="container-hint">Workspace hint</label><input id="container-hint" name="container_hint" maxlength="200" placeholder="Demo Media Workspace"></div>
+              <div class="field-group"><label for="purpose">Planning purpose</label><input id="purpose" name="purpose" maxlength="120" placeholder="marketing planning"></div>
+              <div class="field-group"><label for="show-or-campaign">Show or campaign</label><input id="show-or-campaign" name="show_or_campaign" maxlength="200" placeholder="Season 2 trailer launch"></div>
+              <div class="field-group"><label for="asset-type">Asset type</label><input id="asset-type" name="asset_type" maxlength="200" placeholder="audience engagement"></div>
+              <div class="field-group"><label for="time-start">Time window</label><div class="date-row"><input id="time-start" name="time_start" type="date" aria-label="Time window start"><span aria-hidden="true">to</span><input id="time-end" name="time_end" type="date" aria-label="Time window end"></div></div>
+            </div>
+          </details>
+
+          <div class="form-action-row">
+            <p class="form-disclosure">Your question stays in this local demo. No credentials or external calls are needed.</p>
+            <button id="submit-run" class="button button-primary" type="submit"><span>Run demo brief</span><span aria-hidden="true">→</span></button>
+          </div>
+        </form>
+      </section>
+
+      <section id="clarify-section" data-workflow-surface="readiness" class="panel state-panel" aria-labelledby="clarify-title" hidden>
+        <div class="section-heading"><div><p class="section-kicker">One choice before evidence</p><h2 id="clarify-title">Which asset should we assess?</h2></div><span class="step-badge">02 / Clarify</span></div>
+        <p id="clarify-question" class="state-copy">We found more than one safe demo match. Choose one to create a linked child run. The original remains unchanged.</p>
+        <div id="candidate-list" class="candidate-list"></div>
+      </section>
+
+      <section id="run-section" data-workflow-surface="readiness" class="panel state-panel" aria-labelledby="run-title" aria-busy="false" hidden>
+        <div class="section-heading"><div><p class="section-kicker">Bounded role run</p><h2 id="run-title">Working through the brief</h2></div><span class="step-badge">03 / Role run</span></div>
+        <div class="run-status-row"><div><span id="run-status-icon" class="status-icon status-icon-running" aria-hidden="true">◌</span><span id="run-phase">Accepted</span></div><span id="run-id" class="run-id"></span></div>
+        <p id="run-elapsed" class="run-elapsed">Elapsed 0s</p>
+        <div id="run-live" class="sr-only" role="status" aria-live="polite"></div>
+        <ol id="progress-list" class="progress-list" aria-label="Run progress"></ol>
+        <div class="run-footer"><span id="attempt-label">Bounded retries: 0 / 2</span><button id="cancel-run" class="button button-secondary" type="button">Cancel run</button></div>
+      </section>
+
+      <section id="result-section" data-workflow-surface="readiness" class="panel result-panel" aria-labelledby="result-title" hidden>
+        <div class="section-heading"><div><p class="section-kicker">Decision from code</p><h2 id="result-title">Your readiness brief</h2></div><span class="step-badge">04 / Decision</span></div>
+        <div id="decision-card" class="decision-card"></div>
+        <p id="resolved-asset" class="resolved-asset"></p>
+        <div id="result-limitations" class="limitation-note"></div>
+        <div class="result-grid">
+          <div class="result-column"><h3>What the checks show</h3><div id="checks-list" class="check-list"></div></div>
+          <div class="result-column"><h3>Visible gaps</h3><div id="gaps-list" class="gaps-list"></div></div>
+        </div>
+        <div class="recommendations-block"><div><p class="section-kicker">Person-led next checks</p><h3>Three useful next moves</h3></div><ol id="recommendations-list" class="recommendations-list"></ol></div>
+        <div class="result-meta"><span id="policy-version"></span><span id="result-provenance"></span></div>
+      </section>
+
+      <section id="recovery-section" data-workflow-surface="readiness" class="panel recovery-panel" aria-labelledby="recovery-title" hidden>
+        <div class="recovery-accent" aria-hidden="true"></div>
+        <div class="section-heading"><div><p class="section-kicker">Nothing was hidden</p><h2 id="recovery-title">This run needs a safe recovery</h2></div><span class="step-badge">Recovery</span></div>
+        <p id="recovery-message" class="state-copy"></p>
+        <div class="recovery-details"><span id="recovery-provenance"></span><span id="recovery-original"></span></div>
+        <button id="retry-run" class="button button-primary" type="button">Retry as a new run <span aria-hidden="true">↻</span></button>
+        <p class="recovery-footnote">The original run and its provenance stay immutable. The retry never switches providers silently.</p>
+      </section>
+
+      <section class="role-map panel" data-workflow-surface="readiness" aria-labelledby="role-map-title">
+        <details>
+          <summary><span><span class="section-kicker">On demand</span><strong id="role-map-title">See the bounded handoffs</strong></span><span class="summary-hint">No swarm, no hidden thoughts</span></summary>
+          <div class="role-map-grid">
+            <div class="role-node"><span class="role-node-number">01</span><strong>Intake</strong><small>RunRequest</small></div><span class="handoff" aria-hidden="true">→</span>
+            <div class="role-node"><span class="role-node-number">02</span><strong>Evidence</strong><small>Quality · Governance · Lineage</small></div><span class="handoff" aria-hidden="true">→</span>
+            <div class="role-node policy-node"><span class="role-node-number">03</span><strong>Policy Gate</strong><small>Only status authority</small></div><span class="handoff" aria-hidden="true">→</span>
+            <div class="role-node"><span class="role-node-number">04</span><strong>Verifier</strong><small>Safe projection</small></div>
+          </div>
+        </details>
+      </section>
+      <section id="grounding-section" class="panel grounding-panel" data-workflow-surface="grounding" aria-labelledby="grounding-title" hidden>
+        <div class="section-heading"><div><p class="section-kicker">Filmmaker workflow</p><h2 id="grounding-title">Ground a script or document brief.</h2></div><span class="step-badge">Script / document</span></div>
+        <p class="state-copy">Upload one bounded PDF or plain-text script. Movie-Inator selects local excerpts, keeps their page or section locations, and returns only claims linked to those excerpts. No approval screen is required for this read-only MVP flow.</p>
+        <div class="grounding-trust" role="note"><strong>Local deterministic grounding</strong><span>Files stay in this Movie-Inator instance. No external grounding store is used.</span></div>
+        <form id="document-form" class="document-form" novalidate>
+          <div class="field-group"><label for="script-file">Script or document <span class="required">PDF or TXT</span></label><input id="script-file" name="file" type="file" accept="application/pdf,text/plain,.pdf,.txt" required aria-describedby="document-help document-error"><span id="document-help" class="field-help">Maximum 5 MiB. Use a safe filename. Source text is bounded and normalized before grounding.</span><p id="document-error" class="field-error" role="alert" hidden></p></div>
+          <button id="upload-document" class="button button-primary" type="submit"><span>Upload source</span><span aria-hidden="true">↑</span></button>
+        </form>
+        <div id="document-progress" class="grounding-progress" role="status" aria-live="polite" hidden><strong id="document-progress-title">Ingesting source</strong><span id="document-progress-detail">Uploading, extracting text, mapping source locations, and chunking.</span></div>
+        <div id="document-summary" class="document-summary" hidden></div>
+        <form id="grounding-form" class="grounding-form" novalidate hidden>
+          <div class="field-group"><label for="grounding-question">What should the source brief answer?</label><textarea id="grounding-question" rows="3" maxlength="1000" required placeholder="What are the story beats and character motivations in the opening sequence?"></textarea><span class="field-help">The model receives only selected excerpts and their citation IDs.</span><p id="grounding-error" class="field-error" role="alert" hidden></p></div>
+          <button id="submit-grounding" class="button button-primary" type="submit"><span>Ground script brief</span><span aria-hidden="true">→</span></button>
+        </form>
+        <div id="grounding-run" class="grounding-run" aria-live="polite" hidden><div class="run-status-row"><div><span id="grounding-status-icon" class="status-icon status-icon-running" aria-hidden="true">◌</span><span id="grounding-phase">Accepted</span></div><span id="grounding-run-id" class="run-id"></span></div><ol id="grounding-progress-list" class="progress-list" aria-label="Script grounding progress"></ol></div>
+        <article id="grounding-result" class="grounding-result" aria-labelledby="grounding-result-title" hidden><div class="result-heading"><p class="section-kicker">Cited source brief</p><h3 id="grounding-result-title">Grounded script brief</h3></div><p id="grounding-result-summary" class="grounding-result-summary"></p><div id="grounding-points" class="grounding-points"></div><div><p class="section-kicker">Source citations</p><div id="grounding-citations" class="grounding-citations"></div></div><p id="grounding-limitations" class="limitation-note"></p></article>
+      </section>
+    </main>
+
+    <div id="evidence-drawer" class="drawer-backdrop" hidden>
+      <section class="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="evidence-title" tabindex="-1">
+        <div class="drawer-header"><div><p class="section-kicker">Inspectable record</p><h2 id="evidence-title">Evidence</h2></div><button id="close-evidence" class="icon-button" type="button" aria-label="Close evidence">×</button></div>
+        <div id="evidence-content" class="evidence-content"></div>
+      </section>
+    </div>
+    <footer class="site-footer"><span>Movie-Inator filmmaker workflows</span><span>Read-only MVP · No publishing or approval action</span></footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
