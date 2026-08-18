@@ -24,6 +24,9 @@ import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
 import { GeminiRestBackend, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 import { createAdcTokenProvider } from "./google-auth.js";
 import { FileStore } from "./store.js";
+import { createDefaultPartnerRegistry } from "./partner-defaults.js";
+import { PartnerOperationRunner } from "./partner-runtime.js";
+import { PartnerContractError } from "./partner-contracts.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
@@ -31,6 +34,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 const MAX_UPLOAD_BODY_BYTES = MAX_DOCUMENT_BYTES + 128 * 1024;
 const TERMINAL = new Set(["needs_input", "succeeded", "canceled", "expired", "failed"]);
 const SCRIPT_TERMINAL = new Set(["succeeded", "grounding_gap", "canceled", "failed"]);
+const PARTNER_NOT_FOUND_CODES = new Set(["UNKNOWN_PROVIDER", "PARTNER_NOT_FOUND"]);
 const SECURITY_HEADERS = Object.freeze({
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
@@ -125,7 +129,7 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource, partnerRegistry, partnerRuntime } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const actualProvider = provider || new MockProvider();
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
@@ -134,31 +138,41 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel });
   const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
   const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel });
+  const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry();
+  const actualPartnerRuntime = partnerRuntime || new PartnerOperationRunner({ registry: actualPartnerRegistry });
 
   const server = http.createServer(async (req, res) => {
     try {
-      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle });
+      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, partnerRuntime: actualPartnerRuntime });
     } catch (error) {
-      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND"].includes(error.code);
+      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
       const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
-      const status = notFound ? 404 : conflict ? 409 : error instanceof ContractError || error instanceof DocumentContractError ? 400 : 500;
-      sendError(res, status, error.code || "INTERNAL_ERROR", error instanceof ContractError || error instanceof DocumentContractError ? error.message : "The Movie-Inator server could not complete the request", error.field);
+      const safeContractError = error instanceof ContractError || error instanceof DocumentContractError || error instanceof PartnerContractError;
+      const status = notFound ? 404 : conflict ? 409 : safeContractError ? 400 : 500;
+      sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : "The Movie-Inator server could not complete the request", error.field);
     }
   });
-  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle };
+  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime };
 }
 
-async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig }) {
+async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, partnerRuntime }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
     const google = engine.model?.readiness?.() || { state: googleConfig.readiness, configured: googleConfig.configured, missing: [...googleConfig.missing] };
-    return sendJson(res, 200, { ok: true, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", provider: "Demo evidence", google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend });
+    return sendJson(res, 200, { ok: true, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend });
   }
   if (req.method === "GET" && url.pathname === "/") return sendStatic(res, "index.html", "text/html; charset=utf-8");
   if (req.method === "GET" && ["/app.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
 
   const parts = url.pathname.split("/").filter(Boolean);
+  if (req.method === "GET" && parts.length === 2 && parts[0] === "v1" && parts[1] === "partners") return listPartners(res, partnerRuntime);
+  if (parts[0] === "v1" && parts[1] === "partners" && parts.length >= 3) {
+    const providerId = decodeURIComponent(parts[2]);
+    if (req.method === "GET" && parts.length === 3) return getPartner(res, partnerRuntime, providerId);
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "readiness") return getPartnerReadiness(res, partnerRuntime, providerId);
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "events") return getPartnerEvents(res, partnerRuntime, providerId);
+  }
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "documents") return createDocument(req, res, store);
   if (parts[0] === "v1" && parts[1] === "documents" && parts.length >= 3) {
     if (req.method === "GET" && parts.length === 3) return getDocument(res, store, parts[2]);
@@ -171,10 +185,10 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
     if (req.method === "POST" && parts.length === 4 && parts[3] === "retry") return retryGroundedBrief(req, res, store, groundedEngine, parts[2]);
   }
   if (parts[0] !== "v1") return sendError(res, 404, "NOT_FOUND", "Route not found");
-  if (req.method === "POST" && parts.length === 2 && parts[1] === "runs") return createRun(req, res, { store, engine });
+  if (req.method === "POST" && parts.length === 2 && parts[1] === "runs") return createRun(req, res, { store, engine, partnerRuntime });
   if (parts.length >= 3 && parts[1] === "runs") {
     const runId = parts[2];
-    if (req.method === "GET" && parts.length === 3) return getRun(res, store, runId);
+    if (req.method === "GET" && parts.length === 3) return getRun(res, store, runId, partnerRuntime);
     if (req.method === "GET" && parts.length === 4 && parts[3] === "events") return streamEvents(req, res, store, runId);
     if (req.method === "POST" && parts.length === 4 && parts[3] === "cancel") return cancelRun(req, res, store, engine, runId);
     if (req.method === "POST" && parts.length === 4 && parts[3] === "retry") return retryRun(req, res, store, engine, runId);
@@ -184,12 +198,12 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   return sendError(res, 404, "NOT_FOUND", "Route not found");
 }
 
-async function createRun(req, res, { store, engine }) {
+async function createRun(req, res, { store, engine, partnerRuntime }) {
   const request = parseRunRequest(await readBody(req));
   const key = parseIdempotencyKey(req.headers["idempotency-key"]);
   const result = store.createRun({ request, requestHash: requestHash(request), idempotencyHash: hashValue(key), provenance: engine.provenance });
   if (result.created) engine.enqueue(result.run.run_id);
-  const projection = projectRun(result.run, store);
+  const projection = { ...projectRun(result.run, store), partner_status: partnerRuntime.projections() };
   return sendJson(res, 202, projection, { location: `/v1/runs/${result.run.run_id}` });
 }
 
@@ -264,10 +278,29 @@ async function getDocumentCitation(res, store, groundingSource, documentId, cita
   return sendJson(res, 200, safeCitationProjection(citation));
 }
 
-function getRun(res, store, runId) {
+function listPartners(res, partnerRuntime) {
+  return sendJson(res, 200, { schema_version: "partner-registry-projection@1", providers: partnerRuntime.projections(), limitation: "Only explicitly registered read-only partner metadata is shown. No raw payloads or credentials are returned." });
+}
+
+function getPartner(res, partnerRuntime, providerId) {
+  const projection = partnerRuntime.projections().find((item) => item.provider?.provider_id === providerId);
+  if (!projection) throw new ContractError("PARTNER_NOT_FOUND", "Partner provider not found");
+  return sendJson(res, 200, projection);
+}
+
+function getPartnerReadiness(res, partnerRuntime, providerId) {
+  return sendJson(res, 200, partnerRuntime.readiness(providerId));
+}
+
+function getPartnerEvents(res, partnerRuntime, providerId) {
+  if (!partnerRuntime.registry.has(providerId)) throw new ContractError("PARTNER_NOT_FOUND", "Partner provider not found");
+  return sendJson(res, 200, { schema_version: "partner-events-projection@1", provider_id: providerId, events: partnerRuntime.eventsFor(providerId), limitation: "Events are redacted operational evidence only." });
+}
+
+function getRun(res, store, runId, partnerRuntime) {
   const run = store.getRun(runId);
   if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
-  return sendJson(res, 200, projectRun(run, store));
+  return sendJson(res, 200, { ...projectRun(run, store), partner_status: partnerRuntime.projections() });
 }
 
 async function cancelRun(req, res, store, engine, runId) {

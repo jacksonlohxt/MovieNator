@@ -1,0 +1,24 @@
+{
+  "$id": "https://movie-inator.local/schemas/partner-capability@1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Partner capability",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provider", "environment", "endpoint_ref", "auth_mode", "allowed_operations", "data_classes", "health", "redacted_provenance", "manifest_hash", "enabled", "limits"],
+  "properties": {
+    "schema_version": {"const": "partner-capability@1"},
+    "provider": {"type": "object", "additionalProperties": false, "required": ["provider_id", "display_name", "confirmation_state"], "properties": {"provider_id": {"type": "string"}, "display_name": {"type": "string"}, "product_ref": {"type": "string"}, "confirmation_state": {"enum": ["confirmed", "pending"]}}},
+    "environment": {"enum": ["local", "staging", "production", "unknown"]},
+    "endpoint_ref": {"type": "string"},
+    "auth_mode": {"type": "string"},
+    "credential_ref": {"type": "string"},
+    "scope_ref": {"type": "string"},
+    "allowed_operations": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["operation", "tool_ref", "read_only", "data_class"], "properties": {"operation": {"type": "string"}, "tool_ref": {"type": "string"}, "read_only": {"const": true}, "data_class": {"type": "string"}, "input_schema_hash": {"type": "string"}, "output_schema_hash": {"type": "string"}}}},
+    "data_classes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "health": {"type": "object", "additionalProperties": false, "required": ["state"], "properties": {"state": {"type": "string"}, "checked_at": {"type": "string"}, "detail": {"type": "string"}}},
+    "redacted_provenance": {"type": "object", "additionalProperties": false, "required": ["schema_version", "provider_id", "backend", "environment", "endpoint_ref", "auth_mode", "manifest_hash", "redacted"], "properties": {"schema_version": {"const": "partner-provenance@1"}, "provider_id": {"type": "string"}, "backend": {"type": "string"}, "environment": {"type": "string"}, "endpoint_ref": {"type": "string"}, "auth_mode": {"type": "string"}, "manifest_hash": {"type": "string"}, "operation": {"type": "string"}, "observed_at": {"type": "string"}, "response_hash": {"type": "string"}, "redacted": {"const": true}}},
+    "manifest_hash": {"type": "string"},
+    "enabled": {"type": "boolean"},
+    "limits": {"type": "object", "additionalProperties": false, "required": ["timeout_ms", "max_attempts", "max_response_bytes", "max_items"], "properties": {"timeout_ms": {"type": "integer"}, "max_attempts": {"type": "integer"}, "max_response_bytes": {"type": "integer"}, "max_items": {"type": "integer"}}}
+  }
+}

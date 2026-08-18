@@ -35,6 +35,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .brand-lockup { display: flex; gap: 10px; align-items: center; font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
 .brand-mark { display: grid; place-items: center; width: 27px; height: 27px; background: var(--green-dark); border-radius: 8px; color: #d9eee4; font-size: 14px; }
 .header-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.partner-status { border-left: 1px solid var(--line); margin-left: 3px; padding-left: 10px; white-space: nowrap; }
 .mode-dot { width: 7px; height: 7px; border-radius: 50%; background: #4d9f7f; box-shadow: 0 0 0 4px #dff1e8; }
 
 main { max-width: 950px; margin: 0 auto; padding: 45px 30px 90px; }

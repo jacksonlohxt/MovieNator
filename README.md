@@ -36,7 +36,7 @@ No Google or IBM integration is enabled by default, no production credentials ar
 
 ## Current status
 
-The repository contains the deterministic audience readiness workflow and a Phase 2 Movie-Inator script-grounding vertical slice. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store, and no credentials or network calls. No Google, IBM, partner, hosted-model, or side-effect integration is enabled.
+The repository contains the deterministic audience readiness workflow, the Phase 2 Movie-Inator script-grounding vertical slice, and Phase 3 provider-neutral partner infrastructure. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store, and a credential-free synthetic partner adapter. No IBM, IVM, or other live partner product, tenant, endpoint, credential, hosted-model, or side-effect integration is enabled.
 
 ```sh
 npm test
@@ -55,5 +55,6 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 - [Product requirements document](docs/prd.md) - the authoritative detailed specification and the unresolved Captain decisions.
 - [Implementation guide](docs/implementation.md) - contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
 - [Movie-Inator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - automation, operator boundaries, local grounding, future search seams, and separate media adapters.
+- [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the exact later live-access information required.
 
 The PRD remains the source of truth for product detail. This implementation keeps its workflow, policy, identity, retention, provider, and side-effect choices visible as configuration seams rather than treating recommendations as approvals. It does not claim legal, privacy, rights, publishing, live-provider, or production readiness.
