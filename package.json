@@ -9,7 +9,8 @@
     "start": "node src/server.js",
     "start:google": "sh -c 'set -a; if [ -f .env.local ]; then . ./.env.local; fi; set +a; exec node src/server.js'",
     "test": "node --test",
-    "check": "node --check src/contracts.js && node --check src/model-gateway.js && node --check src/documents.js && node --check src/grounding-contracts.js && node --check src/grounding.js && node --check src/grounding-engine.js && node --check src/gemini-rest.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node --check web/app.js && node --check web/session-state.js && node src/check-schemas.js"
+    "check:docs": "node src/check-docs.js",
+    "check": "node --check src/contracts.js && node --check src/model-gateway.js && node --check src/documents.js && node --check src/grounding-contracts.js && node --check src/grounding.js && node --check src/grounding-engine.js && node --check src/gemini-rest.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node --check web/app.js && node --check web/session-state.js && node src/check-schemas.js && node src/check-docs.js"
   },
   "engines": {
     "node": ">=20"
