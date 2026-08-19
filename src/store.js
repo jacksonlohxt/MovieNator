@@ -6,19 +6,43 @@ import {
   MAX_EVENTS_PER_RUN,
   PROVENANCE,
   RUN_STATES,
+  ACTIVE_STATES,
   TERMINAL_STATES,
   assertRunState,
   hashValue,
   nowIso,
   safeId,
 } from "./contracts.js";
+import {
+  WORKFLOW_LEASE_MS,
+  createBranch,
+  createCheckpoint,
+  createLease,
+  createTerminalOutcome,
+  createWorkflowState,
+  publicBranch,
+  publicCheckpoint,
+  publicWorkflowState,
+  validateBranch,
+} from "./workflow-state.js";
+import { WORKFLOW_BRANCH_STATES, hashContract } from "./logic-contracts.js";
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
 function defaultState() {
-  return { version: 2, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, auditEvents: [] };
+  return { version: 3, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, auditEvents: [] };
+}
+
+function ensureWorkflowFields(run, clock = Date) {
+  if (!run) return run;
+  const now = run.updated_at || nowIso(clock);
+  if (!run.workflow_state) run.workflow_state = createWorkflowState({ runId: run.run_id, state: run.state, phase: run.phase || run.state, now });
+  if (!run.branches) run.branches = {};
+  if (!run.checkpoints) run.checkpoints = [];
+  if (!Object.hasOwn(run, "terminal_outcome")) run.terminal_outcome = null;
+  return run;
 }
 
 /** Durable, append-only local store used by the mock worker and local browser slice. */
@@ -33,8 +57,8 @@ export class FileStore {
   #read() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      if (!parsed || ![1, 2].includes(parsed.version)) return defaultState();
-      return { ...defaultState(), ...parsed, version: 2, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
+      if (!parsed || ![1, 2, 3].includes(parsed.version)) return defaultState();
+      return { ...defaultState(), ...parsed, version: 3, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
     } catch {
       return defaultState();
     }
@@ -83,6 +107,10 @@ export class FileStore {
       evidence_ids: [],
       policy_decision: null,
       progress: { completed: 0, total: 0 },
+      workflow_state: createWorkflowState({ runId, state: "accepted", phase: "accepted", now }),
+      branches: {},
+      checkpoints: [],
+      terminal_outcome: null,
     };
     this.state.runs[runId] = run;
     this.state.events[runId] = [];
@@ -93,7 +121,175 @@ export class FileStore {
   }
 
   getRun(runId) {
-    return clone(this.state.runs[runId]);
+    const run = this.state.runs[runId];
+    if (!run) return undefined;
+    ensureWorkflowFields(run, this.clock);
+    return clone(run);
+  }
+
+  listRuns({ states } = {}) {
+    const allowed = states ? new Set(states) : null;
+    return Object.values(this.state.runs).filter((run) => !allowed || allowed.has(run.state)).map((run) => clone(ensureWorkflowFields(run, this.clock)));
+  }
+
+  listActiveRuns() {
+    return this.listRuns({ states: [...ACTIVE_STATES] });
+  }
+
+  getWorkflowState(runId) {
+    const run = this.state.runs[runId];
+    if (!run) return undefined;
+    ensureWorkflowFields(run, this.clock);
+    return clone(run.workflow_state);
+  }
+
+  getCheckpoints(runId) {
+    const run = this.state.runs[runId];
+    return run ? clone(ensureWorkflowFields(run, this.clock).checkpoints || []) : [];
+  }
+
+  getBranches(runId) {
+    const run = this.state.runs[runId];
+    return run ? clone(ensureWorkflowFields(run, this.clock).branches || {}) : {};
+  }
+
+  saveCheckpoint(runId, { kind, phase, input, output, status = "complete", payload = {} } = {}) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const inputHash = typeof input === "string" && input.startsWith("sha256:") ? input : hashContract(input ?? {});
+    const existing = run.checkpoints.find((checkpoint) => checkpoint.kind === kind && checkpoint.input_hash === inputHash && checkpoint.status === status);
+    if (existing) return clone(existing);
+    const checkpoint = createCheckpoint({ runId, kind, phase, sequence: run.checkpoints.length + 1, input: inputHash, output, status, now: nowIso(this.clock), payload });
+    run.checkpoints.push(checkpoint);
+    run.workflow_state.checkpoint_id = checkpoint.checkpoint_id;
+    run.workflow_state.state = run.state;
+    run.workflow_state.phase = phase;
+    run.workflow_state.updated_at = nowIso(this.clock);
+    run.updated_at = run.workflow_state.updated_at;
+    this.state.runs[runId] = run;
+    this.#persist();
+    return clone(checkpoint);
+  }
+
+  upsertBranch(runId, branchId, patch = {}) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const now = nowIso(this.clock);
+    const existing = run.branches[branchId] || createBranch({ runId, branchId, kind: patch.kind || branchId, now });
+    const next = { ...existing, ...clone(patch), branch_id: branchId, run_id: runId, updated_at: now };
+    if (!WORKFLOW_BRANCH_STATES.includes(next.state)) throw new ContractError("INVALID_BRANCH_STATE", `Unknown branch state: ${next.state}`);
+    if (next.state === "running" && !next.started_at) next.started_at = now;
+    if (["succeeded", "failed", "timed_out", "canceled", "skipped"].includes(next.state) && !next.completed_at) next.completed_at = now;
+    validateBranch(next);
+    run.branches[branchId] = next;
+    if (!run.workflow_state.branch_ids.includes(branchId)) run.workflow_state.branch_ids.push(branchId);
+    run.workflow_state.updated_at = now;
+    run.updated_at = now;
+    this.state.runs[runId] = run;
+    this.#persist();
+    return clone(next);
+  }
+
+  acquireLease(runId, ownerId, { ttlMs = WORKFLOW_LEASE_MS } = {}) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const now = nowIso(this.clock);
+    const current = run.workflow_state.lease;
+    if (current && Date.parse(current.expires_at) > Date.parse(now) && current.owner_id !== ownerId) return null;
+    const lease = current && current.owner_id === ownerId ? { ...current, expires_at: new Date(Date.parse(now) + ttlMs).toISOString(), heartbeat_at: now } : createLease({ runId, ownerId, now, ttlMs });
+    run.workflow_state.lease = lease;
+    run.workflow_state.updated_at = now;
+    run.updated_at = now;
+    this.state.runs[runId] = run;
+    this.#persist();
+    return clone(lease);
+  }
+
+  renewLease(runId, ownerId, { ttlMs = WORKFLOW_LEASE_MS } = {}) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const lease = run.workflow_state.lease;
+    const now = nowIso(this.clock);
+    if (!lease || lease.owner_id !== ownerId || Date.parse(lease.expires_at) <= Date.parse(now)) return null;
+    lease.expires_at = new Date(Date.parse(now) + ttlMs).toISOString();
+    lease.heartbeat_at = now;
+    run.workflow_state.updated_at = now;
+    run.updated_at = now;
+    this.#persist();
+    return clone(lease);
+  }
+
+  releaseLease(runId, ownerId) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    if (run.workflow_state.lease && (!ownerId || run.workflow_state.lease.owner_id === ownerId)) {
+      run.workflow_state.lease = null;
+      run.workflow_state.updated_at = nowIso(this.clock);
+      run.updated_at = run.workflow_state.updated_at;
+      this.state.runs[runId] = run;
+      this.#persist();
+    }
+    return clone(run.workflow_state.lease);
+  }
+
+  requestCancellation(runId) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const now = nowIso(this.clock);
+    run.cancellation_requested = true;
+    run.workflow_state.cancellation = { requested: true, requested_at: run.workflow_state.cancellation.requested_at || now, confirmed_at: run.workflow_state.cancellation.confirmed_at };
+    run.workflow_state.updated_at = now;
+    run.updated_at = now;
+    this.state.runs[runId] = run;
+    this.#persist();
+    return clone(run);
+  }
+
+  setTerminalOutcome(runId, outcome, { reasonCode = "terminal", message = "Run reached a terminal outcome", result, recoverable = false } = {}) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const now = nowIso(this.clock);
+    run.terminal_outcome = createTerminalOutcome({ outcome, reasonCode, message, result, now, recoverable });
+    run.workflow_state.terminal_outcome = run.terminal_outcome;
+    run.workflow_state.state = run.state;
+    run.workflow_state.phase = run.phase || run.state;
+    run.workflow_state.lease = null;
+    if (outcome === "canceled") run.workflow_state.cancellation.confirmed_at = now;
+    run.workflow_state.updated_at = now;
+    run.updated_at = now;
+    this.state.runs[runId] = run;
+    this.#persist();
+    return clone(run.terminal_outcome);
+  }
+
+  recoverExpiredLeases() {
+    const now = Date.parse(nowIso(this.clock));
+    let count = 0;
+    for (const run of Object.values(this.state.runs)) {
+      ensureWorkflowFields(run, this.clock);
+      if (run.workflow_state.lease && Date.parse(run.workflow_state.lease.expires_at) <= now) {
+        run.workflow_state.lease = null;
+        run.workflow_state.updated_at = new Date(now).toISOString();
+        run.updated_at = run.workflow_state.updated_at;
+        count += 1;
+      }
+    }
+    if (count) this.#persist();
+    return count;
+  }
+
+  workflowProjection(runId) {
+    const run = this.state.runs[runId];
+    if (!run) return undefined;
+    ensureWorkflowFields(run, this.clock);
+    return { state: publicWorkflowState(run), checkpoints: run.checkpoints.map(publicCheckpoint), branches: Object.values(run.branches).map(publicBranch) };
   }
 
   getEvidence(evidenceId) {
@@ -125,7 +321,11 @@ export class FileStore {
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     assertRunState(state);
     if (TERMINAL_STATES.has(run.state) && run.state !== state) return clone(run);
-    const next = { ...run, ...clone(patch), state, updated_at: nowIso(this.clock) };
+    ensureWorkflowFields(run, this.clock);
+    const now = nowIso(this.clock);
+    const next = { ...run, ...clone(patch), state, updated_at: now };
+    next.workflow_state = { ...next.workflow_state, state, phase: next.phase || state, updated_at: now };
+    if (next.cancellation_requested) next.workflow_state.cancellation = { ...next.workflow_state.cancellation, requested: true, requested_at: next.workflow_state.cancellation.requested_at || now };
     this.state.runs[runId] = next;
     this.#persist();
     return clone(next);
@@ -180,7 +380,8 @@ export class FileStore {
     run.updated_at = nowIso(this.clock);
     this.state.runs[runId] = run;
     this.#persist();
-    return clone(run);
+    this.setTerminalOutcome(runId, "succeeded", { reasonCode: "result_published", message: "Verified result published", result });
+    return clone(this.state.runs[runId]);
   }
 
   markFailed(runId, error) {
@@ -196,7 +397,8 @@ export class FileStore {
     run.updated_at = nowIso(this.clock);
     this.state.runs[runId] = run;
     this.#persist();
-    return clone(run);
+    this.setTerminalOutcome(runId, "failed", { reasonCode: run.error.class, message: run.error.message, recoverable: run.error.recoverable });
+    return clone(this.state.runs[runId]);
   }
 
   createDocument(document) {

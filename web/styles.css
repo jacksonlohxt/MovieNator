@@ -138,6 +138,15 @@ textarea:focus, input:focus { border-color: var(--green); background: #fff; outl
 .progress-list li.is-current { color: var(--ink); font-weight: 750; }
 .progress-list li.is-current::before { border-color: var(--green); box-shadow: 0 0 0 4px var(--mint); }
 .run-footer { display: flex; justify-content: space-between; align-items: center; gap: 15px; border-top: 1px solid var(--subtle); padding-top: 17px; color: var(--muted); font-size: 11px; }
+.foundation-status { margin: 8px 0 18px; border: 1px solid var(--subtle); border-radius: 12px; padding: 14px; background: #fbfdfb; }
+.foundation-status .section-heading { margin-bottom: 10px; }
+.foundation-status h3 { margin: 0; font-size: 14px; }
+.status-pill { border-radius: 999px; background: var(--mint); color: var(--green-dark); padding: 5px 9px; font-size: 11px; font-weight: 750; }
+.foundation-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0; }
+.foundation-grid div { min-width: 0; }
+.foundation-grid dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.foundation-grid dd { margin: 4px 0 0; color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 620px) { .foundation-grid { grid-template-columns: repeat(2, 1fr); } }
 
 .decision-card { display: grid; grid-template-columns: auto 1fr; gap: 18px; padding: 20px; border: 1px solid #cfe5d8; border-radius: 13px; background: #f1f8f3; }
 .decision-mark { display: grid; place-items: center; width: 49px; height: 49px; border-radius: 13px; font-size: 22px; font-weight: 800; }
