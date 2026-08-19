@@ -47,6 +47,7 @@ npm test
 npm run check
 npm start
 # open http://127.0.0.1:4173
+npm run smoke:deployment
 
 # Optional explicitly enabled ADC-backed Gemini model path, using ignored .env.local
 npm run start:google
@@ -59,6 +60,7 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 - [Product requirements document](docs/prd.md) - the authoritative detailed specification and the unresolved Captain decisions.
 - [Implementation guide](docs/implementation.md) - contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
 - [Movie-Inator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - automation, operator boundaries, local grounding, future search seams, and separate media adapters.
+- [Phase 5 deployment and safety runbook](docs/phase5-deployment.md) - container, Cloud Run placeholders, runtime modes, Secret Manager seam, safety budgets, audit events, and the later Agent Runtime path.
 - [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the exact later live-access information required.
 
 The PRD remains the source of truth for product detail. This implementation keeps its workflow, policy, identity, retention, provider, and side-effect choices visible as configuration seams rather than treating recommendations as approvals. It does not claim legal, privacy, rights, publishing, live-provider, or production readiness.

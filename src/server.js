@@ -23,6 +23,9 @@ import { LocalDeterministicGroundingSource } from "./grounding.js";
 import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
 import { GeminiRestBackend, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 import { createAdcTokenProvider } from "./google-auth.js";
+import { createAuditRecorder } from "./audit.js";
+import { createSecretProvider } from "./secrets.js";
+import { readRuntimeConfig } from "./runtime-config.js";
 import { FileStore } from "./store.js";
 import { createDefaultPartnerRegistry } from "./partner-defaults.js";
 import { PartnerOperationRunner } from "./partner-runtime.js";
@@ -101,12 +104,12 @@ async function readUpload(req) {
   return parseGroundingDocument({ filename: part.filename, contentType: part.contentType, bytes: part.content });
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = MAX_BODY_BYTES) {
   let bytes = 0;
   const chunks = [];
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > MAX_BODY_BYTES) throw new ContractError("BODY_TOO_LARGE", "Request body is too large");
+    if (bytes > maxBytes) throw new ContractError("BODY_TOO_LARGE", "Request body is too large");
     chunks.push(chunk);
   }
   if (!bytes) return {};
@@ -129,38 +132,54 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource, partnerRegistry, partnerRuntime } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime } = {}) {
   const actualStore = store || new FileStore(dataPath);
+  const runtimeConfig = readRuntimeConfig(env, { googleConfig });
+  const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
   const actualProvider = provider || new MockProvider();
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
-  const actualTokenProvider = googleTokenProvider || (configuredGoogle.authMode === "adc" ? createAdcTokenProvider() : undefined);
-  const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider }) : new FakeModel());
-  const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel });
+  const actualTokenProvider = googleTokenProvider || (["adc", "workload_identity", "attached_identity"].includes(configuredGoogle.authMode) ? createAdcTokenProvider() : undefined);
+  const actualSecretProvider = createSecretProvider({ env, provider: secretProvider, tokenProvider: actualTokenProvider });
+  audit.record({ type: "configuration_state", outcome: runtimeConfig.readiness, mode: runtimeConfig.mode, attributes: { target: runtimeConfig.target, google_intent: runtimeConfig.googleIntent, google_state: runtimeConfig.google.readiness, configured: runtimeConfig.google.configured, secret_reference_count: runtimeConfig.secretReferenceCount } });
+  const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider, audit }) : new FakeModel());
+  audit.record({ type: "model_provenance", outcome: "configured", mode: runtimeConfig.mode, provenance: typeof actualModel.provenance === "function" ? actualModel.provenance() : undefined, attributes: { backend: isGeminiReady(configuredGoogle) ? "google_rest" : "fake" } });
+  audit.record({ type: "provider_provenance", outcome: "configured", mode: runtimeConfig.mode, provenance: actualProvider.capabilities?.(), attributes: { provider_id: actualProvider.manifest?.provider_id || "unknown", read_only: actualProvider.manifest?.read_only !== false } });
+  const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel, audit });
   const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
-  const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel });
+  const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel, audit });
   const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry();
   const actualPartnerRuntime = partnerRuntime || new PartnerOperationRunner({ registry: actualPartnerRegistry });
 
   const server = http.createServer(async (req, res) => {
+    const streaming = String(req.url || "").endsWith("/events");
+    if (!streaming) req.setTimeout(runtimeConfig.requestTimeoutMs, () => {
+      if (!res.headersSent) sendError(res, 504, "REQUEST_TIMEOUT", "The request exceeded the configured timeout");
+      req.destroy();
+    });
     try {
-      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, partnerRuntime: actualPartnerRuntime });
+      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime });
     } catch (error) {
       const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
       const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
       const safeContractError = error instanceof ContractError || error instanceof DocumentContractError || error instanceof PartnerContractError;
       const status = notFound ? 404 : conflict ? 409 : safeContractError ? 400 : 500;
-      sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : "The Movie-Inator server could not complete the request", error.field);
+      if (!res.headersSent) sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : "The Movie-Inator server could not complete the request", error.field);
+      if (!safeContractError) audit.record({ type: "operator_failure", outcome: "failed", mode: runtimeConfig.mode, code: error.code || "internal_error", attributes: { route: req.url?.split("?")[0] } });
     }
   });
-  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime };
+  server.requestTimeout = runtimeConfig.requestTimeoutMs;
+  server.headersTimeout = Math.min(runtimeConfig.requestTimeoutMs, 30_000);
+  server.keepAliveTimeout = Math.min(runtimeConfig.requestTimeoutMs, 10_000);
+  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime };
 }
 
-async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, partnerRuntime }) {
+async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, runtimeConfig, audit, partnerRuntime }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
     const google = engine.model?.readiness?.() || { state: googleConfig.readiness, configured: googleConfig.configured, missing: [...googleConfig.missing] };
-    return sendJson(res, 200, { ok: true, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend });
+    const ready = runtimeConfig.mode === "mock" || (google.state === "passed" && google.configured);
+    return sendJson(res, ready ? 200 : 503, { ok: ready, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", runtime_mode: runtimeConfig.mode, provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend, config_state: runtimeConfig.readiness });
   }
   if (req.method === "GET" && url.pathname === "/") return sendStatic(res, "index.html", "text/html; charset=utf-8");
   if (req.method === "GET" && ["/app.js", "/session-state.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
@@ -185,7 +204,7 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
     if (req.method === "POST" && parts.length === 4 && parts[3] === "retry") return retryGroundedBrief(req, res, store, groundedEngine, parts[2]);
   }
   if (parts[0] !== "v1") return sendError(res, 404, "NOT_FOUND", "Route not found");
-  if (req.method === "POST" && parts.length === 2 && parts[1] === "runs") return createRun(req, res, { store, engine, partnerRuntime });
+  if (req.method === "POST" && parts.length === 2 && parts[1] === "runs") return createRun(req, res, { store, engine, audit, runtimeConfig, partnerRuntime });
   if (parts.length >= 3 && parts[1] === "runs") {
     const runId = parts[2];
     if (req.method === "GET" && parts.length === 3) return getRun(res, store, runId, partnerRuntime);
@@ -198,11 +217,14 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   return sendError(res, 404, "NOT_FOUND", "Route not found");
 }
 
-async function createRun(req, res, { store, engine, partnerRuntime }) {
-  const request = parseRunRequest(await readBody(req));
+async function createRun(req, res, { store, engine, audit, runtimeConfig, partnerRuntime }) {
+  const request = parseRunRequest(await readBody(req, runtimeConfig.maxBodyBytes));
   const key = parseIdempotencyKey(req.headers["idempotency-key"]);
   const result = store.createRun({ request, requestHash: requestHash(request), idempotencyHash: hashValue(key), provenance: engine.provenance });
-  if (result.created) engine.enqueue(result.run.run_id);
+  if (result.created) {
+    audit.record({ type: "request_outcome", outcome: "accepted", mode: runtimeConfig.mode, runId: result.run.run_id, provenance: engine.provenance, attributes: { workflow: "audience_data_readiness" } });
+    engine.enqueue(result.run.run_id);
+  }
   const projection = { ...projectRun(result.run, store), partner_status: partnerRuntime.projections() };
   return sendJson(res, 202, projection, { location: `/v1/runs/${result.run.run_id}` });
 }
@@ -411,10 +433,38 @@ function sendStatic(res, name, contentType) {
   }
 }
 
+export async function startServer({ env = process.env, ...options } = {}) {
+  const app = createApp({ ...options, env });
+  await new Promise((resolve, reject) => {
+    app.server.once("error", reject);
+    app.server.listen(app.runtimeConfig.port, app.runtimeConfig.host, resolve);
+  });
+  let shuttingDown = false;
+  const shutdown = async (signal = "shutdown") => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    let closed = false;
+    const close = new Promise((resolve) => app.server.close(() => { closed = true; resolve(); }));
+    await Promise.race([close, new Promise((resolve) => setTimeout(resolve, app.runtimeConfig.gracefulShutdownMs))]);
+    if (!closed) {
+      app.server.closeAllConnections?.();
+      await Promise.race([close, new Promise((resolve) => setTimeout(resolve, 250))]);
+    }
+    app.audit.record({ type: "configuration_state", outcome: "stopped", mode: app.runtimeConfig.mode, attributes: { signal } });
+  };
+  process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+  process.once("SIGINT", () => { void shutdown("SIGINT"); });
+  return { ...app, shutdown };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  const port = Number(process.env.PORT || 4173);
-  const app = createApp({ dataPath: process.env.DATA_PATH });
-  app.server.listen(port, "127.0.0.1", () => {
-    console.log(`Movie-Inator local workflows listening on http://127.0.0.1:${port}`);
+  startServer({ dataPath: process.env.DATA_PATH }).then((app) => {
+    const address = app.server.address();
+    const host = typeof address === "object" && address ? address.address : app.runtimeConfig.host;
+    const port = typeof address === "object" && address ? address.port : app.runtimeConfig.port;
+    console.log(`Movie-Inator server listening on http://${host}:${port}`);
+  }).catch((error) => {
+    console.error(JSON.stringify({ event: "startup_failed", code: error.code || "startup_failed" }));
+    process.exitCode = 1;
   });
 }

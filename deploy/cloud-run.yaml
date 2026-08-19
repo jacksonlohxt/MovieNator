@@ -1,0 +1,54 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: <OPERATOR_SELECTED_CLOUD_RUN_SERVICE>
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 20
+      timeoutSeconds: 60
+      serviceAccountName: <OPERATOR_SELECTED_RUNTIME_SERVICE_ACCOUNT>
+      containers:
+        - name: movie-inator
+          image: <OPERATOR_SELECTED_ARTIFACT_IMAGE>
+          ports:
+            - name: http1
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DEPLOYMENT_TARGET
+              value: "cloud_run"
+            - name: RUNTIME_MODE
+              value: "deployed_identity"
+            - name: MODEL_BACKEND
+              value: "google_rest"
+            - name: GOOGLE_GEMINI_ENABLED
+              value: "true"
+            - name: GOOGLE_GEMINI_READINESS
+              value: "passed"
+            - name: GOOGLE_PROJECT_ID
+              value: "<OPERATOR_SELECTED_PROJECT_ID>"
+            - name: GOOGLE_LOCATION
+              value: "<OPERATOR_SELECTED_REGION>"
+            - name: GOOGLE_MODEL_ID
+              value: "<OPERATOR_SELECTED_MODEL_ID>"
+            - name: GOOGLE_PUBLISHER
+              value: "google"
+            - name: GOOGLE_REST_API_VERSION
+              value: "<OPERATOR_SELECTED_API_VERSION>"
+            - name: GOOGLE_AUTH_MODE
+              value: "workload_identity"
+            - name: MOVIE_INATOR_SECRET_REF
+              value: "projects/<OPERATOR_SELECTED_PROJECT_NUMBER>/secrets/<OPERATOR_SELECTED_SECRET_NAME>/versions/latest"
+            - name: REQUEST_TIMEOUT_MS
+              value: "30000"
+            - name: GRACEFUL_SHUTDOWN_MS
+              value: "10000"
+          resources:
+            limits:
+              cpu: "1"
+              memory: "512Mi"
