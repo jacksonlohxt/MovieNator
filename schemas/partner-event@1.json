@@ -1,0 +1,22 @@
+{
+  "$id": "https://movie-inator.local/schemas/partner-event@1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Redacted partner event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "provider_id", "event_type", "operation", "attempt", "state", "payload", "occurred_at", "redacted"],
+  "properties": {
+    "schema_version": {"const": "partner-event@1"},
+    "event_id": {"type": "string"},
+    "provider_id": {"type": ["string", "null"]},
+    "event_type": {"type": "string"},
+    "operation": {"type": ["string", "null"]},
+    "attempt": {"type": "integer", "minimum": 0, "maximum": 2},
+    "state": {"type": "string"},
+    "delivery_id_hash": {"type": "string"},
+    "error_class": {"type": "string"},
+    "payload": {"type": "object"},
+    "occurred_at": {"type": "string"},
+    "redacted": {"const": true}
+  }
+}

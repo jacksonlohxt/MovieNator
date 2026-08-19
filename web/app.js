@@ -798,3 +798,19 @@ setWorkflow("readiness");
 const savedRunId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.readinessRun, LEGACY_SESSION_KEYS.readinessRun);
 if (savedRunId) refreshRun(savedRunId).then(() => { if (currentRun && !terminalStates.has(currentRun.state)) subscribe(savedRunId); });
 updateCount();
+
+async function loadPartnerStatus() {
+  const status = $("#partner-status");
+  if (!status) return;
+  try {
+    const response = await fetch("/v1/partners", { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("unavailable");
+    const data = await response.json();
+    const provider = data.providers?.[0];
+    const state = provider?.readiness?.state || "unknown";
+    status.textContent = `Partner status: ${provider?.provider?.display_name || "not registered"} (${state.replaceAll("_", " ")})`;
+  } catch {
+    status.textContent = "Partner status: unavailable";
+  }
+}
+loadPartnerStatus();
