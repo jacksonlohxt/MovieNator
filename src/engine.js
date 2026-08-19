@@ -571,12 +571,13 @@ export function projectRun(run, store) {
 }
 
 export class MockEngine {
-  constructor({ store, provider = new MockProvider(), model = new FakeModel(), clock = Date } = {}) {
+  constructor({ store, provider = new MockProvider(), model = new FakeModel(), clock = Date, audit } = {}) {
     if (!store) throw new Error("MockEngine requires a store");
     this.store = store;
     this.provider = provider;
     this.model = model;
     this.clock = clock;
+    this.audit = audit;
     const modelBackend = typeof model.provenance === "function" ? model.provenance() : undefined;
     const providerBackend = {
       backend: provider.manifest?.provider_id === "mock-provider" ? "mock" : "provider",
@@ -609,6 +610,7 @@ export class MockEngine {
           this.store.transition(runId, run.state, { provenance: this.refreshProvenance() });
           this.store.markFailed(runId, { class: error.code || "failed", message: "The run stopped safely before a verified result was available.", recoverable: true });
           this.store.appendEvent(runId, "run.failed", "recovery", "failed", "Run needs recovery", { recoverable: true });
+          this.audit?.record({ type: "request_outcome", outcome: "failed", mode: this.provenance.model_backend.backend, runId, code: error.code || "failed", provenance: this.provenance, attributes: { recoverable: true } });
         }
       }
       return this.store.getRun(runId);
@@ -663,7 +665,7 @@ export class MockEngine {
     this.advance(runId, "queued", "queue", "Queued");
     this.checkCancellation(runId);
     this.advance(runId, "planning", "planning", "Planning request");
-    const plan = validatePlan(await this.model.plan(run.request, { workflow: WORKFLOW, run_id: runId, stage: "planner" }));
+    const plan = validatePlan(await this.model.plan(run.request, { workflow: WORKFLOW, run_id: runId, stage: "planner", deadline_at: run.deadline_at, rate_limit_key: run.actor }));
     this.refreshProvenance();
     this.checkCancellation(runId);
     this.advance(runId, "resolving_asset", "resolution", "Resolving one demo asset");
@@ -749,7 +751,7 @@ export class MockEngine {
     try {
       const writerInput = { decision: policyDecision.decision, policy_decision: policyDecision, evidence_bundle: buildEvidenceBundle(records), records: records.map((record) => ({ ...record, facts: { ...record.facts } })), policy_version: POLICY_VERSION };
       const write = typeof this.model.write === "function" ? this.model.write.bind(this.model) : this.model.draft.bind(this.model);
-      draft = await write(writerInput, { run_id: runId, stage: "writer" });
+      draft = await write(writerInput, { run_id: runId, stage: "writer", deadline_at: this.store.getRun(runId).deadline_at, rate_limit_key: this.store.getRun(runId).actor });
     } catch {
       draft = fallbackDraft(policyDecision.decision, records);
       this.store.appendEvent(runId, "writer.fallback", "writer", "composing", "Using deterministic brief template", { reason: "writer_unavailable" });
@@ -760,6 +762,7 @@ export class MockEngine {
     const result = verifyAndProject({ runId, runStatus: "succeeded", policyDecision, draft, records, provenance: this.refreshProvenance() });
     this.store.addResult(runId, result, result.decision);
     this.store.appendEvent(runId, "run.succeeded", "projection", "succeeded", `Brief ready: ${result.decision}`, { decision: result.decision, provenance: this.provenance.label });
+    this.audit?.record({ type: "request_outcome", outcome: "succeeded", mode: this.provenance.model_backend.backend, runId, provenance: this.provenance, attributes: { decision: result.decision } });
     return this.store.getRun(runId);
   }
 
@@ -772,6 +775,7 @@ export class MockEngine {
   failRecoverably(runId, message) {
     this.store.markFailed(runId, { class: "unavailable", message, recoverable: true });
     this.store.appendEvent(runId, "run.failed", "recovery", "failed", "Demo run needs recovery", { recoverable: true, action: "retry" });
+    this.audit?.record({ type: "request_outcome", outcome: "failed", mode: this.provenance.model_backend.backend, runId, code: "unavailable", provenance: this.provenance, attributes: { recoverable: true } });
     return this.store.getRun(runId);
   }
 

@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import { ModelGateway } from "./model-gateway.js";
 import { GROUNDED_BRIEF_SCHEMA } from "./grounding-contracts.js";
+import {
+  GEMINI_SAFETY_POLICY,
+  GEMINI_SAFETY_SETTINGS,
+  RateLimiter,
+  assertRequestWithinLimits,
+  isSafetyBlock,
+  safeErrorProjection,
+} from "./safety.js";
 import { validateGroundedBriefProposal } from "./grounding.js";
 import {
   DRAFT_SCHEMA,
@@ -36,18 +44,22 @@ export const GEMINI_ERROR_CODES = Object.freeze([
   "semantic_invalid",
   "canceled",
   "call_budget_exceeded",
+  "request_too_large",
+  "deadline_exceeded",
 ]);
 
 const DEFAULTS = Object.freeze({
   modelBackend: "fake",
   apiVersion: "v1",
   publisher: "google",
-  timeoutMs: 12_000,
-  maxCallsPerRun: 2,
-  maxRepairsPerRun: 1,
-  maxInputChars: 8_000,
-  maxOutputChars: 12_000,
-  maxOutputTokens: 768,
+  timeoutMs: GEMINI_SAFETY_POLICY.request_timeout_ms,
+  maxCallsPerRun: GEMINI_SAFETY_POLICY.max_calls_per_run,
+  maxRepairsPerRun: GEMINI_SAFETY_POLICY.max_repairs_per_run,
+  maxInputChars: GEMINI_SAFETY_POLICY.max_input_chars,
+  maxOutputChars: GEMINI_SAFETY_POLICY.max_output_chars,
+  maxOutputTokens: GEMINI_SAFETY_POLICY.max_output_tokens,
+  maxRequestBytes: GEMINI_SAFETY_POLICY.max_request_bytes,
+  rateLimitPerMinute: GEMINI_SAFETY_POLICY.rate_limit_per_minute,
   temperature: 0,
 });
 
@@ -104,6 +116,8 @@ export function readGeminiConfig(env = process.env) {
     maxInputChars: boundedNumber(env.GOOGLE_MAX_INPUT_CHARS, DEFAULTS.maxInputChars, 100, 8_000),
     maxOutputChars: boundedNumber(env.GOOGLE_MAX_OUTPUT_CHARS, DEFAULTS.maxOutputChars, 100, 12_000),
     maxOutputTokens: boundedNumber(env.GOOGLE_MAX_OUTPUT_TOKENS, DEFAULTS.maxOutputTokens, 64, 2_048),
+    maxRequestBytes: boundedNumber(env.GOOGLE_MAX_REQUEST_BYTES, DEFAULTS.maxRequestBytes, 4_096, 256 * 1024),
+    rateLimitPerMinute: boundedNumber(env.GOOGLE_RATE_LIMIT_PER_MINUTE, DEFAULTS.rateLimitPerMinute, 1, 600),
     temperature: boundedFloat(env.GOOGLE_TEMPERATURE, DEFAULTS.temperature, 0, 1),
   };
   const missing = missingFields(config);
@@ -135,6 +149,8 @@ export function normalizeGeminiConfig(input = {}) {
   config.maxInputChars = boundedNumber(config.maxInputChars, DEFAULTS.maxInputChars, 100, 8_000);
   config.maxOutputChars = boundedNumber(config.maxOutputChars, DEFAULTS.maxOutputChars, 100, 12_000);
   config.maxOutputTokens = boundedNumber(config.maxOutputTokens, DEFAULTS.maxOutputTokens, 64, 2_048);
+  config.maxRequestBytes = boundedNumber(config.maxRequestBytes, DEFAULTS.maxRequestBytes, 4_096, 256 * 1024);
+  config.rateLimitPerMinute = boundedNumber(config.rateLimitPerMinute, DEFAULTS.rateLimitPerMinute, 1, 600);
   config.temperature = boundedFloat(config.temperature, DEFAULTS.temperature, 0, 1);
   config.missing = missingFields(config);
   config.configured = config.missing.length === 0;
@@ -293,12 +309,14 @@ function hashPrompt(value) {
 }
 
 export class GeminiRestBackend extends ModelGateway {
-  constructor({ config, transport = defaultTransport, tokenProvider, clock = Date } = {}) {
+  constructor({ config, transport = defaultTransport, tokenProvider, clock = Date, audit } = {}) {
     super();
     this.config = normalizeGeminiConfig(config);
     this.transport = transport;
     this.tokenProvider = providerToken(tokenProvider);
     this.clock = clock;
+    this.audit = audit;
+    this.rateLimiter = new RateLimiter({ limit: this.config.rateLimitPerMinute, maxKeys: GEMINI_SAFETY_POLICY.rate_limit_key_capacity, clock });
     this.metricsByRun = new Map();
     this.lastProvenance = null;
   }
@@ -317,13 +335,14 @@ export class GeminiRestBackend extends ModelGateway {
       prompt_hash: null,
       schema_version: null,
       schema_hash: null,
-      generation_config_hash: hashValue({ maxOutputTokens: this.config.maxOutputTokens, temperature: this.config.temperature }),
+      generation_config_hash: hashValue({ maxOutputTokens: this.config.maxOutputTokens, temperature: this.config.temperature, safetySettings: GEMINI_SAFETY_SETTINGS, maxRequestBytes: this.config.maxRequestBytes }),
       metrics: { call_count: 0, repair_count: 0, latency_ms: 0, input_chars: 0, output_chars: 0, response_hash: null, error_class: null },
     };
   }
 
-  #budget(runId, repair) {
+  #budget(runId, repair, rateLimitKey) {
     const key = runId || "unscoped";
+    if (!this.rateLimiter.allow(rateLimitKey || key)) throw new GeminiRestError("rate_limit", "Google model request rate limit reached", { retryable: true });
     const metrics = this.metricsByRun.get(key) || { callCount: 0, repairCount: 0 };
     if (metrics.callCount >= this.config.maxCallsPerRun) throw new GeminiRestError("call_budget_exceeded", "Google model call budget was exceeded");
     if (repair && metrics.repairCount >= this.config.maxRepairsPerRun) throw new GeminiRestError("call_budget_exceeded", "Google model repair budget was exceeded");
@@ -333,8 +352,22 @@ export class GeminiRestBackend extends ModelGateway {
     return metrics;
   }
 
-  #assertReady(signal) {
+  #recordFailure(error, stage, runId) {
+    const safe = safeErrorProjection(error);
+    this.audit?.record({
+      type: isSafetyBlock(error) ? "safety_block" : "operator_failure",
+      outcome: isSafetyBlock(error) ? "blocked" : "failed",
+      mode: "google_rest",
+      runId,
+      code: safe.code,
+      provenance: this.provenance(),
+      attributes: { stage, retryable: safe.retryable, status: safe.status },
+    });
+  }
+
+  #assertReady(signal, context = {}) {
     if (signal?.aborted) throw new GeminiRestError("canceled", "Google model request was canceled");
+    if (context.deadline_at && Date.parse(context.deadline_at) <= Date.now()) throw new GeminiRestError("deadline_exceeded", "Google model request exceeded its deadline", { retryable: true });
     if (!this.config.enabled || this.config.readiness === "disabled") throw new GeminiRestError("missing_configuration", "Google model backend is disabled");
     if (!this.config.configured) throw new GeminiRestError("missing_configuration", "Google model configuration is incomplete");
     if (this.config.readiness !== "passed") throw new GeminiRestError("not_ready", "Google model readiness has not passed");
@@ -382,14 +415,25 @@ export class GeminiRestBackend extends ModelGateway {
         maxOutputTokens: this.config.maxOutputTokens,
         responseMimeType: "application/json",
       },
+      safetySettings: GEMINI_SAFETY_SETTINGS.map((setting) => ({ ...setting })),
     };
   }
 
   async #generate(stage, input, context = {}) {
-    const url = this.#assertReady(context.signal);
-    const repair = context.repair === true;
-    const metrics = this.#budget(context.run_id, repair);
-    const request = this.#requestFor(stage, input);
+    let url;
+    let metrics;
+    let request;
+    try {
+      url = this.#assertReady(context.signal, context);
+      const repair = context.repair === true;
+      metrics = this.#budget(context.run_id, repair, context.rate_limit_key);
+      request = this.#requestFor(stage, input);
+      assertRequestWithinLimits(request, { maxBytes: this.config.maxRequestBytes });
+    } catch (error) {
+      const mapped = error instanceof GeminiRestError ? error : new GeminiRestError(error.code || "server_failure", error.message || "Google model request failed", { retryable: false, cause: error });
+      this.#recordFailure(mapped, stage, context.run_id);
+      throw mapped;
+    }
     const promptText = stableStringify(request.contents);
     const schemaHash = hashValue(stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA);
     const started = new this.clock();
@@ -405,6 +449,8 @@ export class GeminiRestBackend extends ModelGateway {
       }
       const token = safeToken(tokenValue);
       if (!token) throw new GeminiRestError("auth_denied", "Google authentication did not return an access token");
+      const remainingMs = context.deadline_at ? Date.parse(context.deadline_at) - Date.now() : this.config.timeoutMs;
+      if (remainingMs <= 0) throw new GeminiRestError("deadline_exceeded", "Google model request exceeded its deadline", { retryable: true });
       const controller = new AbortController();
       let timedOut = false;
       const abortParent = () => controller.abort();
@@ -412,7 +458,7 @@ export class GeminiRestBackend extends ModelGateway {
         if (context.signal.aborted) throw new GeminiRestError("canceled", "Google model request was canceled");
         context.signal.addEventListener("abort", abortParent, { once: true });
       }
-      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, this.config.timeoutMs);
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, Math.min(this.config.timeoutMs, remainingMs));
       try {
         response = await this.transport({
           method: "POST",
@@ -442,7 +488,7 @@ export class GeminiRestBackend extends ModelGateway {
         prompt_hash: hashPrompt(promptText),
         schema_version: stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA,
         schema_hash: `sha256:${schemaHash}`,
-        generation_config_hash: `sha256:${hashValue(request.generationConfig)}`,
+        generation_config_hash: `sha256:${hashValue({ ...request.generationConfig, safetySettings: GEMINI_SAFETY_SETTINGS, maxRequestBytes: this.config.maxRequestBytes })}`,
         metrics: {
           call_count: Math.min(metrics.callCount, this.config.maxCallsPerRun),
           repair_count: Math.min(metrics.repairCount, this.config.maxRepairsPerRun),
@@ -468,9 +514,10 @@ export class GeminiRestBackend extends ModelGateway {
         prompt_hash: null,
         schema_version: stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA,
         schema_hash: `sha256:${hashValue(stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? GROUNDED_BRIEF_SCHEMA : DRAFT_SCHEMA)}`,
-        generation_config_hash: `sha256:${hashValue({ maxOutputTokens: this.config.maxOutputTokens, temperature: this.config.temperature })}`,
+        generation_config_hash: `sha256:${hashValue({ maxOutputTokens: this.config.maxOutputTokens, temperature: this.config.temperature, safetySettings: GEMINI_SAFETY_SETTINGS, maxRequestBytes: this.config.maxRequestBytes })}`,
         metrics: { call_count: Math.min(metricsNow.callCount, this.config.maxCallsPerRun), repair_count: Math.min(metricsNow.repairCount, this.config.maxRepairsPerRun), latency_ms: Math.min(elapsed, this.config.timeoutMs), input_chars: 0, output_chars: 0, response_hash: null, error_class: mapped.code },
       };
+      this.#recordFailure(mapped, stage, context.run_id);
       throw mapped;
     }
   }

@@ -1,0 +1,11 @@
+node_modules
+.data
+coverage
+.git
+.gitignore
+.env*
+application_default_credentials.json
+*.log
+Dockerfile*
+docs
+test

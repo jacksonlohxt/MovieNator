@@ -18,7 +18,7 @@ function clone(value) {
 }
 
 function defaultState() {
-  return { version: 2, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {} };
+  return { version: 2, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, auditEvents: [] };
 }
 
 /** Durable, append-only local store used by the mock worker and local browser slice. */
@@ -34,7 +34,7 @@ export class FileStore {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
       if (!parsed || ![1, 2].includes(parsed.version)) return defaultState();
-      return { ...defaultState(), ...parsed, version: 2, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {} };
+      return { ...defaultState(), ...parsed, version: 2, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
     } catch {
       return defaultState();
     }
@@ -310,6 +310,18 @@ export class FileStore {
     this.state.scriptRuns[runId] = run;
     this.#persist();
     return clone(run);
+  }
+
+  appendAuditEvent(event) {
+    if (!event || typeof event !== "object") return undefined;
+    this.state.auditEvents.push(clone(event));
+    if (this.state.auditEvents.length > 5_000) this.state.auditEvents.splice(0, this.state.auditEvents.length - 5_000);
+    this.#persist();
+    return clone(event);
+  }
+
+  getAuditEvents() {
+    return clone(this.state.auditEvents);
   }
 
   count() {

@@ -77,11 +77,12 @@ export function projectGroundedRun(run, store) {
 }
 
 export class GroundedBriefEngine {
-  constructor({ store, groundingSource, model } = {}) {
+  constructor({ store, groundingSource, model, audit } = {}) {
     if (!store || !groundingSource || !model) throw new Error("GroundedBriefEngine requires store, groundingSource, and model");
     this.store = store;
     this.groundingSource = groundingSource;
     this.model = model;
+    this.audit = audit;
     this.jobs = new Map();
   }
 
@@ -96,6 +97,7 @@ export class GroundedBriefEngine {
       if (run && !TERMINAL_SCRIPT_STATES.has(run.state)) {
         this.store.markScriptFailed(runId, { class: error.code || "grounding_failed", message: "The grounded brief stopped safely before a verified result was available.", recoverable: true });
         this.store.appendScriptEvent(runId, "script.failed", "recovery", "failed", "Grounded brief needs recovery", { recoverable: true });
+        this.audit?.record({ type: "request_outcome", outcome: "failed", mode: this.model?.provenance?.().backend || "fake", runId, code: error.code || "grounding_failed", provenance: this.provenance(), attributes: { recoverable: true } });
       }
       return this.store.getScriptRun(runId);
     }).finally(() => this.jobs.delete(runId));
@@ -139,7 +141,7 @@ export class GroundedBriefEngine {
     let proposal;
     try {
       if (typeof this.model.groundedBrief !== "function") throw new Error("Grounded brief model method is unavailable");
-      proposal = await this.model.groundedBrief(promptInput, { run_id: runId, stage: "grounded_brief" });
+      proposal = await this.model.groundedBrief(promptInput, { run_id: runId, stage: "grounded_brief", deadline_at: run.deadline_at, rate_limit_key: "grounded_script_brief" });
       validateGroundedBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
     } catch {
       proposal = deterministicGroundedBriefProposal(promptInput);
@@ -171,6 +173,7 @@ export class GroundedBriefEngine {
     };
     this.store.addScriptResult(runId, result);
     this.store.appendScriptEvent(runId, "script.succeeded", "projection", "succeeded", "Grounded script brief ready", { citation_count: citations.length });
+    this.audit?.record({ type: "request_outcome", outcome: "succeeded", mode: result.provenance.model_backend.backend, runId, provenance: result.provenance, attributes: { workflow: "grounded_script_brief", citation_count: citations.length } });
     return this.store.getScriptRun(runId);
   }
 }
