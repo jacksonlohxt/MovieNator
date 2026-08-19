@@ -1,0 +1,24 @@
+{
+  "$id": "https://movie-inator.local/schemas/partner-readiness@1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Partner readiness",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provider_id", "provider_display_name", "environment", "endpoint_ref", "auth_mode", "state", "health", "reason_codes", "provenance"],
+  "properties": {
+    "schema_version": {"const": "partner-readiness@1"},
+    "provider_id": {"type": ["string", "null"]},
+    "provider_display_name": {"type": ["string", "null"]},
+    "environment": {"type": "string"},
+    "endpoint_ref": {"type": ["string", "null"]},
+    "auth_mode": {"type": ["string", "null"]},
+    "scope_ref": {"type": ["string", "null"]},
+    "state": {"type": "string"},
+    "health": {"type": "string"},
+    "checked_at": {"type": ["string", "null"]},
+    "reason_codes": {"type": "array", "items": {"type": "string"}},
+    "error_class": {"type": "string"},
+    "circuit": {"type": "object"},
+    "provenance": {"type": "object", "additionalProperties": false, "required": ["schema_version", "provider_id", "backend", "environment", "endpoint_ref", "auth_mode", "manifest_hash", "redacted"], "properties": {"schema_version": {"const": "partner-provenance@1"}, "provider_id": {"type": ["string", "null"]}, "backend": {"type": "string"}, "environment": {"type": "string"}, "endpoint_ref": {"type": ["string", "null"]}, "auth_mode": {"type": ["string", "null"]}, "manifest_hash": {"type": ["string", "null"]}, "operation": {"type": "string"}, "observed_at": {"type": "string"}, "response_hash": {"type": "string"}, "redacted": {"const": true}}}
+  }
+}

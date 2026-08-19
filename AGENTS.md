@@ -18,3 +18,4 @@ When updating this file, preserve this bar for all agents and keep entries conci
 - The mock-safe engine, local API, browser route, contracts, fixtures, and validation commands are documented in `docs/implementation.md`.
 - The default regression gate is `npm test && npm run check`; it requires no credentials or external services.
 - Phase 5 deployment, runtime-mode validation, Secret Manager seam, safety budgets, audit events, and operator-only Cloud Run/Agent Runtime actions are documented in `docs/phase5-deployment.md`; no cloud mutation is part of repository validation.
+- The default Phase 3 partner path is the credential-free local `mock-provider`; live partner registration and required operator inputs are documented in `docs/partner-integration.md`.
