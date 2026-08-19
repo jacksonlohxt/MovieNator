@@ -37,6 +37,12 @@ Evidence records are normalized, bounded, hashed, and labelled `Demo evidence`. 
 
 The route uses semantic landmarks, one `h1`, associated labels, visible focus, keyboard-friendly buttons, live phase announcements, text plus icons for statuses, and a true mobile evidence dialog with focus return and Escape close. It supports responsive cards at narrow widths, controlled horizontal scrolling only for the role map and journey navigation, `prefers-reduced-motion`, forced-colors styling, refresh restoration through `sessionStorage`, SSE with bounded polling fallback, cancellation, clarification, and retry.
 
+## Product identity and browser-state transition
+
+The active display name is **Movie-Inator** and the machine-safe identifier for new product keys is `movie-inator`. The browser writes readiness, grounding-document, and grounding-run state under `movie-inator-*` session keys. For one bounded transition, it reads the legacy readiness key `gemini-agents-run-id` only when the new readiness key is absent, then copies that value to the new key. It does not delete the legacy value, so an interrupted upgrade does not lose a user's resumable run. No legacy grounding keys existed before Phase 2, so those keys have no compatibility alias.
+
+The server keeps the direct `/`, `/app.js`, `/session-state.js`, and `/styles.css` routes same-origin. The API routes and stored run and document records remain unchanged; this rename changes product-facing identity, not durable record IDs or workflow contracts.
+
 ## Validation
 
 ```sh

@@ -13,9 +13,8 @@ Do not repeat what the codebase already shows; point to the authoritative file o
 Prefer rewriting or pruning existing entries over appending new ones.
 When updating this file, preserve this bar for all agents and keep entries concise.
 
-- The default Phase 3 partner path is the credential-free local `mock-provider`; live partner registration and required operator inputs are documented in `docs/partner-integration.md`.
-
 ## Implementation pointers
 
 - The mock-safe engine, local API, browser route, contracts, fixtures, and validation commands are documented in `docs/implementation.md`.
 - The default regression gate is `npm test && npm run check`; it requires no credentials or external services.
+- The default Phase 3 partner path is the credential-free local `mock-provider`; live partner registration and required operator inputs are documented in `docs/partner-integration.md`.

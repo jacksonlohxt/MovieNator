@@ -163,7 +163,7 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
     return sendJson(res, 200, { ok: true, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend });
   }
   if (req.method === "GET" && url.pathname === "/") return sendStatic(res, "index.html", "text/html; charset=utf-8");
-  if (req.method === "GET" && ["/app.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
+  if (req.method === "GET" && ["/app.js", "/session-state.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
 
   const parts = url.pathname.split("/").filter(Boolean);
   if (req.method === "GET" && parts.length === 2 && parts[0] === "v1" && parts[1] === "partners") return listPartners(res, partnerRuntime);

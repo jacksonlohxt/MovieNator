@@ -1,3 +1,5 @@
+import { LEGACY_SESSION_KEYS, SESSION_KEYS, readMigratedSessionValue, writeSessionValue } from "./session-state.js";
+
 const examples = {
   pass: {
     problem_statement: "Before the Season 2 trailer launch, is the audience engagement dataset ready for a marketing brief?",
@@ -177,7 +179,7 @@ async function submitRun(request = buildRequest()) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The run could not be accepted");
     currentRun = data;
-    sessionStorage.setItem("movie-inator-readiness-run-id", data.run_id);
+    writeSessionValue(sessionStorage, SESSION_KEYS.readinessRun, data.run_id);
     renderRun(data);
     subscribe(data.run_id);
   } catch (error) {
@@ -334,7 +336,7 @@ async function clarifyRun(runId, candidateId, button) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Clarification could not be submitted");
     currentRun = data;
-    sessionStorage.setItem("movie-inator-readiness-run-id", data.run_id);
+    writeSessionValue(sessionStorage, SESSION_KEYS.readinessRun, data.run_id);
     renderRun(data);
     subscribe(data.run_id);
   } catch (error) {
@@ -436,7 +438,7 @@ async function retryRun() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Retry could not be created");
     currentRun = data;
-    sessionStorage.setItem("movie-inator-readiness-run-id", data.run_id);
+    writeSessionValue(sessionStorage, SESSION_KEYS.readinessRun, data.run_id);
     renderRun(data);
     subscribe(data.run_id);
   } catch (error) {
@@ -541,7 +543,7 @@ async function uploadDocument(event) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The source could not be ingested");
     currentDocument = data;
-    sessionStorage.setItem("movie-inator-grounding-document-id", data.document_id);
+    writeSessionValue(sessionStorage, SESSION_KEYS.groundingDocument, data.document_id);
     setText("#document-progress-title", data.duplicate ? "Source already ingested" : "Source ready");
     setText("#document-progress-detail", `${data.ingestion?.stages?.join(" · ") || "uploaded · extracted · mapped · ready"}. ${data.chunk_count} bounded chunks mapped.`);
     documentSummary.replaceChildren();
@@ -581,7 +583,7 @@ async function submitGrounding(event) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The grounded brief could not be accepted");
     currentGroundingRun = data;
-    sessionStorage.setItem("movie-inator-grounding-run-id", data.run_id);
+    writeSessionValue(sessionStorage, SESSION_KEYS.groundingRun, data.run_id);
     groundingLastEventSeq = data.last_event_seq || 0;
     renderGroundingRun(data);
     subscribeGrounded(data.run_id);
@@ -793,7 +795,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 setWorkflow("readiness");
-const savedRunId = sessionStorage.getItem("movie-inator-readiness-run-id");
+const savedRunId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.readinessRun, LEGACY_SESSION_KEYS.readinessRun);
 if (savedRunId) refreshRun(savedRunId).then(() => { if (currentRun && !terminalStates.has(currentRun.state)) subscribe(savedRunId); });
 updateCount();
 

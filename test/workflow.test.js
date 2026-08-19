@@ -9,7 +9,7 @@ import { ContractError, parseRunRequest } from "../src/contracts.js";
 import { createApp } from "../src/server.js";
 
 function tempStore() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-agents-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-"));
   return new FileStore(path.join(directory, "runs.json"));
 }
 
@@ -124,7 +124,7 @@ test("cancellation wins over queued work and publishes no late result", async ()
 });
 
 test("HTTP API is durable, idempotent, safe, and event-readable", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-agents-http-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-http-"));
   const app = createApp({ dataPath: path.join(directory, "runs.json") });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   t.after(() => app.server.close());
