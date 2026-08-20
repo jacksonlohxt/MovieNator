@@ -257,6 +257,7 @@ function renderRun(run) {
   setText("#run-phase", run.phase || "Accepted");
   setText("#run-elapsed", `Elapsed ${Math.max(0, Math.round((run.elapsed_ms || 0) / 1000))}s`);
   setText("#attempt-label", `Bounded retries: ${run.attempts || 0} / 2`);
+  renderFoundation(run);
   renderProgress(run);
   if (run.state === "needs_input") {
     resetStatePanels();
@@ -283,6 +284,28 @@ function renderRun(run) {
   show(runSection, true);
   updateJourney("run");
   $("#cancel-run").disabled = run.state === "cancel_requested";
+}
+
+function renderFoundation(run) {
+  const checkpoint = run.checkpoints?.at(-1);
+  setText("#checkpoint-status", checkpoint ? `${checkpoint.kind} · ${checkpoint.status} · ${run.checkpoints.length} saved` : "No checkpoint yet");
+  const branches = run.branches || [];
+  const completed = branches.filter((branch) => ["succeeded", "failed", "timed_out", "canceled", "skipped"].includes(branch.state)).length;
+  setText("#branch-status", branches.length ? `${completed} / ${branches.length} terminal` : "Pending");
+  setText("#workflow-outcome-status", run.workflow_state?.terminal_outcome?.outcome ? `${run.workflow_state.terminal_outcome.outcome} · history preserved` : run.workflow_state?.cancellation?.requested ? "Cancellation recorded" : "Run is resumable");
+}
+
+async function loadToolReadiness() {
+  try {
+    const response = await fetch("/v1/tools/readiness", { headers: { accept: "application/json" } });
+    const readiness = await response.json();
+    const ready = readiness.no_side_effect_mode && readiness.tools?.every((tool) => tool.state === "ready" && tool.credentials === "none");
+    setText("#tool-readiness-label", ready ? "Ready" : "Unavailable");
+    setText("#tool-mode-status", ready ? "Local mock, read-only" : "Safe unavailable");
+  } catch {
+    setText("#tool-readiness-label", "Unavailable");
+    setText("#tool-mode-status", "Safe unavailable");
+  }
 }
 
 function renderProgress(run) {
@@ -795,6 +818,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 setWorkflow("readiness");
+loadToolReadiness();
 const savedRunId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.readinessRun, LEGACY_SESSION_KEYS.readinessRun);
 if (savedRunId) refreshRun(savedRunId).then(() => { if (currentRun && !terminalStates.has(currentRun.state)) subscribe(savedRunId); });
 updateCount();

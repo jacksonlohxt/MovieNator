@@ -30,6 +30,8 @@ import { FileStore } from "./store.js";
 import { createDefaultPartnerRegistry } from "./partner-defaults.js";
 import { PartnerOperationRunner } from "./partner-runtime.js";
 import { PartnerContractError } from "./partner-contracts.js";
+import { createLocalMcpDatabase } from "./mcp-database.js";
+import { createDefaultToolRegistry } from "./orchestrator.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
@@ -132,11 +134,13 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, database, toolRegistry } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const runtimeConfig = readRuntimeConfig(env, { googleConfig });
   const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
   const actualProvider = provider || new MockProvider();
+  const actualDatabase = database || createLocalMcpDatabase();
+  const actualToolRegistry = toolRegistry || createDefaultToolRegistry({ database: actualDatabase });
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
   const actualTokenProvider = googleTokenProvider || (["adc", "workload_identity", "attached_identity"].includes(configuredGoogle.authMode) ? createAdcTokenProvider() : undefined);
   const actualSecretProvider = createSecretProvider({ env, provider: secretProvider, tokenProvider: actualTokenProvider });
@@ -149,6 +153,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel, audit });
   const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry();
   const actualPartnerRuntime = partnerRuntime || new PartnerOperationRunner({ registry: actualPartnerRegistry });
+  engine.resumeActive();
 
   const server = http.createServer(async (req, res) => {
     const streaming = String(req.url || "").endsWith("/events");
@@ -157,7 +162,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
       req.destroy();
     });
     try {
-      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime });
+      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry });
     } catch (error) {
       const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
       const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
@@ -170,10 +175,10 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   server.requestTimeout = runtimeConfig.requestTimeoutMs;
   server.headersTimeout = Math.min(runtimeConfig.requestTimeoutMs, 30_000);
   server.keepAliveTimeout = Math.min(runtimeConfig.requestTimeoutMs, 10_000);
-  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime };
+  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry };
 }
 
-async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, runtimeConfig, audit, partnerRuntime }) {
+async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, runtimeConfig, audit, partnerRuntime, database, toolRegistry }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
@@ -192,6 +197,9 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
     if (req.method === "GET" && parts.length === 4 && parts[3] === "readiness") return getPartnerReadiness(res, partnerRuntime, providerId);
     if (req.method === "GET" && parts.length === 4 && parts[3] === "events") return getPartnerEvents(res, partnerRuntime, providerId);
   }
+  if (req.method === "GET" && url.pathname === "/v1/tools/readiness") return sendJson(res, 200, toolRegistry.readiness());
+  if (req.method === "GET" && url.pathname === "/v1/tools") return sendJson(res, 200, toolRegistry.readiness());
+  if (req.method === "GET" && url.pathname === "/v1/logic/state") return sendJson(res, 200, { schema_version: "logic-host-state@1", mode: "local-mock", no_side_effect_mode: true, tool_readiness: toolRegistry.readiness(), database: { server_id: database.capabilities().server_id, read_only: true, operations: database.listOperations(), private_rows: false, arbitrary_sql: false } });
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "documents") return createDocument(req, res, store);
   if (parts[0] === "v1" && parts[1] === "documents" && parts.length >= 3) {
     if (req.method === "GET" && parts.length === 3) return getDocument(res, store, parts[2]);
@@ -208,6 +216,8 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   if (parts.length >= 3 && parts[1] === "runs") {
     const runId = parts[2];
     if (req.method === "GET" && parts.length === 3) return getRun(res, store, runId, partnerRuntime);
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "state") return getRunState(res, store, runId);
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "checkpoints") return getRunCheckpoints(res, store, runId);
     if (req.method === "GET" && parts.length === 4 && parts[3] === "events") return streamEvents(req, res, store, runId);
     if (req.method === "POST" && parts.length === 4 && parts[3] === "cancel") return cancelRun(req, res, store, engine, runId);
     if (req.method === "POST" && parts.length === 4 && parts[3] === "retry") return retryRun(req, res, store, engine, runId);
@@ -323,6 +333,18 @@ function getRun(res, store, runId, partnerRuntime) {
   const run = store.getRun(runId);
   if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
   return sendJson(res, 200, { ...projectRun(run, store), partner_status: partnerRuntime.projections() });
+}
+
+function getRunState(res, store, runId) {
+  const projection = store.workflowProjection(runId);
+  if (!projection) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+  return sendJson(res, 200, { schema_version: "workflow-state-projection@1", run_id: runId, ...projection });
+}
+
+function getRunCheckpoints(res, store, runId) {
+  const run = store.getRun(runId);
+  if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+  return sendJson(res, 200, { schema_version: "workflow-checkpoints-projection@1", run_id: runId, checkpoints: store.workflowProjection(runId)?.checkpoints || [] });
 }
 
 async function cancelRun(req, res, store, engine, runId) {

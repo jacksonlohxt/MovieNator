@@ -109,6 +109,10 @@
         <p id="run-elapsed" class="run-elapsed">Elapsed 0s</p>
         <div id="run-live" class="sr-only" role="status" aria-live="polite"></div>
         <ol id="progress-list" class="progress-list" aria-label="Run progress"></ol>
+        <section class="foundation-status" aria-labelledby="foundation-status-title">
+          <div class="section-heading"><div><p class="section-kicker">Local logic host</p><h3 id="foundation-status-title">Durable state and safe tools</h3></div><span id="tool-readiness-label" class="status-pill">Checking</span></div>
+          <dl class="foundation-grid"><div><dt>Checkpoint</dt><dd id="checkpoint-status">No checkpoint yet</dd></div><div><dt>Branches</dt><dd id="branch-status">Pending</dd></div><div><dt>Recovery</dt><dd id="workflow-outcome-status">Run is resumable</dd></div><div><dt>Tool mode</dt><dd id="tool-mode-status">Local mock, read-only</dd></div></dl>
+        </section>
         <div class="run-footer"><span id="attempt-label">Bounded retries: 0 / 2</span><button id="cancel-run" class="button button-secondary" type="button">Cancel run</button></div>
       </section>
 

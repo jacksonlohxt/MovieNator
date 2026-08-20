@@ -40,7 +40,7 @@ No Google or IBM integration is enabled by default, no production credentials ar
 
 ## Current status
 
-The repository contains the deterministic audience readiness workflow, the Phase 2 Movie-Inator script-grounding vertical slice, and Phase 3 provider-neutral partner infrastructure. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store, and a credential-free synthetic partner adapter. No IBM, IVM, or other live partner product, tenant, endpoint, credential, hosted-model, or side-effect integration is enabled.
+The repository contains the deterministic audience readiness workflow, the Phase 2 Movie-Inator script-grounding vertical slice, Phase 3 provider-neutral partner infrastructure, and the Phase 4 local state and logic-hosting foundation. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store with resumable checkpoints, allowlisted local tools, and a credential-free synthetic partner adapter. No IBM, IVM, or other live partner product, tenant, endpoint, credential, hosted-model, or side-effect integration is enabled.
 
 ```sh
 npm test
@@ -59,6 +59,7 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 
 - [Product requirements document](docs/prd.md) - the authoritative detailed specification and the unresolved Captain decisions.
 - [Implementation guide](docs/implementation.md) - contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
+- [Movie-Inator Phase 4 state and logic hosting guide](docs/phase4-state-logic-hosting.md) - durable checkpoints, allowlisted local tools, bounded proposals, recovery, and the future ADK/runtime boundary.
 - [Movie-Inator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - automation, operator boundaries, local grounding, future search seams, and separate media adapters.
 - [Phase 5 deployment and safety runbook](docs/phase5-deployment.md) - container, Cloud Run placeholders, runtime modes, Secret Manager seam, safety budgets, audit events, and the later Agent Runtime path.
 - [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the exact later live-access information required.

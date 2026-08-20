@@ -545,6 +545,7 @@ export function projectRun(run, store) {
   if (!run) return undefined;
   const events = store.getEvents(run.run_id);
   const terminal = TERMINAL_STATES.has(run.state);
+  const workflowProjection = typeof store.workflowProjection === "function" ? store.workflowProjection(run.run_id) : null;
   const projection = {
     schema_version: "run-projection@1",
     run_id: run.run_id,
@@ -564,6 +565,9 @@ export function projectRun(run, store) {
     retry_count: run.retry_count,
     attempts: Math.min(run.attempt_count || 0, MAX_ATTEMPTS),
     cancellation_requested: run.cancellation_requested,
+    workflow_state: workflowProjection?.state || null,
+    checkpoints: workflowProjection?.checkpoints || [],
+    branches: workflowProjection?.branches || [],
     provenance: run.provenance || PROVENANCE,
     recovery: run.error ? { kind: "retryable_failure", message: run.error.message, recoverable: run.error.recoverable, original_run_id: run.run_id, actions: run.error.recoverable ? ["retry"] : [] } : terminal && run.state === "canceled" ? { kind: "canceled", message: "Cancellation was recorded. No late result will be published.", recoverable: true, original_run_id: run.run_id, actions: ["retry"] } : null,
   };
@@ -587,6 +591,27 @@ export class MockEngine {
     };
     this.provenance = combineProvenance({ modelBackend, providerBackend });
     this.jobs = new Map();
+    this.leaseRetries = new Map();
+    this.ownerId = `worker_${process.pid}_${safeId("owner")}`;
+  }
+
+  resumeActive() {
+    this.store.recoverExpiredLeases();
+    for (const run of this.store.listActiveRuns()) this.enqueue(run.run_id);
+    return this.store.listActiveRuns().map((run) => run.run_id);
+  }
+
+  retryAfterLease(runId) {
+    if (this.leaseRetries.has(runId)) return;
+    const lease = this.store.getWorkflowState(runId)?.lease;
+    if (!lease) return this.enqueue(runId);
+    const delay = Math.max(1, Date.parse(lease.expires_at) - this.clock.now() + 1);
+    const timer = setTimeout(() => {
+      this.leaseRetries.delete(runId);
+      this.enqueue(runId);
+    }, delay);
+    timer.unref?.();
+    this.leaseRetries.set(runId, timer);
   }
 
   refreshProvenance() {
@@ -630,10 +655,12 @@ export class MockEngine {
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     if (TERMINAL_STATES.has(run.state)) return run;
     const queued = ["accepted", "queued"].includes(run.state);
+    this.store.requestCancellation(runId);
     const updated = this.store.transition(runId, "cancel_requested", { cancellation_requested: true });
     this.store.appendEvent(runId, "run.cancel_requested", "recovery", "cancel_requested", "Cancellation requested", {});
     if (queued || updated.state === "accepted" || updated.state === "queued") {
       this.store.transition(runId, "canceled", { cancellation_requested: true });
+      this.store.setTerminalOutcome(runId, "canceled", { reasonCode: "cancel_requested", message: "Run canceled before work started", recoverable: true });
       this.store.appendEvent(runId, "run.canceled", "recovery", "canceled", "Run canceled before work started", {});
     }
     return this.store.getRun(runId);
@@ -660,6 +687,19 @@ export class MockEngine {
   }
 
   async execute(runId) {
+    const lease = this.store.acquireLease(runId, this.ownerId);
+    if (!lease) {
+      this.retryAfterLease(runId);
+      return this.store.getRun(runId);
+    }
+    try {
+      return await this.executeWorkflow(runId);
+    } finally {
+      this.store.releaseLease(runId, this.ownerId);
+    }
+  }
+
+  async executeWorkflow(runId) {
     let run = this.store.getRun(runId);
     if (!run || TERMINAL_STATES.has(run.state)) return run;
     this.advance(runId, "queued", "queue", "Queued");
@@ -680,6 +720,7 @@ export class MockEngine {
     this.checkCancellation(runId);
     if (resolution.status === "multiple") {
       this.store.transition(runId, "needs_input", { phase: "needs_input", clarification: { question: "Which matching demo asset should this brief assess?", candidates: safeClarification(resolution.candidates) } });
+      this.store.setTerminalOutcome(runId, "needs_input", { reasonCode: "clarification_required", message: "A matching asset must be selected before the run can continue", recoverable: true });
       this.store.appendEvent(runId, "run.needs_input", "resolution", "needs_input", "Choose one matching asset", { candidate_count: resolution.candidates.length });
       return this.store.getRun(runId);
     }
@@ -690,13 +731,23 @@ export class MockEngine {
       return this.finishWithResult(runId, policyDecision, records);
     }
     const asset = resolution.asset;
-    const assetObservation = await this.provider.describe_asset({ retry_count: run.retry_count }, asset);
-    const records = [makeEvidenceRecord(runId, "asset", assetObservation, this.provider, { provenance: this.provenance })];
-    this.store.addEvidence(runId, records[0]);
+    const persistedEvidence = this.store.listEvidence(runId);
+    const persistedAsset = persistedEvidence.find((record) => record.check_kind === "asset" && record.status === "complete");
+    const records = persistedAsset ? [persistedAsset] : [];
+    if (!persistedAsset) {
+      const assetObservation = await this.provider.describe_asset({ retry_count: run.retry_count }, asset);
+      records.push(makeEvidenceRecord(runId, "asset", assetObservation, this.provider, { provenance: this.provenance }));
+      this.store.addEvidence(runId, records[0]);
+    }
     this.advance(runId, "evidence_pending", "evidence", "Reading quality, governance, and lineage", { total: 3, completed: 0, branches: { quality: { state: "pending", status: null, attempts: 0 }, governance: { state: "pending", status: null, attempts: 0 }, lineage: { state: "pending", status: null, attempts: 0 } } });
     const branchKinds = ["quality", "governance", "lineage"];
     const branchResults = await Promise.all(branchKinds.map(async (kind) => {
       this.checkCancellation(runId);
+      const persisted = this.store.listEvidence(runId).find((record) => record.check_kind === kind && record.status === "complete");
+      if (persisted) {
+        this.updateBranchProgress(runId, kind, { state: "complete", status: persisted.status, attempts: 0 });
+        return persisted;
+      }
       this.updateBranchProgress(runId, kind, { state: "running", status: null });
       this.store.appendEvent(runId, "evidence.started", kind, "evidence_pending", `${capitalize(kind)} check started`, { operation: operationFor(kind) });
       const observation = await this.readBranch(runId, kind, asset, run.request.purpose, run.retry_count);
@@ -785,12 +836,16 @@ export class MockEngine {
     branches[kind] = { ...(branches[kind] || {}), ...patch };
     const completed = Object.values(branches).filter((branch) => ["complete", "partial"].includes(branch.state)).length;
     this.store.transition(runId, run.state, { progress: { ...(run.progress || {}), branches, completed, total: 3 } });
+    const branchState = patch.state === "running" ? "running" : patch.state === "complete" ? "succeeded" : patch.state === "partial" ? "failed" : "pending";
+    this.store.upsertBranch(runId, kind, { kind, state: branchState, attempt: patch.attempts || 0, error: patch.status && patch.status !== "complete" ? { code: String(patch.status), recoverable: true } : null });
   }
 
   advance(runId, state, step, display, payload = {}) {
     const run = this.store.getRun(runId);
     const patch = Object.keys(payload).length ? { progress: { ...(run?.progress || {}), ...payload } } : {};
     this.store.transition(runId, state, { phase: state, ...patch });
+    const checkpointKind = { accepted: "accepted", queued: "accepted", planning: "plan", resolving_asset: "resolution", evidence_pending: "branch", evidence_partial: "branch", composing: "composition", validating: "validation", succeeded: "terminal", canceled: "terminal", failed: "terminal", expired: "terminal" }[state];
+    if (checkpointKind) this.store.saveCheckpoint(runId, { kind: checkpointKind, phase: state, input: { run_id: runId, state }, output: { state, step }, payload: { display, ...(state === "evidence_pending" ? { total: payload.total || 0 } : {}) } });
     this.store.appendEvent(runId, `run.${state}`, step, state, display, payload);
   }
 
@@ -799,6 +854,7 @@ export class MockEngine {
     if (run?.cancellation_requested || run?.state === "cancel_requested") {
       if (!TERMINAL_STATES.has(run.state)) {
         this.store.transition(runId, "canceled", { cancellation_requested: true, phase: "canceled" });
+        this.store.setTerminalOutcome(runId, "canceled", { reasonCode: "cancel_requested", message: "Cancellation confirmed; late results discarded", recoverable: true });
         this.store.appendEvent(runId, "run.canceled", "recovery", "canceled", "Cancellation confirmed; late results discarded", {});
       }
       throw new CancellationError();
