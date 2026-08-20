@@ -33,6 +33,7 @@ import {
 } from "./contracts.js";
 import { ModelGateway } from "./model-gateway.js";
 import { deterministicGroundedBriefProposal } from "./grounding.js";
+import { WORKFLOW_LEASE_MS } from "./workflow-state.js";
 export { ModelGateway } from "./model-gateway.js";
 export { GeminiRestBackend } from "./gemini-rest.js";
 
@@ -575,7 +576,7 @@ export function projectRun(run, store) {
 }
 
 export class MockEngine {
-  constructor({ store, provider = new MockProvider(), model = new FakeModel(), clock = Date, audit } = {}) {
+  constructor({ store, provider = new MockProvider(), model = new FakeModel(), clock = Date, audit, leaseTtlMs = WORKFLOW_LEASE_MS, leaseRenewIntervalMs = Math.max(1, Math.floor(leaseTtlMs / 3)) } = {}) {
     if (!store) throw new Error("MockEngine requires a store");
     this.store = store;
     this.provider = provider;
@@ -592,7 +593,72 @@ export class MockEngine {
     this.provenance = combineProvenance({ modelBackend, providerBackend });
     this.jobs = new Map();
     this.leaseRetries = new Map();
+    this.activeLeases = new Map();
+    this.leaseHeartbeats = new Map();
+    this.leaseTtlMs = Math.max(1, Math.min(WORKFLOW_LEASE_MS * 10, leaseTtlMs));
+    this.leaseRenewIntervalMs = Math.max(1, Math.min(this.leaseTtlMs, leaseRenewIntervalMs));
     this.ownerId = `worker_${process.pid}_${safeId("owner")}`;
+  }
+
+  fence(runId) {
+    const lease = this.activeLeases.get(runId);
+    if (!lease) throw new ContractError("LEASE_LOST", "The workflow lease is no longer owned by this worker");
+    this.store.assertLease(runId, { ownerId: this.ownerId, leaseId: lease.lease_id });
+    return { lease: { ownerId: this.ownerId, leaseId: lease.lease_id } };
+  }
+
+  transitionOwned(runId, state, patch = {}) {
+    return this.store.transition(runId, state, patch, this.fence(runId));
+  }
+
+  eventOwned(runId, type, step, state, display, payload = {}) {
+    return this.store.appendEvent(runId, type, step, state, display, payload, this.fence(runId));
+  }
+
+  terminalOwned(runId, outcome, options = {}) {
+    return this.store.setTerminalOutcome(runId, outcome, { ...options, preserveLease: true, ...this.fence(runId) });
+  }
+
+  evidenceOwned(runId, record) {
+    return this.store.addEvidence(runId, record, this.fence(runId));
+  }
+
+  resultOwned(runId, result, decision) {
+    return this.store.addResult(runId, result, decision, this.fence(runId));
+  }
+
+  failureOwned(runId, error) {
+    return this.store.markFailed(runId, error, this.fence(runId));
+  }
+
+  branchOwned(runId, branchId, patch) {
+    return this.store.upsertBranch(runId, branchId, patch, this.fence(runId));
+  }
+
+  checkpointOwned(runId, checkpoint) {
+    return this.store.saveCheckpoint(runId, { ...checkpoint, ...this.fence(runId) });
+  }
+
+  startLeaseHeartbeat(runId) {
+    const heartbeat = setInterval(() => {
+      const lease = this.activeLeases.get(runId);
+      if (!lease) return;
+      const renewed = this.store.renewLease(runId, this.ownerId, { leaseId: lease.lease_id, ttlMs: this.leaseTtlMs });
+      if (renewed) {
+        this.activeLeases.set(runId, renewed);
+        return;
+      }
+      clearInterval(heartbeat);
+      this.leaseHeartbeats.delete(runId);
+    }, this.leaseRenewIntervalMs);
+    heartbeat.unref?.();
+    this.leaseHeartbeats.set(runId, heartbeat);
+  }
+
+  stopLeaseHeartbeat(runId) {
+    const heartbeat = this.leaseHeartbeats.get(runId);
+    if (heartbeat) clearInterval(heartbeat);
+    this.leaseHeartbeats.delete(runId);
   }
 
   resumeActive() {
@@ -629,13 +695,17 @@ export class MockEngine {
   enqueue(runId) {
     if (this.jobs.has(runId)) return this.jobs.get(runId);
     const job = Promise.resolve().then(() => this.execute(runId)).catch((error) => {
-      if (!(error instanceof CancellationError)) {
+      if (!(error instanceof CancellationError) && error?.code !== "LEASE_LOST") {
         const run = this.store.getRun(runId);
         if (run && !TERMINAL_STATES.has(run.state)) {
-          this.store.transition(runId, run.state, { provenance: this.refreshProvenance() });
-          this.store.markFailed(runId, { class: error.code || "failed", message: "The run stopped safely before a verified result was available.", recoverable: true });
-          this.store.appendEvent(runId, "run.failed", "recovery", "failed", "Run needs recovery", { recoverable: true });
-          this.audit?.record({ type: "request_outcome", outcome: "failed", mode: this.provenance.model_backend.backend, runId, code: error.code || "failed", provenance: this.provenance, attributes: { recoverable: true } });
+          try {
+            this.store.transition(runId, run.state, { provenance: this.refreshProvenance() }, this.fence(runId));
+            this.store.markFailed(runId, { class: error.code || "failed", message: "The run stopped safely before a verified result was available.", recoverable: true }, this.fence(runId));
+            this.store.appendEvent(runId, "run.failed", "recovery", "failed", "Run needs recovery", { recoverable: true }, this.fence(runId));
+            this.audit?.record({ type: "request_outcome", outcome: "failed", mode: this.provenance.model_backend.backend, runId, code: error.code || "failed", provenance: this.provenance, attributes: { recoverable: true } });
+          } catch (fenceError) {
+            if (fenceError?.code !== "LEASE_LOST") throw fenceError;
+          }
         }
       }
       return this.store.getRun(runId);
@@ -687,15 +757,22 @@ export class MockEngine {
   }
 
   async execute(runId) {
-    const lease = this.store.acquireLease(runId, this.ownerId);
+    const lease = this.store.acquireLease(runId, this.ownerId, { ttlMs: this.leaseTtlMs });
     if (!lease) {
       this.retryAfterLease(runId);
       return this.store.getRun(runId);
     }
+    this.activeLeases.set(runId, lease);
+    this.startLeaseHeartbeat(runId);
     try {
       return await this.executeWorkflow(runId);
+    } catch (error) {
+      if (error?.code === "LEASE_LOST") return this.store.getRun(runId);
+      throw error;
     } finally {
-      this.store.releaseLease(runId, this.ownerId);
+      this.stopLeaseHeartbeat(runId);
+      this.activeLeases.delete(runId);
+      this.store.releaseLease(runId, this.ownerId, lease.lease_id);
     }
   }
 
@@ -705,10 +782,12 @@ export class MockEngine {
     this.advance(runId, "queued", "queue", "Queued");
     this.checkCancellation(runId);
     this.advance(runId, "planning", "planning", "Planning request");
+    this.fence(runId);
     const plan = validatePlan(await this.model.plan(run.request, { workflow: WORKFLOW, run_id: runId, stage: "planner", deadline_at: run.deadline_at, rate_limit_key: run.actor }));
     this.refreshProvenance();
     this.checkCancellation(runId);
     this.advance(runId, "resolving_asset", "resolution", "Resolving one demo asset");
+    this.fence(runId);
     const query = plan.asset_query || run.request.asset_hint || "";
     let resolution;
     try {
@@ -719,14 +798,14 @@ export class MockEngine {
     }
     this.checkCancellation(runId);
     if (resolution.status === "multiple") {
-      this.store.transition(runId, "needs_input", { phase: "needs_input", clarification: { question: "Which matching demo asset should this brief assess?", candidates: safeClarification(resolution.candidates) } });
-      this.store.setTerminalOutcome(runId, "needs_input", { reasonCode: "clarification_required", message: "A matching asset must be selected before the run can continue", recoverable: true });
-      this.store.appendEvent(runId, "run.needs_input", "resolution", "needs_input", "Choose one matching asset", { candidate_count: resolution.candidates.length });
+      this.transitionOwned(runId, "needs_input", { phase: "needs_input", clarification: { question: "Which matching demo asset should this brief assess?", candidates: safeClarification(resolution.candidates) } });
+      this.terminalOwned(runId, "needs_input", { reasonCode: "clarification_required", message: "A matching asset must be selected before the run can continue", recoverable: true });
+      this.eventOwned(runId, "run.needs_input", "resolution", "needs_input", "Choose one matching asset", { candidate_count: resolution.candidates.length });
       return this.store.getRun(runId);
     }
     if (resolution.status !== "resolved" || !resolution.asset) {
       const records = [makeEvidenceRecord(runId, "asset", { status: "missing", facts: {}, units: {}, source_reference: "Demo asset resolution returned no match" }, this.provider, { provenance: this.provenance })];
-      for (const record of records) this.store.addEvidence(runId, record);
+      for (const record of records) this.evidenceOwned(runId, record);
       const policyDecision = evaluatePolicy(records);
       return this.finishWithResult(runId, policyDecision, records);
     }
@@ -735,9 +814,10 @@ export class MockEngine {
     const persistedAsset = persistedEvidence.find((record) => record.check_kind === "asset" && record.status === "complete");
     const records = persistedAsset ? [persistedAsset] : [];
     if (!persistedAsset) {
+      this.fence(runId);
       const assetObservation = await this.provider.describe_asset({ retry_count: run.retry_count }, asset);
       records.push(makeEvidenceRecord(runId, "asset", assetObservation, this.provider, { provenance: this.provenance }));
-      this.store.addEvidence(runId, records[0]);
+      this.evidenceOwned(runId, records[0]);
     }
     this.advance(runId, "evidence_pending", "evidence", "Reading quality, governance, and lineage", { total: 3, completed: 0, branches: { quality: { state: "pending", status: null, attempts: 0 }, governance: { state: "pending", status: null, attempts: 0 }, lineage: { state: "pending", status: null, attempts: 0 } } });
     const branchKinds = ["quality", "governance", "lineage"];
@@ -749,11 +829,11 @@ export class MockEngine {
         return persisted;
       }
       this.updateBranchProgress(runId, kind, { state: "running", status: null });
-      this.store.appendEvent(runId, "evidence.started", kind, "evidence_pending", `${capitalize(kind)} check started`, { operation: operationFor(kind) });
+      this.eventOwned(runId, "evidence.started", kind, "evidence_pending", `${capitalize(kind)} check started`, { operation: operationFor(kind) });
       const observation = await this.readBranch(runId, kind, asset, run.request.purpose, run.retry_count);
       this.checkCancellation(runId);
       const record = makeEvidenceRecord(runId, kind, observation, this.provider, { provenance: this.provenance });
-      this.store.addEvidence(runId, record);
+      this.evidenceOwned(runId, record);
       this.updateBranchProgress(runId, kind, { state: record.status === "complete" ? "complete" : "partial", status: record.status, attempts: Math.min(MAX_ATTEMPTS, this.store.getRun(runId).attempt_count) });
       return record;
     }));
@@ -763,12 +843,12 @@ export class MockEngine {
     if (failedRecoveryBranch && isRecoveryScenario(run) && run.retry_count === 0) return this.failRecoverably(runId, "Demo evidence was unavailable after bounded retries");
     const partial = branchResults.some((record) => record.status !== "complete");
     if (partial) {
-      this.store.transition(runId, "evidence_partial", { phase: "evidence_partial", progress: { ...(this.store.getRun(runId).progress || {}), completed: 3, total: 3 } });
-      this.store.appendEvent(runId, "evidence.partial", "evidence", "evidence_partial", "Partial evidence is visible", { missing: branchResults.filter((record) => record.status !== "complete").map((record) => record.check_kind) });
+      this.transitionOwned(runId, "evidence_partial", { phase: "evidence_partial", progress: { ...(this.store.getRun(runId).progress || {}), completed: 3, total: 3 } });
+      this.eventOwned(runId, "evidence.partial", "evidence", "evidence_partial", "Partial evidence is visible", { missing: branchResults.filter((record) => record.status !== "complete").map((record) => record.check_kind) });
     }
     const policyDecision = evaluatePolicy(records);
-    this.store.transition(runId, partial ? "evidence_partial" : "evidence_pending", { policy_decision: policyDecision, decision: policyDecision.decision, progress: { ...(this.store.getRun(runId).progress || {}), completed: 3, total: 3 } });
-    this.store.appendEvent(runId, "policy.computed", "policy", partial ? "evidence_partial" : "evidence_pending", `Policy computed: ${policyDecision.decision}`, { decision: policyDecision.decision, policy_version: POLICY_VERSION, reason_count: policyDecision.reasons.length });
+    this.transitionOwned(runId, partial ? "evidence_partial" : "evidence_pending", { policy_decision: policyDecision, decision: policyDecision.decision, progress: { ...(this.store.getRun(runId).progress || {}), completed: 3, total: 3 } });
+    this.eventOwned(runId, "policy.computed", "policy", partial ? "evidence_partial" : "evidence_pending", `Policy computed: ${policyDecision.decision}`, { decision: policyDecision.decision, policy_version: POLICY_VERSION, reason_count: policyDecision.reasons.length });
     return this.compose(runId, policyDecision, records);
   }
 
@@ -778,15 +858,16 @@ export class MockEngine {
       attempt += 1;
       const run = this.store.getRun(runId);
       this.checkCancellation(runId);
-      this.store.transition(runId, run.state, { attempt_count: Math.max(run.attempt_count, attempt) });
+      this.transitionOwned(runId, run.state, { attempt_count: Math.max(run.attempt_count, attempt) });
       try {
+        this.fence(runId);
         const context = { retry_count: retryCount, run_id: runId, manifest_hash: this.provider.manifest.manifest_hash };
         if (kind === "quality") return await this.provider.read_quality(context, asset);
         if (kind === "governance") return await this.provider.read_governance(context, asset, purpose);
         return await this.provider.read_lineage(context, asset);
       } catch (error) {
         const retryable = error instanceof ProviderError && (error.retryable || RETRYABLE_PROVIDER_ERRORS.has(error.kind));
-        this.store.appendEvent(runId, "evidence.attempt", kind, "evidence_pending", `${capitalize(kind)} attempt ${attempt} did not complete`, { attempt, retryable: Boolean(retryable), error_class: error.kind || "unavailable" });
+        this.eventOwned(runId, "evidence.attempt", kind, "evidence_pending", `${capitalize(kind)} attempt ${attempt} did not complete`, { attempt, retryable: Boolean(retryable), error_class: error.kind || "unavailable" });
         if (!retryable || attempt >= MAX_ATTEMPTS) return { status: mapProviderStatus(error), facts: {}, units: {}, source_reference: `Demo ${kind} evidence unavailable` };
         await sleep(10 * attempt);
       }
@@ -796,36 +877,37 @@ export class MockEngine {
 
   async compose(runId, policyDecision, records) {
     this.checkCancellation(runId);
-    this.store.transition(runId, "composing", { phase: "composing" });
-    this.store.appendEvent(runId, "writer.started", "writer", "composing", "Composing evidence-backed brief", { model_backend: this.provenance.model_backend.backend });
+    this.transitionOwned(runId, "composing", { phase: "composing" });
+    this.eventOwned(runId, "writer.started", "writer", "composing", "Composing evidence-backed brief", { model_backend: this.provenance.model_backend.backend });
     let draft;
     try {
       const writerInput = { decision: policyDecision.decision, policy_decision: policyDecision, evidence_bundle: buildEvidenceBundle(records), records: records.map((record) => ({ ...record, facts: { ...record.facts } })), policy_version: POLICY_VERSION };
       const write = typeof this.model.write === "function" ? this.model.write.bind(this.model) : this.model.draft.bind(this.model);
+      this.fence(runId);
       draft = await write(writerInput, { run_id: runId, stage: "writer", deadline_at: this.store.getRun(runId).deadline_at, rate_limit_key: this.store.getRun(runId).actor });
     } catch {
       draft = fallbackDraft(policyDecision.decision, records);
-      this.store.appendEvent(runId, "writer.fallback", "writer", "composing", "Using deterministic brief template", { reason: "writer_unavailable" });
+      this.eventOwned(runId, "writer.fallback", "writer", "composing", "Using deterministic brief template", { reason: "writer_unavailable" });
     }
     this.checkCancellation(runId);
-    this.store.transition(runId, "validating", { phase: "validating" });
-    this.store.appendEvent(runId, "verifier.started", "verifier", "validating", "Validating evidence and provenance", { projection: "public" });
+    this.transitionOwned(runId, "validating", { phase: "validating" });
+    this.eventOwned(runId, "verifier.started", "verifier", "validating", "Validating evidence and provenance", { projection: "public" });
     const result = verifyAndProject({ runId, runStatus: "succeeded", policyDecision, draft, records, provenance: this.refreshProvenance() });
-    this.store.addResult(runId, result, result.decision);
-    this.store.appendEvent(runId, "run.succeeded", "projection", "succeeded", `Brief ready: ${result.decision}`, { decision: result.decision, provenance: this.provenance.label });
+    this.resultOwned(runId, result, result.decision);
+    this.eventOwned(runId, "run.succeeded", "projection", "succeeded", `Brief ready: ${result.decision}`, { decision: result.decision, provenance: this.provenance.label });
     this.audit?.record({ type: "request_outcome", outcome: "succeeded", mode: this.provenance.model_backend.backend, runId, provenance: this.provenance, attributes: { decision: result.decision } });
     return this.store.getRun(runId);
   }
 
   async finishWithResult(runId, policyDecision, records) {
-    this.store.transition(runId, "evidence_pending", { policy_decision: policyDecision, decision: policyDecision.decision, progress: { completed: 0, total: 0 } });
-    this.store.appendEvent(runId, "policy.computed", "policy", "evidence_pending", `Policy computed: ${policyDecision.decision}`, { decision: policyDecision.decision, policy_version: POLICY_VERSION, reason_count: policyDecision.reasons.length });
+    this.transitionOwned(runId, "evidence_pending", { policy_decision: policyDecision, decision: policyDecision.decision, progress: { completed: 0, total: 0 } });
+    this.eventOwned(runId, "policy.computed", "policy", "evidence_pending", `Policy computed: ${policyDecision.decision}`, { decision: policyDecision.decision, policy_version: POLICY_VERSION, reason_count: policyDecision.reasons.length });
     return this.compose(runId, policyDecision, records);
   }
 
   failRecoverably(runId, message) {
-    this.store.markFailed(runId, { class: "unavailable", message, recoverable: true });
-    this.store.appendEvent(runId, "run.failed", "recovery", "failed", "Demo run needs recovery", { recoverable: true, action: "retry" });
+    this.failureOwned(runId, { class: "unavailable", message, recoverable: true });
+    this.eventOwned(runId, "run.failed", "recovery", "failed", "Demo run needs recovery", { recoverable: true, action: "retry" });
     this.audit?.record({ type: "request_outcome", outcome: "failed", mode: this.provenance.model_backend.backend, runId, code: "unavailable", provenance: this.provenance, attributes: { recoverable: true } });
     return this.store.getRun(runId);
   }
@@ -835,27 +917,28 @@ export class MockEngine {
     const branches = { ...(run?.progress?.branches || {}) };
     branches[kind] = { ...(branches[kind] || {}), ...patch };
     const completed = Object.values(branches).filter((branch) => ["complete", "partial"].includes(branch.state)).length;
-    this.store.transition(runId, run.state, { progress: { ...(run.progress || {}), branches, completed, total: 3 } });
+    this.transitionOwned(runId, run.state, { progress: { ...(run.progress || {}), branches, completed, total: 3 } });
     const branchState = patch.state === "running" ? "running" : patch.state === "complete" ? "succeeded" : patch.state === "partial" ? "failed" : "pending";
-    this.store.upsertBranch(runId, kind, { kind, state: branchState, attempt: patch.attempts || 0, error: patch.status && patch.status !== "complete" ? { code: String(patch.status), recoverable: true } : null });
+    this.branchOwned(runId, kind, { kind, state: branchState, attempt: patch.attempts || 0, error: patch.status && patch.status !== "complete" ? { code: String(patch.status), recoverable: true } : null });
   }
 
   advance(runId, state, step, display, payload = {}) {
     const run = this.store.getRun(runId);
     const patch = Object.keys(payload).length ? { progress: { ...(run?.progress || {}), ...payload } } : {};
-    this.store.transition(runId, state, { phase: state, ...patch });
+    this.transitionOwned(runId, state, { phase: state, ...patch });
     const checkpointKind = { accepted: "accepted", queued: "accepted", planning: "plan", resolving_asset: "resolution", evidence_pending: "branch", evidence_partial: "branch", composing: "composition", validating: "validation", succeeded: "terminal", canceled: "terminal", failed: "terminal", expired: "terminal" }[state];
-    if (checkpointKind) this.store.saveCheckpoint(runId, { kind: checkpointKind, phase: state, input: { run_id: runId, state }, output: { state, step }, payload: { display, ...(state === "evidence_pending" ? { total: payload.total || 0 } : {}) } });
-    this.store.appendEvent(runId, `run.${state}`, step, state, display, payload);
+    if (checkpointKind) this.checkpointOwned(runId, { kind: checkpointKind, phase: state, input: { run_id: runId, state }, output: { state, step }, payload: { display, ...(state === "evidence_pending" ? { total: payload.total || 0 } : {}) } });
+    this.eventOwned(runId, `run.${state}`, step, state, display, payload);
   }
 
   checkCancellation(runId) {
+    this.fence(runId);
     const run = this.store.getRun(runId);
     if (run?.cancellation_requested || run?.state === "cancel_requested") {
       if (!TERMINAL_STATES.has(run.state)) {
-        this.store.transition(runId, "canceled", { cancellation_requested: true, phase: "canceled" });
-        this.store.setTerminalOutcome(runId, "canceled", { reasonCode: "cancel_requested", message: "Cancellation confirmed; late results discarded", recoverable: true });
-        this.store.appendEvent(runId, "run.canceled", "recovery", "canceled", "Cancellation confirmed; late results discarded", {});
+        this.transitionOwned(runId, "canceled", { cancellation_requested: true, phase: "canceled" });
+        this.terminalOwned(runId, "canceled", { reasonCode: "cancel_requested", message: "Cancellation confirmed; late results discarded", recoverable: true });
+        this.eventOwned(runId, "run.canceled", "recovery", "canceled", "Cancellation confirmed; late results discarded", {});
       }
       throw new CancellationError();
     }

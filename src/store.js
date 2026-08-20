@@ -153,7 +153,8 @@ export class FileStore {
     return run ? clone(ensureWorkflowFields(run, this.clock).branches || {}) : {};
   }
 
-  saveCheckpoint(runId, { kind, phase, input, output, status = "complete", payload = {} } = {}) {
+  saveCheckpoint(runId, { kind, phase, input, output, status = "complete", payload = {}, lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     ensureWorkflowFields(run, this.clock);
@@ -172,7 +173,8 @@ export class FileStore {
     return clone(checkpoint);
   }
 
-  upsertBranch(runId, branchId, patch = {}) {
+  upsertBranch(runId, branchId, patch = {}, { lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     ensureWorkflowFields(run, this.clock);
@@ -208,13 +210,29 @@ export class FileStore {
     return clone(lease);
   }
 
-  renewLease(runId, ownerId, { ttlMs = WORKFLOW_LEASE_MS } = {}) {
+  assertLease(runId, { ownerId, leaseId } = {}) {
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     ensureWorkflowFields(run, this.clock);
     const lease = run.workflow_state.lease;
     const now = nowIso(this.clock);
-    if (!lease || lease.owner_id !== ownerId || Date.parse(lease.expires_at) <= Date.parse(now)) return null;
+    if (!lease || lease.owner_id !== ownerId || lease.lease_id !== leaseId || Date.parse(lease.expires_at) <= Date.parse(now)) {
+      throw new ContractError("LEASE_LOST", "The workflow lease is no longer owned by this worker");
+    }
+    return clone(lease);
+  }
+
+  assertLeaseForMutation(runId, lease) {
+    if (lease) this.assertLease(runId, lease);
+  }
+
+  renewLease(runId, ownerId, { leaseId, ttlMs = WORKFLOW_LEASE_MS } = {}) {
+    const run = this.state.runs[runId];
+    if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
+    ensureWorkflowFields(run, this.clock);
+    const lease = run.workflow_state.lease;
+    const now = nowIso(this.clock);
+    if (!lease || lease.owner_id !== ownerId || (leaseId && lease.lease_id !== leaseId) || Date.parse(lease.expires_at) <= Date.parse(now)) return null;
     lease.expires_at = new Date(Date.parse(now) + ttlMs).toISOString();
     lease.heartbeat_at = now;
     run.workflow_state.updated_at = now;
@@ -223,11 +241,11 @@ export class FileStore {
     return clone(lease);
   }
 
-  releaseLease(runId, ownerId) {
+  releaseLease(runId, ownerId, leaseId) {
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     ensureWorkflowFields(run, this.clock);
-    if (run.workflow_state.lease && (!ownerId || run.workflow_state.lease.owner_id === ownerId)) {
+    if (run.workflow_state.lease && (!ownerId || (run.workflow_state.lease.owner_id === ownerId && (!leaseId || run.workflow_state.lease.lease_id === leaseId)))) {
       run.workflow_state.lease = null;
       run.workflow_state.updated_at = nowIso(this.clock);
       run.updated_at = run.workflow_state.updated_at;
@@ -251,7 +269,8 @@ export class FileStore {
     return clone(run);
   }
 
-  setTerminalOutcome(runId, outcome, { reasonCode = "terminal", message = "Run reached a terminal outcome", result, recoverable = false } = {}) {
+  setTerminalOutcome(runId, outcome, { reasonCode = "terminal", message = "Run reached a terminal outcome", result, recoverable = false, lease, preserveLease = false } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     ensureWorkflowFields(run, this.clock);
@@ -260,7 +279,7 @@ export class FileStore {
     run.workflow_state.terminal_outcome = run.terminal_outcome;
     run.workflow_state.state = run.state;
     run.workflow_state.phase = run.phase || run.state;
-    run.workflow_state.lease = null;
+    if (!preserveLease) run.workflow_state.lease = null;
     if (outcome === "canceled") run.workflow_state.cancellation.confirmed_at = now;
     run.workflow_state.updated_at = now;
     run.updated_at = now;
@@ -316,7 +335,8 @@ export class FileStore {
     return clone(run);
   }
 
-  transition(runId, state, patch = {}) {
+  transition(runId, state, patch = {}, { lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     assertRunState(state);
@@ -331,7 +351,8 @@ export class FileStore {
     return clone(next);
   }
 
-  appendEvent(runId, type, step, state, display, payload = {}) {
+  appendEvent(runId, type, step, state, display, payload = {}, { lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     const events = this.state.events[runId] || (this.state.events[runId] = []);
@@ -356,7 +377,8 @@ export class FileStore {
     return clone((this.state.events[runId] || []).filter((event) => event.seq > after));
   }
 
-  addEvidence(runId, record) {
+  addEvidence(runId, record, { lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     if (!this.state.evidence[record.evidence_id]) {
@@ -368,7 +390,8 @@ export class FileStore {
     return clone(this.state.evidence[record.evidence_id]);
   }
 
-  addResult(runId, result, decision) {
+  addResult(runId, result, decision, { lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run) throw new ContractError("RUN_NOT_FOUND", "Run not found");
     if (TERMINAL_STATES.has(run.state) && run.state !== "succeeded") return clone(run);
@@ -380,11 +403,12 @@ export class FileStore {
     run.updated_at = nowIso(this.clock);
     this.state.runs[runId] = run;
     this.#persist();
-    this.setTerminalOutcome(runId, "succeeded", { reasonCode: "result_published", message: "Verified result published", result });
+    this.setTerminalOutcome(runId, "succeeded", { reasonCode: "result_published", message: "Verified result published", result, lease, preserveLease: Boolean(lease) });
     return clone(this.state.runs[runId]);
   }
 
-  markFailed(runId, error) {
+  markFailed(runId, error, { lease } = {}) {
+    this.assertLeaseForMutation(runId, lease);
     const run = this.state.runs[runId];
     if (!run || TERMINAL_STATES.has(run.state)) return clone(run);
     run.state = "failed";
@@ -397,7 +421,7 @@ export class FileStore {
     run.updated_at = nowIso(this.clock);
     this.state.runs[runId] = run;
     this.#persist();
-    this.setTerminalOutcome(runId, "failed", { reasonCode: run.error.class, message: run.error.message, recoverable: run.error.recoverable });
+    this.setTerminalOutcome(runId, "failed", { reasonCode: run.error.class, message: run.error.message, recoverable: run.error.recoverable, lease, preserveLease: Boolean(lease) });
     return clone(this.state.runs[runId]);
   }
 

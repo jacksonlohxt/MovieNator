@@ -91,7 +91,7 @@ export class BoundedFunctionOrchestrator {
         status = "unavailable";
         continue;
       }
-      const key = `${checked.context.run_id}:${call.call_id}:${hashContract(call.arguments)}`;
+      const key = `${checked.context.run_id}:${call.tool_id}:${call.operation}:${call.call_id}:${hashContract(call.arguments)}`;
       if (this.completed.has(key)) {
         results.push({ call_id: call.call_id, duplicate: true, ...this.completed.get(key) });
         continue;
@@ -105,6 +105,12 @@ export class BoundedFunctionOrchestrator {
     }
     const usage = { call_count: results.filter((result) => result.duplicate !== true).length, max_calls: this.maxCalls, elapsed_ms: Math.max(0, this.clock.now() - startedAt), max_total_ms: this.maxTotalMs };
     return { schema_version: TOOL_EXECUTION_RESULT_SCHEMA, status, outcome: status, results, usage, provenance: { proposal_hash: hashContract(checked.proposal), mode: "local-mock", no_side_effect_mode: true } };
+  }
+
+  retireRun(runId) {
+    if (typeof runId !== "string" || !runId) return;
+    for (const key of this.completed.keys()) if (key.startsWith(`${runId}:`)) this.completed.delete(key);
+    this.registry.retireRun?.(runId);
   }
 
   async run(input, { model = this.model, context = {} } = {}) {
