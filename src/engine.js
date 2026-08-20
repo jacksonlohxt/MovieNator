@@ -591,6 +591,7 @@ export class MockEngine {
     };
     this.provenance = combineProvenance({ modelBackend, providerBackend });
     this.jobs = new Map();
+    this.leaseRetries = new Map();
     this.ownerId = `worker_${process.pid}_${safeId("owner")}`;
   }
 
@@ -598,6 +599,19 @@ export class MockEngine {
     this.store.recoverExpiredLeases();
     for (const run of this.store.listActiveRuns()) this.enqueue(run.run_id);
     return this.store.listActiveRuns().map((run) => run.run_id);
+  }
+
+  retryAfterLease(runId) {
+    if (this.leaseRetries.has(runId)) return;
+    const lease = this.store.getWorkflowState(runId)?.lease;
+    if (!lease) return this.enqueue(runId);
+    const delay = Math.max(1, Date.parse(lease.expires_at) - this.clock.now() + 1);
+    const timer = setTimeout(() => {
+      this.leaseRetries.delete(runId);
+      this.enqueue(runId);
+    }, delay);
+    timer.unref?.();
+    this.leaseRetries.set(runId, timer);
   }
 
   refreshProvenance() {
@@ -674,7 +688,10 @@ export class MockEngine {
 
   async execute(runId) {
     const lease = this.store.acquireLease(runId, this.ownerId);
-    if (!lease) return this.store.getRun(runId);
+    if (!lease) {
+      this.retryAfterLease(runId);
+      return this.store.getRun(runId);
+    }
     try {
       return await this.executeWorkflow(runId);
     } finally {
@@ -703,6 +720,7 @@ export class MockEngine {
     this.checkCancellation(runId);
     if (resolution.status === "multiple") {
       this.store.transition(runId, "needs_input", { phase: "needs_input", clarification: { question: "Which matching demo asset should this brief assess?", candidates: safeClarification(resolution.candidates) } });
+      this.store.setTerminalOutcome(runId, "needs_input", { reasonCode: "clarification_required", message: "A matching asset must be selected before the run can continue", recoverable: true });
       this.store.appendEvent(runId, "run.needs_input", "resolution", "needs_input", "Choose one matching asset", { candidate_count: resolution.candidates.length });
       return this.store.getRun(runId);
     }

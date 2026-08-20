@@ -7,6 +7,8 @@ import { FileStore } from "../src/store.js";
 import { FakeModel, MockEngine, MockProvider, READINESS_POLICY, evaluatePolicy } from "../src/engine.js";
 import { ContractError, parseRunRequest } from "../src/contracts.js";
 import { createApp } from "../src/server.js";
+import { BoundedFunctionOrchestrator } from "../src/orchestrator.js";
+import { ToolRegistry, createToolManifest } from "../src/tool-registry.js";
 
 function tempStore() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-"));
@@ -66,6 +68,7 @@ test("mock engine completes pass, review, unknown, and clarification without dow
   const provider = new MockProvider();
   const clarify = await runFixture("ambiguous_asset", { provider });
   assert.equal(clarify.run.state, "needs_input");
+  assert.equal(clarify.run.terminal_outcome.outcome, "needs_input");
   assert.equal(clarify.run.clarification.candidates.length, 2);
   assert.deepEqual(provider.calls.map((call) => call.operation), ["resolve_asset"]);
   const child = await clarify.engine.clarify(clarify.run.run_id, "season_2_audience_engagement");
@@ -73,6 +76,47 @@ test("mock engine completes pass, review, unknown, and clarification without dow
   assert.equal(clarify.store.getRun(child.run_id).decision, "READY");
   assert.equal(clarify.store.getRun(child.run_id).parent_run_id, clarify.run.run_id);
   assert.equal(clarify.store.getRun(clarify.run.run_id).state, "needs_input");
+});
+
+test("startup reclaims persisted active leases and resumes the run", async () => {
+  const store = tempStore();
+  const request = requestFor("season_2_audience_engagement");
+  const run = store.createRun({ request, requestHash: "restart", idempotencyHash: "restart" }).run;
+  store.acquireLease(run.run_id, "stopped-worker", { ttlMs: 10 });
+  const engine = new MockEngine({ store });
+  engine.resumeActive();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  await engine.waitForIdle(run.run_id);
+  assert.equal(store.getRun(run.run_id).state, "succeeded");
+});
+
+test("tool time and call budgets are bounded by orchestration and run", async () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    manifest: createToolManifest({
+      toolId: "fixture.read",
+      operations: ["read"],
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      outputSchema: { type: "object", additionalProperties: false, properties: { status: { type: "string" } }, required: ["status"] },
+      timeoutMs: 1000,
+      maxCalls: 1,
+    }),
+    handler: async ({ signal }) => new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ status: "late" }), 100);
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve({ status: "aborted" });
+      }, { once: true });
+    }),
+  });
+  const proposal = { schema_version: "tool-call-proposal@1", calls: [{ call_id: "read_once", tool_id: "fixture.read", operation: "read", arguments: {} }] };
+  const orchestrator = new BoundedFunctionOrchestrator({ registry, maxTotalMs: 10 });
+  const timedOut = await orchestrator.executeProposal(proposal, { run_id: "run-a" });
+  assert.equal(timedOut.results[0].error.code, "TOOL_TIMEOUT");
+  const exhausted = await registry.execute({ toolId: "fixture.read", operation: "read", input: {}, context: { run_id: "run-a" } });
+  assert.equal(exhausted.error.code, "TOOL_BUDGET_EXHAUSTED");
+  const nextRun = await registry.execute({ toolId: "fixture.read", operation: "read", input: {}, context: { run_id: "run-b" }, timeoutMs: 10 });
+  assert.equal(nextRun.error.code, "TOOL_TIMEOUT");
 });
 
 test("bounded recovery preserves original and retry creates a successful child", async () => {

@@ -96,7 +96,8 @@ export class BoundedFunctionOrchestrator {
         results.push({ call_id: call.call_id, duplicate: true, ...this.completed.get(key) });
         continue;
       }
-      const result = await this.registry.execute({ toolId: call.tool_id, operation: call.operation, input: call.arguments, context: checked.context });
+      const remainingMs = Math.max(1, this.maxTotalMs - (this.clock.now() - startedAt));
+      const result = await this.registry.execute({ toolId: call.tool_id, operation: call.operation, input: call.arguments, context: checked.context, timeoutMs: remainingMs });
       const boundedResult = { call_id: call.call_id, ...redactValue(result) };
       this.completed.set(key, boundedResult);
       results.push(boundedResult);

@@ -118,8 +118,15 @@ function safeManifest(manifest) {
   return { schema_version: manifest.schema_version, tool_id: manifest.tool_id, version: manifest.version, description: manifest.description, kind: manifest.kind, capabilities: manifest.capabilities, operations: manifest.operations, endpoint: manifest.endpoint, credentials: manifest.credentials, permissions: manifest.permissions, scope: manifest.scope, timeout_ms: manifest.timeout_ms, budget: manifest.budget, side_effects: manifest.side_effects, redaction: manifest.redaction, provenance: manifest.provenance };
 }
 
-function timeoutPromise(promise, milliseconds) {
-  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new ToolExecutionError("TOOL_TIMEOUT", "Tool execution exceeded its bounded timeout", { retryable: true })), milliseconds))]);
+function timeoutPromise(promise, milliseconds, onTimeout) {
+  let timer;
+  return new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      onTimeout?.();
+      reject(new ToolExecutionError("TOOL_TIMEOUT", "Tool execution exceeded its bounded timeout", { retryable: true }));
+    }, milliseconds);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }
 
 export class ToolRegistry {
@@ -129,7 +136,7 @@ export class ToolRegistry {
     const normalized = validateToolManifest(manifest);
     if (this.#tools.has(normalized.tool_id)) throw new ToolPolicyError("DUPLICATE_TOOL", `Tool is already registered: ${normalized.tool_id}`);
     if (typeof handler !== "function") throw new ToolPolicyError("INVALID_TOOL_HANDLER", "Tool handler must be a function");
-    this.#tools.set(normalized.tool_id, { manifest: normalized, handler, calls: 0 });
+    this.#tools.set(normalized.tool_id, { manifest: normalized, handler, calls: new Map() });
     return safeManifest(normalized);
   }
 
@@ -172,16 +179,22 @@ export class ToolRegistry {
     return { tool_id: manifest.tool_id, operation, manifest: safeManifest(manifest), input_hash: hashContract(input) };
   }
 
-  async execute({ toolId, operation, input, context = {}, signal } = {}) {
+  async execute({ toolId, operation, input, context = {}, signal, timeoutMs } = {}) {
     const authorization = this.authorize({ toolId, operation, input, context });
     const entry = this.get(toolId);
-    if (entry.calls >= entry.manifest.budget.max_calls) return { ...safeUnavailable("TOOL_BUDGET_EXHAUSTED", "Tool call budget is exhausted", { retryable: false, tool_id: toolId, operation }), outcome: "budget_exhausted" };
+    const budgetScope = typeof context.run_id === "string" && context.run_id ? context.run_id : "local-run";
+    const calls = entry.calls.get(budgetScope) || 0;
+    if (calls >= entry.manifest.budget.max_calls) return { ...safeUnavailable("TOOL_BUDGET_EXHAUSTED", "Tool call budget is exhausted", { retryable: false, tool_id: toolId, operation }), outcome: "budget_exhausted" };
     if (signal?.aborted) return { ...safeUnavailable("RUN_CANCELED", "Tool call was canceled before execution", { retryable: false, tool_id: toolId, operation }), outcome: "canceled" };
-    entry.calls += 1;
+    entry.calls.set(budgetScope, calls + 1);
     const inputBytes = Buffer.byteLength(JSON.stringify(input));
     if (inputBytes > entry.manifest.budget.max_input_bytes) throw new ToolPolicyError("TOOL_INPUT_BUDGET", "Tool input exceeds its byte budget");
+    const effectiveTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.min(entry.manifest.timeout_ms, Math.floor(timeoutMs))) : entry.manifest.timeout_ms;
+    const controller = new AbortController();
+    const abort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
     try {
-      const output = await timeoutPromise(Promise.resolve().then(() => entry.handler({ operation, input: safeClone(input), context: { scope: entry.manifest.scope, permissions: entry.manifest.permissions, no_side_effect_mode: true }, signal })), entry.manifest.timeout_ms);
+      const output = await timeoutPromise(Promise.resolve().then(() => entry.handler({ operation, input: safeClone(input), context: { scope: entry.manifest.scope, permissions: entry.manifest.permissions, no_side_effect_mode: true }, signal: controller.signal })), effectiveTimeoutMs, () => controller.abort());
       if (output === undefined || output === null || !isRecord(output)) throw new ToolExecutionError("INVALID_TOOL_OUTPUT", "Tool returned an invalid output", { retryable: false });
       const outputBytes = Buffer.byteLength(JSON.stringify(output));
       if (outputBytes > entry.manifest.budget.max_output_bytes) throw new ToolExecutionError("TOOL_OUTPUT_BUDGET", "Tool output exceeds its byte budget", { retryable: false });
@@ -194,11 +207,16 @@ export class ToolRegistry {
       const code = error.code || "TOOL_UNAVAILABLE";
       const retryable = error.retryable !== false && ["TOOL_TIMEOUT", "TOOL_UNAVAILABLE", "ECONNRESET"].includes(code);
       return { ...safeUnavailable(code, "The allowlisted local tool is unavailable", { retryable, tool_id: toolId, operation }), input_hash: authorization.input_hash };
+    } finally {
+      signal?.removeEventListener("abort", abort);
     }
   }
 
-  resetBudgets() {
-    for (const entry of this.#tools.values()) entry.calls = 0;
+  resetBudgets(runId) {
+    for (const entry of this.#tools.values()) {
+      if (runId) entry.calls.delete(runId);
+      else entry.calls.clear();
+    }
   }
 }
 
