@@ -40,7 +40,7 @@ No Google or IBM integration is enabled by default, no production credentials ar
 
 ## Current status
 
-The repository contains the deterministic audience readiness workflow, the Phase 2 Movie-Inator script-grounding vertical slice, and Phase 3 provider-neutral partner infrastructure. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store, and a credential-free synthetic partner adapter. No IBM, IVM, or other live partner product, tenant, endpoint, credential, hosted-model, or side-effect integration is enabled.
+The repository contains the deterministic audience readiness workflow, the Phase 2 Movie-Inator script-grounding vertical slice, Phase 3 provider-neutral partner infrastructure, and the Phase 4 local state and logic-hosting foundation. The default path uses `FakeModel`, `MockProvider`, a local deterministic grounding source, a local durable JSON store with resumable checkpoints, allowlisted local tools, and a credential-free synthetic partner adapter. No IBM, IVM, or other live partner product, tenant, endpoint, credential, hosted-model, or side-effect integration is enabled.
 
 ```sh
 npm test
