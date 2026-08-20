@@ -132,6 +132,11 @@ function timeoutPromise(promise, milliseconds, onTimeout) {
 export class ToolRegistry {
   #tools = new Map();
 
+  constructor({ maxBudgetScopes = 1000 } = {}) {
+    if (!Number.isSafeInteger(maxBudgetScopes) || maxBudgetScopes < 1 || maxBudgetScopes > 100_000) throw new ToolPolicyError("INVALID_BUDGET_SCOPE_LIMIT", "maxBudgetScopes must be between 1 and 100000");
+    this.maxBudgetScopes = maxBudgetScopes;
+  }
+
   register({ manifest, handler }) {
     const normalized = validateToolManifest(manifest);
     if (this.#tools.has(normalized.tool_id)) throw new ToolPolicyError("DUPLICATE_TOOL", `Tool is already registered: ${normalized.tool_id}`);
@@ -186,6 +191,8 @@ export class ToolRegistry {
     const calls = entry.calls.get(budgetScope) || 0;
     if (calls >= entry.manifest.budget.max_calls) return { ...safeUnavailable("TOOL_BUDGET_EXHAUSTED", "Tool call budget is exhausted", { retryable: false, tool_id: toolId, operation }), outcome: "budget_exhausted" };
     if (signal?.aborted) return { ...safeUnavailable("RUN_CANCELED", "Tool call was canceled before execution", { retryable: false, tool_id: toolId, operation }), outcome: "canceled" };
+    if (!entry.calls.has(budgetScope) && entry.calls.size >= this.maxBudgetScopes) entry.calls.delete(entry.calls.keys().next().value);
+    entry.calls.delete(budgetScope);
     entry.calls.set(budgetScope, calls + 1);
     const inputBytes = Buffer.byteLength(JSON.stringify(input));
     if (inputBytes > entry.manifest.budget.max_input_bytes) throw new ToolPolicyError("TOOL_INPUT_BUDGET", "Tool input exceeds its byte budget");
@@ -217,6 +224,10 @@ export class ToolRegistry {
       if (runId) entry.calls.delete(runId);
       else entry.calls.clear();
     }
+  }
+
+  retireRun(runId) {
+    this.resetBudgets(runId);
   }
 }
 

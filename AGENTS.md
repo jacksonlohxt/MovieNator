@@ -19,3 +19,4 @@ When updating this file, preserve this bar for all agents and keep entries conci
 - The default regression gate is `npm test && npm run check`; it requires no credentials or external services.
 - Phase 5 deployment, runtime-mode validation, Secret Manager seam, safety budgets, audit events, and operator-only Cloud Run/Agent Runtime actions are documented in `docs/phase5-deployment.md`; no cloud mutation is part of repository validation.
 - The default Phase 3 partner path is the credential-free local `mock-provider`; live partner registration and required operator inputs are documented in `docs/partner-integration.md`.
+- Phase 4 worker-owned state mutations are lease-fenced by lease ID, with heartbeat renewal and stale-owner rejection in `src/engine.js` and `src/store.js`; bounded tool budget scope eviction is implemented in `src/tool-registry.js`.

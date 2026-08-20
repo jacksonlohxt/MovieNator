@@ -19,6 +19,8 @@ function requestFor(assetHint) {
   return { schema_version: "run-request@1", problem_statement: "Is this audience asset ready for marketing planning?", asset_hint: assetHint, purpose: "marketing planning" };
 }
 
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 async function runFixture(assetHint, options = {}) {
   const store = tempStore();
   const engine = new MockEngine({ store, ...options });
@@ -90,6 +92,69 @@ test("startup reclaims persisted active leases and resumes the run", async () =>
   assert.equal(store.getRun(run.run_id).state, "succeeded");
 });
 
+test("active workflow leases renew during long-running provider work", async () => {
+  const store = tempStore();
+  const run = store.createRun({ request: requestFor("season_2_audience_engagement"), requestHash: "lease-renewal", idempotencyHash: "lease-renewal" }).run;
+  let leaseBefore;
+  let leaseAfter;
+  class SlowProvider extends MockProvider {
+    async resolve_asset(...args) {
+      leaseBefore = store.getWorkflowState(run.run_id).lease;
+      await sleep(45);
+      leaseAfter = store.getWorkflowState(run.run_id).lease;
+      return super.resolve_asset(...args);
+    }
+  }
+  const engine = new MockEngine({ store, provider: new SlowProvider(), leaseTtlMs: 20, leaseRenewIntervalMs: 5 });
+  await engine.enqueue(run.run_id);
+  assert.equal(store.getRun(run.run_id).state, "succeeded");
+  assert.notEqual(leaseBefore?.heartbeat_at, leaseAfter?.heartbeat_at);
+});
+
+test("lease expiry fences a stale worker before duplicate evidence or publication", async () => {
+  let nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+  class ManualClock extends Date {
+    constructor(value) { super(value === undefined ? nowMs : value); }
+    static now() { return nowMs; }
+  }
+  let releaseDescribe;
+  const describeGate = new Promise((resolve) => { releaseDescribe = resolve; });
+  let describeStarted;
+  const describeStartedPromise = new Promise((resolve) => { describeStarted = resolve; });
+  class PausingProvider extends MockProvider {
+    constructor() { super(); this.describeCalls = 0; }
+    async describe_asset(...args) {
+      this.describeCalls += 1;
+      if (this.describeCalls === 1) {
+        describeStarted();
+        await describeGate;
+      }
+      return super.describe_asset(...args);
+    }
+  }
+  const store = new FileStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-lease-fence-")), "runs.json"), { clock: ManualClock });
+  const provider = new PausingProvider();
+  const run = store.createRun({ request: requestFor("season_2_audience_engagement"), requestHash: "lease-fence", idempotencyHash: "lease-fence" }).run;
+  const stale = new MockEngine({ store, provider, clock: ManualClock, leaseTtlMs: 10, leaseRenewIntervalMs: 1_000 });
+  stale.ownerId = "stale-owner";
+  const staleJob = stale.enqueue(run.run_id);
+  await describeStartedPromise;
+
+  nowMs += 11;
+  const replacement = new MockEngine({ store, provider, clock: ManualClock, leaseTtlMs: 10, leaseRenewIntervalMs: 1_000 });
+  replacement.ownerId = "replacement-owner";
+  replacement.resumeActive();
+  for (let attempt = 0; attempt < 100 && store.listEvidence(run.run_id).length < 1; attempt += 1) await sleep(2);
+  assert.equal(store.getWorkflowState(run.run_id).lease.owner_id, "replacement-owner");
+  releaseDescribe();
+  await Promise.all([staleJob, replacement.waitForIdle(run.run_id)]);
+
+  assert.equal(store.getRun(run.run_id).state, "succeeded");
+  assert.equal(store.listEvidence(run.run_id).length, 4);
+  assert.equal(new Set(store.listEvidence(run.run_id).map((record) => record.check_kind)).size, 4);
+  assert.equal(store.getEvents(run.run_id).filter((event) => event.type === "run.succeeded").length, 1);
+});
+
 test("tool time and call budgets are bounded by orchestration and run", async () => {
   const registry = new ToolRegistry();
   registry.register({
@@ -117,6 +182,41 @@ test("tool time and call budgets are bounded by orchestration and run", async ()
   assert.equal(exhausted.error.code, "TOOL_BUDGET_EXHAUSTED");
   const nextRun = await registry.execute({ toolId: "fixture.read", operation: "read", input: {}, context: { run_id: "run-b" }, timeoutMs: 10 });
   assert.equal(nextRun.error.code, "TOOL_TIMEOUT");
+});
+
+test("tool idempotency separates authorized tools and operations", async () => {
+  const registry = new ToolRegistry();
+  let calls = 0;
+  const outputSchema = { type: "object", additionalProperties: false, properties: { status: { type: "string" } }, required: ["status"] };
+  for (const toolId of ["fixture.alpha", "fixture.beta"]) {
+    registry.register({
+      manifest: createToolManifest({ toolId, operations: toolId === "fixture.alpha" ? ["read", "inspect"] : ["read"], inputSchema: { type: "object", additionalProperties: false, properties: {} }, outputSchema, maxCalls: 10 }),
+      handler: async () => { calls += 1; return { status: "ok" }; },
+    });
+  }
+  const orchestrator = new BoundedFunctionOrchestrator({ registry });
+  const proposal = (toolId, operation) => ({ schema_version: "tool-call-proposal@1", calls: [{ call_id: "same_call", tool_id: toolId, operation, arguments: {} }] });
+  const first = await orchestrator.executeProposal(proposal("fixture.alpha", "read"), { run_id: "cache-run" });
+  const second = await orchestrator.executeProposal(proposal("fixture.alpha", "inspect"), { run_id: "cache-run" });
+  const third = await orchestrator.executeProposal(proposal("fixture.beta", "read"), { run_id: "cache-run" });
+  assert.equal(first.results[0].duplicate, undefined);
+  assert.equal(second.results[0].duplicate, undefined);
+  assert.equal(third.results[0].duplicate, undefined);
+  assert.equal(calls, 3);
+});
+
+test("tool budget scopes use bounded eviction", async () => {
+  const registry = new ToolRegistry({ maxBudgetScopes: 2 });
+  registry.register({
+    manifest: createToolManifest({ toolId: "fixture.eviction", operations: ["read"], inputSchema: { type: "object", additionalProperties: false, properties: {} }, outputSchema: { type: "object", additionalProperties: false, properties: { status: { type: "string" } }, required: ["status"] }, maxCalls: 1 }),
+    handler: async () => ({ status: "ok" }),
+  });
+  const execute = (run_id) => registry.execute({ toolId: "fixture.eviction", operation: "read", input: {}, context: { run_id } });
+  assert.equal((await execute("run-a")).status, "succeeded");
+  assert.equal((await execute("run-b")).status, "succeeded");
+  assert.equal((await execute("run-a")).error.code, "TOOL_BUDGET_EXHAUSTED");
+  assert.equal((await execute("run-c")).status, "succeeded");
+  assert.equal((await execute("run-a")).status, "succeeded");
 });
 
 test("bounded recovery preserves original and retry creates a successful child", async () => {
