@@ -3,6 +3,8 @@ import { ContractError, hashValue, redactText, stableStringify } from "./contrac
 
 export const DOCUMENT_SCHEMA = "grounding-document@1";
 export const GROUNDING_REQUEST_SCHEMA = "grounded-brief-request@1";
+export const SCRIPT_BRIEF_REQUEST_SCHEMA = "grounded-brief-request@2";
+export const DEFAULT_SCRIPT_BRIEF_REQUEST = "Create a concise filmmaker-facing brief with the story essentials, key characters, setting, tone, themes, useful production details, and any open questions or gaps.";
 export const DOCUMENT_MEDIA_TYPES = Object.freeze({
   ".pdf": "application/pdf",
   ".txt": "text/plain",
@@ -12,8 +14,12 @@ export const MAX_FILENAME_CHARS = 120;
 export const MAX_EXTRACTED_CHARS = 120_000;
 export const MAX_CHUNK_CHARS = 900;
 export const MAX_DOCUMENT_CHUNKS = 240;
-export const MAX_SELECTED_EXCERPTS = 6;
-export const MAX_SELECTED_CHARS = 6_000;
+// A brief is condensed from the whole bounded source, not just a handful of
+// keyword hits. These limits keep the prompt, citations, and response bounded.
+export const MAX_SELECTED_EXCERPTS = 24;
+export const MAX_SELECTED_CHARS = 18_000;
+export const MAX_WHOLE_DOCUMENT_EXCERPTS = 24;
+export const MAX_WHOLE_DOCUMENT_CHARS = 18_000;
 
 export class DocumentContractError extends ContractError {
   constructor(code, message, field = undefined) {
@@ -246,12 +252,17 @@ export function parseGroundingDocument({ filename, contentType, bytes }) {
 
 export function validateGroundingRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new DocumentContractError("INVALID_REQUEST", "Grounded brief request must be an object");
-  const allowed = new Set(["schema_version", "question"]);
+  const version = value.schema_version;
+  const isScriptBrief = version === SCRIPT_BRIEF_REQUEST_SCHEMA;
+  const allowed = isScriptBrief ? new Set(["schema_version", "request", "question"]) : new Set(["schema_version", "question"]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new DocumentContractError("UNKNOWN_FIELD", `Grounded brief request contains unknown field: ${key}`, key);
-  if (value.schema_version !== GROUNDING_REQUEST_SCHEMA) throw new DocumentContractError("INVALID_SCHEMA_VERSION", `schema_version must be ${GROUNDING_REQUEST_SCHEMA}`, "schema_version");
-  const question = asText(value.question).normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
-  if (question.length < 1 || question.length > 1_000) throw new DocumentContractError("INVALID_QUESTION", "question must be 1 to 1,000 characters", "question");
-  return { schema_version: GROUNDING_REQUEST_SCHEMA, question };
+  if (version !== GROUNDING_REQUEST_SCHEMA && !isScriptBrief) throw new DocumentContractError("INVALID_SCHEMA_VERSION", `schema_version must be ${GROUNDING_REQUEST_SCHEMA} or ${SCRIPT_BRIEF_REQUEST_SCHEMA}`, "schema_version");
+  const supplied = isScriptBrief ? (value.request ?? value.question ?? DEFAULT_SCRIPT_BRIEF_REQUEST) : value.question;
+  const question = asText(supplied).normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  if (question.length < 1 || question.length > 1_000) throw new DocumentContractError("INVALID_QUESTION", "request must be 1 to 1,000 characters", isScriptBrief ? "request" : "question");
+  return isScriptBrief
+    ? { schema_version: SCRIPT_BRIEF_REQUEST_SCHEMA, request: question, question, brief_version: 2 }
+    : { schema_version: GROUNDING_REQUEST_SCHEMA, question };
 }
 
 export function safeDocumentProjection(document, { includeChunks = false } = {}) {

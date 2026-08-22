@@ -16,13 +16,13 @@ export const GEMINI_SAFETY_POLICY = Object.freeze({
   run_deadline_ms: 90_000,
   max_calls_per_run: 2,
   max_repairs_per_run: 1,
-  max_input_chars: 8_000,
+  max_input_chars: 32_000,
   max_output_chars: 12_000,
   max_output_tokens: 768,
-  max_request_bytes: 64 * 1024,
+  max_request_bytes: 256 * 1024,
   rate_limit_per_minute: 60,
   rate_limit_key_capacity: 1_000,
-  text: Object.freeze({ max_chars: 8_000 }),
+  text: Object.freeze({ max_chars: 32_000 }),
   multimodal: Object.freeze({ max_parts: 4, max_bytes: 2 * 1024 * 1024, allowed_media_types: Object.freeze(["image/jpeg", "image/png", "image/webp"]) }),
 });
 

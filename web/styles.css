@@ -40,7 +40,14 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 
 main { max-width: 950px; margin: 0 auto; padding: 45px 30px 90px; }
 .hero { max-width: 740px; padding: 20px 0 44px; }
-.workflow-switch { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-bottom: 28px; padding: 5px; border: 1px solid var(--line); border-radius: 999px; background: #eef4ef; }
+.developer-details { max-width: 740px; margin: 0 0 30px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.72); }
+.developer-details summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; padding: 0 15px; cursor: pointer; color: var(--ink); font-size: 12px; font-weight: 750; list-style: none; }
+.developer-details summary::-webkit-details-marker { display: none; }
+.developer-details summary::before { content: "+"; color: var(--green); font-size: 18px; font-weight: 400; }
+.developer-details[open] summary::before { content: "−"; }
+.developer-details .workflow-switch { margin: 0 15px 12px; }
+.developer-note { margin: 0 15px 16px; color: var(--muted); font-size: 11px; }
+.workflow-switch { display: inline-flex; flex-wrap: wrap; gap: 6px; padding: 5px; border: 1px solid var(--line); border-radius: 999px; background: #eef4ef; }
 .workflow-switch-button { min-height: 35px; padding: 7px 13px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 750; }
 .workflow-switch-button:hover, .workflow-switch-button.is-selected { background: var(--green-dark); color: #fff; }
 .eyebrow, .section-kicker { margin: 0 0 12px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
@@ -179,6 +186,23 @@ textarea:focus, input:focus { border-color: var(--green); background: #fff; outl
 .recovery-details { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 22px; color: var(--muted); font-size: 11px; }
 .recovery-footnote { max-width: 560px; margin: 15px 0 0; color: var(--muted); font-size: 11px; }
 .grounding-panel { padding: clamp(22px, 4vw, 42px); }
+.brief-request-heading { margin: 0 0 12px; }
+.brief-request-heading h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
+.brief-actions { display: flex; align-items: center; gap: 12px; margin: 0 0 24px; }
+.brief-section { padding: 20px 0; border-top: 1px solid var(--subtle); }
+.brief-section h4 { margin: 0 0 10px; color: var(--green-dark); font-size: 14px; letter-spacing: -.02em; }
+.brief-section > div > p, .brief-section > p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.brief-logline { padding-top: 0; border-top: 0; }
+.brief-logline > div { padding: 15px; border-radius: 10px; background: #f1f8f3; }
+.brief-list, .brief-facts { display: grid; gap: 9px; }
+.brief-card, .brief-facts > div { padding: 13px 14px; border: 1px solid var(--line); border-radius: 9px; background: #fbfdfb; }
+.brief-card strong, .brief-facts strong { display: block; margin-bottom: 3px; color: var(--green-dark); font-size: 12px; }
+.brief-card p, .brief-facts p { margin: 0; }
+.question-card { background: #fffaf1; border-color: #f0dec0; }
+.brief-citations { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.citation-details { padding-top: 20px; border-top: 1px solid var(--subtle); }
+.citation-details summary { cursor: pointer; color: var(--green); font-size: 12px; font-weight: 750; }
+.citation-details .grounding-citations { margin-top: 14px; }
 .grounding-trust { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: -10px 0 24px; padding: 12px 14px; border-left: 3px solid #adcabe; background: #f5faf6; color: var(--muted); font-size: 11px; }
 .grounding-trust strong { color: var(--green-dark); }
 .document-form, .grounding-form { display: grid; gap: 18px; }

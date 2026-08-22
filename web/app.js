@@ -1,5 +1,7 @@
 import { LEGACY_SESSION_KEYS, SESSION_KEYS, readMigratedSessionValue, writeSessionValue } from "./session-state.js";
 
+const DEFAULT_SCRIPT_BRIEF_REQUEST = "Create a concise filmmaker-facing brief with the story essentials, key characters, setting, tone, themes, useful production details, and any open questions or gaps.";
+
 const examples = {
   pass: {
     problem_statement: "Before the Season 2 trailer launch, is the audience engagement dataset ready for a marketing brief?",
@@ -119,9 +121,9 @@ function setWorkflow(mode) {
     if (currentRun) renderRun(currentRun);
     updateJourney(currentRun?.state === "succeeded" ? "decision" : "ask");
   } else {
-    setText("#hero-eyebrow", "Filmmaker script / document grounding");
-    setText("#page-title", "Ground a script or document brief.");
-    setText("#hero-copy", "Upload a bounded script source, select local excerpts, and inspect every grounded statement at its page or section location. Movie-Inator does not generate media in this workflow.");
+    setText("#hero-eyebrow", "Filmmaker Script Brief");
+    setText("#page-title", "Turn your script into a useful brief.");
+    setText("#hero-copy", "Upload a script, tell us what you need, and get the story essentials in one clear place. Start with the default brief or ask for a specific focus.");
   }
 }
 
@@ -555,8 +557,8 @@ async function uploadDocument(event) {
   const formData = new FormData();
   formData.append("file", file, file.name);
   show(documentProgress, true);
-  setText("#document-progress-title", "Ingesting source");
-  setText("#document-progress-detail", "Uploading, extracting text, mapping source locations, and chunking.");
+  setText("#document-progress-title", "Reading your source");
+  setText("#document-progress-detail", "Uploading the script and mapping its page or section locations.");
   show(documentSummary, false);
   show(groundingForm, false);
   show(groundingResult, false);
@@ -567,11 +569,11 @@ async function uploadDocument(event) {
     if (!response.ok) throw new Error(data.error?.message || "The source could not be ingested");
     currentDocument = data;
     writeSessionValue(sessionStorage, SESSION_KEYS.groundingDocument, data.document_id);
-    setText("#document-progress-title", data.duplicate ? "Source already ingested" : "Source ready");
-    setText("#document-progress-detail", `${data.ingestion?.stages?.join(" · ") || "uploaded · extracted · mapped · ready"}. ${data.chunk_count} bounded chunks mapped.`);
+    setText("#document-progress-title", data.duplicate ? "Source already ready" : "Source ready");
+    setText("#document-progress-detail", `${data.text_char_count.toLocaleString()} characters read across ${data.chunk_count} source sections. Tell us what would be useful.`);
     documentSummary.replaceChildren();
     const summary = document.createElement("p");
-    summary.textContent = `${data.filename} · ${data.media_type} · ${data.text_char_count.toLocaleString()} extracted characters · ${data.chunk_count} chunks`;
+    summary.textContent = `${data.filename} · ${data.media_type} · ${data.text_char_count.toLocaleString()} characters read · ${data.truncated ? "source bounded to the upload limit" : "whole source ready"}`;
     documentSummary.append(summary);
     show(documentSummary, true);
     show(groundingForm, true);
@@ -593,16 +595,15 @@ async function submitGrounding(event) {
     return;
   }
   if (!groundingQuestion.value.trim()) {
-    setText(groundingError, "Describe what the source brief should answer.");
-    groundingError.hidden = false;
-    groundingQuestion.focus();
-    return;
+    // An empty request intentionally selects the server-owned default brief.
+    groundingQuestion.value = DEFAULT_SCRIPT_BRIEF_REQUEST;
   }
   show(groundingRun, true);
   show(groundingResult, false);
   $("#submit-grounding").disabled = true;
   try {
-    const response = await fetch(`/v1/documents/${encodeURIComponent(currentDocument.document_id)}/briefs`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ schema_version: "grounded-brief-request@1", question: groundingQuestion.value }) });
+    const request = groundingQuestion.value.trim();
+    const response = await fetch(`/v1/documents/${encodeURIComponent(currentDocument.document_id)}/briefs`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ schema_version: "grounded-brief-request@2", ...(request ? { request } : {}) }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The grounded brief could not be accepted");
     currentGroundingRun = data;
@@ -635,7 +636,7 @@ function subscribeGrounded(runId) {
       try {
         const payload = JSON.parse(event.data);
         groundingLastEventSeq = Math.max(groundingLastEventSeq, Number(event.lastEventId || payload.seq || 0));
-        setText("#document-progress-detail", payload.display || "Grounding updated");
+        setText("#document-progress-detail", "Your brief is being prepared and its source links are being checked.");
         refreshGroundedRun(runId);
       } catch {
         refreshGroundedRun(runId);
@@ -673,10 +674,10 @@ async function refreshGroundedRun(runId) {
 
 function renderGroundingRun(run) {
   show(groundingRun, true);
-  setText("#grounding-run-id", run.run_id);
-  setText("#grounding-phase", run.phase || "Accepted");
-  const labels = ["Accepted", "Queued", "Selecting excerpts", "Composing", "Validating", "Complete"];
-  const stateIndex = { accepted: 0, queued: 1, grounding: 2, composing: 3, validating: 4, succeeded: 5, grounding_gap: 5, failed: 5 }[run.state];
+  const userPhase = { accepted: "Preparing your brief", queued: "Reading your source", grounding: "Reading your source", composing: "Preparing your brief", validating: "Checking source links", succeeded: "Ready", grounding_gap: "Source gap", failed: "We need to try again" }[run.state] || "Preparing your brief";
+  setText("#grounding-phase", userPhase);
+  const labels = ["Preparing your brief", "Reading your source", "Preparing your brief", "Checking source links", "Ready"];
+  const stateIndex = { accepted: 0, queued: 1, grounding: 1, composing: 2, validating: 3, succeeded: 4, grounding_gap: 4, failed: 4 }[run.state];
   const list = $("#grounding-progress-list");
   list.replaceChildren();
   labels.forEach((label, index) => {
@@ -691,55 +692,146 @@ function renderGroundingRun(run) {
     renderGroundingResult(run.result);
   } else if (run.state === "failed") {
     show(groundingResult, true);
-    const result = { title: "Grounded brief needs recovery", summary: run.recovery?.message || "The source was preserved, but no verified brief was published.", key_points: [], citations: [], limitations: ["Retry creates a new child run and preserves the original."] };
+    const result = { title: "We couldn't finish this brief", summary: "Your source is still safe. Try again to create a new brief.", key_points: [], citations: [], limitations: ["Your original attempt is preserved and a retry creates a separate brief."] };
     renderGroundingResult(result);
     const retry = document.createElement("button");
     retry.className = "button button-secondary";
     retry.type = "button";
-    retry.textContent = "Retry grounded brief";
+    retry.textContent = "Try again";
     retry.addEventListener("click", () => retryGroundedBrief(run.run_id, retry));
     $("#grounding-citations").append(retry);
   }
 }
 
-function renderGroundingResult(result) {
-  setText("#grounding-result-title", result.title || "Grounded script brief");
-  setText("#grounding-result-summary", result.summary || "No grounded summary was published.");
-  const points = $("#grounding-points");
-  points.replaceChildren();
-  for (const point of result.key_points || []) {
-    const card = document.createElement("div");
-    card.className = "grounding-point";
-    const text = document.createElement("p");
-    text.textContent = point.text;
-    card.append(text);
-    for (const citationId of point.citation_ids || []) {
+function appendCitedText(parent, text, citationIds = []) {
+  const copy = document.createElement("p");
+  copy.textContent = text || "Not established in the source.";
+  parent.append(copy);
+  if (citationIds.length) {
+    const links = document.createElement("div");
+    links.className = "brief-citations";
+    for (const citationId of citationIds) {
       const button = document.createElement("button");
       button.className = "evidence-button";
       button.type = "button";
-      button.textContent = `Open citation ${citationId.slice(-8)}`;
+      button.textContent = `Source ${citationId.slice(-8)}`;
       button.addEventListener("click", () => openGroundingCitation(currentDocument.document_id, citationId));
-      card.append(button);
+      links.append(button);
     }
-    points.append(card);
+    parent.append(links);
   }
+}
+
+function renderBriefList(selector, items, emptyText, renderItem) {
+  const list = $(selector);
+  list.replaceChildren();
+  if (!items?.length) {
+    const empty = document.createElement("p");
+    empty.className = "field-help";
+    empty.textContent = emptyText;
+    list.append(empty);
+    return;
+  }
+  items.forEach((item) => list.append(renderItem(item)));
+}
+
+function briefText(result) {
+  const lines = [
+    `Logline\n${result.logline?.text || result.summary || "Not established in the source."}`,
+    `Synopsis\n${result.synopsis?.text || result.summary || "Not established in the source."}`,
+    "Main characters",
+    ...(result.main_characters || []).map((character) => `${character.name}: ${character.description}`),
+    "Setting, tone and themes",
+    `Setting: ${result.setting_tone_themes?.setting || "Not established."}`,
+    `Tone: ${result.setting_tone_themes?.tone || "Not established."}`,
+    `Themes: ${result.setting_tone_themes?.themes?.join(", ") || "Not established."}`,
+    "Useful production details",
+    ...(result.production_details || []).map((detail) => `${detail.label}: ${detail.value}`),
+    "Open questions and gaps",
+    ...(result.open_questions || []).map((item) => item.question),
+  ];
+  return lines.join("\n\n");
+}
+
+function renderGroundingResult(result) {
+  setText("#grounding-result-title", result.title || "Script Brief");
+  const logline = $("#grounding-logline");
+  logline.replaceChildren();
+  appendCitedText(logline, result.logline?.text || result.summary, result.logline?.citation_ids || result.cited_citation_ids || []);
+  const synopsis = $("#grounding-synopsis");
+  synopsis.replaceChildren();
+  appendCitedText(synopsis, result.synopsis?.text || result.summary || "No grounded synopsis was published.", result.synopsis?.citation_ids || result.cited_citation_ids || []);
+  renderBriefList("#grounding-characters", result.main_characters, "No principal characters were established clearly in the source.", (character) => {
+    const card = document.createElement("div");
+    card.className = "brief-card";
+    const heading = document.createElement("strong");
+    heading.textContent = character.name;
+    card.append(heading);
+    appendCitedText(card, character.description, character.citation_ids);
+    return card;
+  });
+  const setting = $("#grounding-setting");
+  setting.replaceChildren();
+  const settingData = result.setting_tone_themes;
+  if (settingData) {
+    for (const [label, value] of [["Setting", settingData.setting], ["Tone", settingData.tone], ["Themes", settingData.themes?.join(", ") || "Not stated clearly in the source."]]) {
+      const row = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = label;
+      row.append(name);
+      appendCitedText(row, value, settingData.citation_ids || []);
+      setting.append(row);
+    }
+  }
+  renderBriefList("#grounding-production", result.production_details, "No additional production details were established clearly in the source.", (detail) => {
+    const card = document.createElement("div");
+    card.className = "brief-card";
+    const heading = document.createElement("strong");
+    heading.textContent = detail.label;
+    card.append(heading);
+    appendCitedText(card, detail.value, detail.citation_ids);
+    return card;
+  });
+  renderBriefList("#grounding-questions", result.open_questions, "No open questions were flagged.", (item) => {
+    const card = document.createElement("div");
+    card.className = "brief-card question-card";
+    appendCitedText(card, item.question, item.citation_ids);
+    return card;
+  });
   const citations = $("#grounding-citations");
   citations.replaceChildren();
   for (const citation of result.citations || []) {
     const button = document.createElement("button");
     button.className = "citation-card";
     button.type = "button";
-    button.textContent = `${citation.citation_id} · ${citation.source_locations?.map((location) => location.page ? `page ${location.page}` : location.section || "source section").join(", ") || "source"}`;
+    button.textContent = `${citation.source_locations?.map((location) => location.page ? `Page ${location.page}` : location.section || "Source section").join(", ") || "Source"} · ${citation.citation_id.slice(-8)}`;
     button.addEventListener("click", () => openGroundingCitation(citation.document_id, citation.citation_id));
     citations.append(button);
   }
-  if (!citations.children.length && result.grounding?.gap) {
+  if (!citations.children.length) {
     const empty = document.createElement("p");
     empty.className = "field-help";
-    empty.textContent = "No citation was created because no source excerpt matched the question.";
+    empty.textContent = "No source citations were created because the source could not be read safely.";
     citations.append(empty);
   }
   setText("#grounding-limitations", (result.limitations || []).join(" "));
+  $("#copy-brief").dataset.brief = briefText(result);
+  setText("#copy-status", "");
+}
+
+async function copyBrief() {
+  const value = $("#copy-brief").dataset.brief || "";
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const fallback = document.createElement("textarea");
+    fallback.value = value;
+    document.body.append(fallback);
+    fallback.select();
+    document.execCommand("copy");
+    fallback.remove();
+  }
+  setText("#copy-status", "Copied");
 }
 
 async function openGroundingCitation(documentId, citationId) {
@@ -779,8 +871,36 @@ async function retryGroundedBrief(runId, button) {
     return;
   }
   currentGroundingRun = data;
+  writeSessionValue(sessionStorage, SESSION_KEYS.groundingRun, data.run_id);
   renderGroundingRun(data);
   subscribeGrounded(data.run_id);
+}
+
+async function restoreGroundingSession() {
+  const savedDocumentId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.groundingDocument, LEGACY_SESSION_KEYS.groundingDocument);
+  if (savedDocumentId) {
+    try {
+      const response = await fetch(`/v1/documents/${encodeURIComponent(savedDocumentId)}`);
+      if (response.ok) {
+        currentDocument = await response.json();
+        const summary = document.createElement("p");
+        summary.textContent = `${currentDocument.filename} · ${currentDocument.text_char_count.toLocaleString()} characters read · whole source ready`;
+        documentSummary.replaceChildren(summary);
+        show(documentSummary, true);
+        show(groundingForm, true);
+      }
+    } catch {
+      // A stale browser reference does not block a new upload.
+    }
+  }
+  const savedRunId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.groundingRun, LEGACY_SESSION_KEYS.groundingRun);
+  if (!savedRunId) return;
+  try {
+    await refreshGroundedRun(savedRunId);
+    if (currentGroundingRun && !groundingTerminalStates.has(currentGroundingRun.state)) subscribeGrounded(savedRunId);
+  } catch {
+    // A stale browser reference does not block a new brief.
+  }
 }
 
 form.addEventListener("submit", (event) => {
@@ -795,6 +915,7 @@ document.querySelectorAll("[data-example]").forEach((button) => button.addEventL
 $("#cancel-run").addEventListener("click", cancelRun);
 $("#retry-run").addEventListener("click", retryRun);
 $("#close-evidence").addEventListener("click", closeEvidence);
+$("#copy-brief").addEventListener("click", copyBrief);
 $("#evidence-drawer").addEventListener("click", (event) => { if (event.target === $("#evidence-drawer")) closeEvidence(); });
 document.addEventListener("keydown", (event) => {
   const drawer = $("#evidence-drawer");
@@ -817,8 +938,9 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-setWorkflow("readiness");
+setWorkflow("grounding");
 loadToolReadiness();
+restoreGroundingSession();
 const savedRunId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.readinessRun, LEGACY_SESSION_KEYS.readinessRun);
 if (savedRunId) refreshRun(savedRunId).then(() => { if (currentRun && !terminalStates.has(currentRun.state)) subscribe(savedRunId); });
 updateCount();

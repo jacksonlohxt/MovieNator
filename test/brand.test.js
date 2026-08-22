@@ -30,6 +30,12 @@ test("Movie-Inator identity uses the display name and machine-safe package ident
   assert.equal(packageLock.packages[""].name, "movie-inator");
   assert.match(readme, /^# Movie-Inator$/m);
   assert.match(html, /<title>Movie-Inator - Evidence-backed filmmaker workflows<\/title>/);
+  assert.match(html, /<h1 id="page-title">Turn your script into a useful brief\.<\/h1>/);
+  assert.match(html, /Upload script/);
+  assert.match(html, /Tell us what you want/);
+  assert.match(html, /Create brief/);
+  assert.match(html, /id="copy-brief"/);
+  assert.match(html, /<summary><span>Developer details<\/span>/);
   assert.match(html, /aria-label="Choose a Movie-Inator workflow"/);
   assert.doesNotMatch(html, /Gemini Agents/);
 });
