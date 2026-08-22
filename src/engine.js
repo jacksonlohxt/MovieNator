@@ -32,7 +32,8 @@ import {
   validatePlan,
 } from "./contracts.js";
 import { ModelGateway } from "./model-gateway.js";
-import { deterministicGroundedBriefProposal } from "./grounding.js";
+import { deterministicGroundedBriefProposal, deterministicScriptBriefProposal } from "./grounding.js";
+import { SCRIPT_BRIEF_PROMPT_ID, SCRIPT_BRIEF_SCHEMA } from "./grounding-contracts.js";
 import { WORKFLOW_LEASE_MS } from "./workflow-state.js";
 export { ModelGateway } from "./model-gateway.js";
 export { GeminiRestBackend } from "./gemini-rest.js";
@@ -183,15 +184,16 @@ export class FakeModel extends ModelGateway {
     this.calls = [];
   }
 
-  provenance() {
+  provenance(stage) {
+    const scriptBrief = stage === "grounded_brief";
     return {
       backend: "fake",
       model_id: null,
       location: null,
       api_version: null,
-      prompt_id: "fake-model@1",
+      prompt_id: scriptBrief ? SCRIPT_BRIEF_PROMPT_ID : "fake-model@1",
       prompt_hash: null,
-      schema_version: null,
+      schema_version: scriptBrief ? SCRIPT_BRIEF_SCHEMA : null,
       schema_hash: null,
       generation_config_hash: null,
     };
@@ -246,7 +248,7 @@ export class FakeModel extends ModelGateway {
   async groundedBrief(input) {
     this.calls.push("groundedBrief");
     await sleep(4);
-    return deterministicGroundedBriefProposal(input);
+    return input?.schema_version === SCRIPT_BRIEF_SCHEMA ? deterministicScriptBriefProposal(input) : deterministicGroundedBriefProposal(input);
   }
 }
 

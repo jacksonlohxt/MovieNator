@@ -1,16 +1,16 @@
-# Movie-Inator Phase 2 script grounding
+# Movie-Inator Script Brief grounding
 
-This is the first filmmaker-facing vertical slice. It is an explicit workflow beside the existing Audience Data Readiness workflow, not a replacement for it.
+This is the primary filmmaker-facing workflow. Audience Data Readiness remains available from the secondary Developer details surface. The upload and grounding seams are reused, while the Script Brief result and browser flow are now the product default.
 
 ## What is automated
 
 - The server accepts exactly one PDF or UTF-8 plain-text source per upload, enforces a 5 MiB file limit, normalizes a safe filename, bounds extracted text and chunks, and derives a deterministic document ID.
-- The local deterministic `GroundingSource` selects bounded excerpts by lexical match. Every chunk keeps a citation ID and a page or section/line location.
-- The brief worker receives only the selected excerpts, their citation IDs, and a fixed question/prompt. It validates the typed proposal and rejects unknown citations, unsafe text, unbounded output, and side-effect language.
-- The browser shows upload, ingestion, grounding, composing, validation, and result states. A citation opens the matching source excerpt. There is intentionally no human approval screen because this MVP only reads the uploaded source and projects a bounded brief.
+- The local deterministic `GroundingSource` condenses the whole bounded source. It evaluates every available chunk, prioritizes request-relevant chunks, then preserves evenly spaced coverage for long scripts. Every chunk and condensed excerpt keeps a citation ID and a page or section/line location.
+- The brief worker receives the bounded condensed excerpts, their citation IDs and locations, and the server-owned v2 Script Brief prompt. It validates `grounded-script-brief@2`, requires citations for material claims, and rejects unknown citations, unsafe text, unbounded output, and side-effect language.
+- The browser primary flow is Upload script, Tell us what you want, Create brief, then Read or copy the result. The result contains a logline, approximately 100-word synopsis, main characters, setting/tone/themes, production details, open questions, and expandable citations. There is intentionally no human approval screen because this MVP only reads the uploaded source and projects a bounded brief.
 - Mock mode uses `FakeModel` and the local grounding source without credentials or network access. If the optional Google backend is not ready, the existing mock model path remains active. If an explicitly enabled model call is unavailable or invalid, deterministic grounded output is used without changing the source or creating a side effect.
 
-The result is not legal, privacy, rights, publishing, or filmmaker approval. It does not generate or publish video, audio, images, music, or VFX.
+The result is not legal, privacy, rights, publishing, or filmmaker approval. It does not generate or publish video, audio, images, music, or VFX. Mock mode is deterministic and visibly labelled Demo mode. Gemini remains server-only and credential-gated.
 
 ## Operator actions that remain manual
 

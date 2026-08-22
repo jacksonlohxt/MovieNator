@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "grounded-brief-request@2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": "grounded-brief-request@2" },
+    "request": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "question": { "type": "string", "minLength": 1, "maxLength": 1000 }
+  }
+}

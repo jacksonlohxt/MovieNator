@@ -256,7 +256,7 @@ async function createGroundedBrief(req, res, store, groundedEngine, documentId) 
   if (!document) throw new ContractError("DOCUMENT_NOT_FOUND", "Document not found");
   const request = validateGroundingRequest(await readBody(req));
   const key = parseIdempotencyKey(req.headers["idempotency-key"]);
-  const result = store.createScriptRun({ documentId, question: request.question, idempotencyHash: hashValue(key), provenance: groundedEngine.provenance() });
+  const result = store.createScriptRun({ documentId, question: request.question, requestIntent: request.request || request.question, briefVersion: request.brief_version || 1, idempotencyHash: hashValue(key), provenance: groundedEngine.provenance() });
   if (result.created) groundedEngine.enqueue(result.run.run_id);
   return sendJson(res, 202, projectGroundedRun(result.run, store), { location: `/v1/script-briefs/${result.run.run_id}` });
 }

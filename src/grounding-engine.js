@@ -4,29 +4,32 @@ import {
 } from "./documents.js";
 import {
   deterministicGroundedBriefProposal,
+  deterministicScriptBriefProposal,
   groundedPromptInput,
   validateGroundedBriefProposal,
+  validateScriptBriefProposal,
 } from "./grounding.js";
+import { SCRIPT_BRIEF_RESULT_SCHEMA } from "./grounding-contracts.js";
 import { combineProvenance, hashValue } from "./contracts.js";
 
 const TERMINAL_SCRIPT_STATES = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
 
-function sourceProvenance(source) {
+function sourceProvenance(source, operation = "condense_whole_document") {
   return {
     backend: source?.backend || "local",
     provider_id: source?.source_id || "local-deterministic-grounding",
     manifest_hash: `sha256:${hashValue(source || "local-deterministic-grounding")}`,
-    semantic_operation: "select_excerpts",
+    semantic_operation: operation,
   };
 }
 
 function modelProvenance(model) {
-  return typeof model?.provenance === "function" ? model.provenance() : { backend: "fake", prompt_id: "grounded-script-brief@1" };
+  return typeof model?.provenance === "function" ? model.provenance("grounded_brief") : { backend: "fake", prompt_id: "movie-inator-script-brief@2" };
 }
 
-function resultProvenance(model, source) {
+function resultProvenance(model, source, operation = "condense_whole_document") {
   const modelBackend = modelProvenance(model);
-  const groundingBackend = sourceProvenance(source);
+  const groundingBackend = sourceProvenance(source, operation);
   const modelName = modelBackend.backend === "google_rest" ? "Gemini-backed" : "Deterministic mock";
   return {
     ...combineProvenance({ modelBackend, providerBackend: groundingBackend }),
@@ -37,6 +40,27 @@ function resultProvenance(model, source) {
 }
 
 function gapResult(run, reason, source) {
+  if (run.brief_version >= 2) {
+    return {
+      schema_version: SCRIPT_BRIEF_RESULT_SCHEMA,
+      workflow: "script_brief",
+      status: "grounding_gap",
+      brief_run_id: run.run_id,
+      document_id: run.document_id,
+      title: "Script Brief unavailable",
+      logline: { text: "The source could not be read well enough to create a brief.", citation_ids: [] },
+      synopsis: { text: "No grounded source excerpts were available.", citation_ids: [] },
+      main_characters: [],
+      setting_tone_themes: { setting: "Not established.", tone: "Not established.", themes: [], citation_ids: [] },
+      production_details: [],
+      open_questions: [{ question: "Upload a readable PDF or text script and try again.", citation_ids: [] }],
+      cited_citation_ids: [],
+      citations: [],
+      grounding: { source: "local", strategy: "whole_document_condensation", selected_excerpt_count: 0, gap: true, reason },
+      provenance: resultProvenance(run.model, source, "condense_whole_document"),
+      limitations: ["The source did not provide readable excerpts for a safe brief.", "Citations do not grant rights, approval, or permission to publish."],
+    };
+  }
   return {
     schema_version: "grounded-script-result@1",
     workflow: "grounded_script_brief",
@@ -49,7 +73,7 @@ function gapResult(run, reason, source) {
     cited_citation_ids: [],
     citations: [],
     grounding: { source: "local", selected_excerpt_count: 0, gap: true, reason },
-    provenance: resultProvenance(run.model, source),
+    provenance: resultProvenance(run.model, source, "select_excerpts"),
     limitations: ["No grounded source excerpt was selected.", "This workflow does not create video, audio, image, music, or VFX output."],
   };
 }
@@ -115,7 +139,7 @@ export class GroundedBriefEngine {
     const run = this.store.getScriptRun(runId);
     if (!run) throw new Error("Grounded brief run not found");
     if (!['failed'].includes(run.state)) throw new Error("Only a failed grounded brief can be retried");
-    const child = this.store.createScriptRun({ documentId: run.document_id, question: run.question, idempotencyHash: idempotencyHash || hashValue(`${runId}|retry|${Date.now()}`), parentRunId: runId, retryCount: run.retry_count + 1, provenance: this.provenance() }).run;
+    const child = this.store.createScriptRun({ documentId: run.document_id, question: run.question, requestIntent: run.request_intent || run.question, briefVersion: run.brief_version || 1, idempotencyHash: idempotencyHash || hashValue(`${runId}|retry|${Date.now()}`), parentRunId: runId, retryCount: run.retry_count + 1, provenance: this.provenance() }).run;
     this.enqueue(child.run_id);
     return child;
   }
@@ -127,7 +151,10 @@ export class GroundedBriefEngine {
     this.store.appendScriptEvent(runId, "script.queued", "queue", "queued", "Grounded brief queued", {});
     this.store.transitionScriptRun(runId, "grounding", { phase: "grounding", progress: { stage: "grounding", selected_excerpt_count: 0 } });
     this.store.appendScriptEvent(runId, "script.grounding_started", "grounding", "grounding", "Selecting bounded source excerpts", { source: this.groundingSource.capabilities().source_id });
-    const selected = await this.groundingSource.search(run.document_id, run.question, { limit: MAX_SELECTED_EXCERPTS });
+    const wholeDocument = run.brief_version >= 2;
+    const selected = wholeDocument && typeof this.groundingSource.condense === "function"
+      ? await this.groundingSource.condense(run.document_id, run.request_intent || run.question, { limit: MAX_SELECTED_EXCERPTS })
+      : await this.groundingSource.search(run.document_id, run.question, { limit: MAX_SELECTED_EXCERPTS });
     if (selected.status !== "selected" || !selected.excerpts.length) {
       const result = gapResult({ ...run, model: this.model }, selected.status || "no_matching_excerpt", selected.source);
       this.store.addScriptResult(runId, result);
@@ -137,15 +164,17 @@ export class GroundedBriefEngine {
     const excerpts = selected.excerpts.map((excerpt) => ({ ...excerpt, document_id: run.document_id }));
     this.store.transitionScriptRun(runId, "composing", { phase: "composing", progress: { stage: "composing", selected_excerpt_count: excerpts.length }, citation_ids: excerpts.map((excerpt) => excerpt.citation_id) });
     this.store.appendScriptEvent(runId, "script.composing", "writer", "composing", "Composing a grounded script brief", { selected_excerpt_count: excerpts.length });
-    const promptInput = groundedPromptInput(run.question, excerpts);
+    const promptInput = groundedPromptInput(run.request_intent || run.question, excerpts, { wholeDocument, coverage: selected.coverage });
     let proposal;
     try {
       if (typeof this.model.groundedBrief !== "function") throw new Error("Grounded brief model method is unavailable");
       proposal = await this.model.groundedBrief(promptInput, { run_id: runId, stage: "grounded_brief", deadline_at: run.deadline_at, rate_limit_key: "grounded_script_brief" });
-      validateGroundedBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
+      if (wholeDocument) validateScriptBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
+      else validateGroundedBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
     } catch {
-      proposal = deterministicGroundedBriefProposal(promptInput);
-      validateGroundedBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
+      proposal = wholeDocument ? deterministicScriptBriefProposal(promptInput) : deterministicGroundedBriefProposal(promptInput);
+      if (wholeDocument) validateScriptBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
+      else validateGroundedBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
       this.store.appendScriptEvent(runId, "script.writer_fallback", "writer", "composing", "Using the deterministic grounded brief template", { reason: "writer_unavailable_or_invalid" });
     }
     this.store.transitionScriptRun(runId, "validating", { phase: "validating", progress: { stage: "validating", selected_excerpt_count: excerpts.length } });
@@ -156,24 +185,46 @@ export class GroundedBriefEngine {
       if (!excerpt) throw new Error("Unknown grounded citation");
       return { citation_id: citationId, document_id: run.document_id, chunk_id: excerpt.chunk_id, source_locations: excerpt.source_locations, source_label: "Movie-Inator uploaded script source" };
     });
-    const result = {
-      schema_version: "grounded-script-result@1",
-      workflow: "grounded_script_brief",
-      status: "succeeded",
-      brief_run_id: runId,
-      document_id: run.document_id,
-      title: proposal.title,
-      summary: proposal.summary,
-      key_points: proposal.key_points,
-      cited_citation_ids: proposal.cited_citation_ids,
-      citations,
-      grounding: { source: "local", selected_excerpt_count: excerpts.length, gap: false },
-      provenance: resultProvenance(this.model, selected.source),
-      limitations: ["This brief is grounded only in selected excerpts from the uploaded source.", "Citations open source excerpts and do not grant rights or approval.", "Video, audio, image, music, and VFX generation are separate future adapters and are not available here."],
-    };
+    const result = wholeDocument
+      ? {
+          schema_version: SCRIPT_BRIEF_RESULT_SCHEMA,
+          workflow: "script_brief",
+          status: "succeeded",
+          brief_run_id: runId,
+          document_id: run.document_id,
+          title: proposal.title,
+          summary: proposal.synopsis.text,
+          key_points: proposal.main_characters.map((character) => ({ text: character.description, citation_ids: character.citation_ids })),
+          logline: proposal.logline,
+          synopsis: proposal.synopsis,
+          main_characters: proposal.main_characters,
+          setting_tone_themes: proposal.setting_tone_themes,
+          production_details: proposal.production_details,
+          open_questions: proposal.open_questions,
+          cited_citation_ids: proposal.cited_citation_ids,
+          citations,
+          grounding: { source: "local", strategy: "whole_document_condensation", selected_excerpt_count: excerpts.length, source_chunk_count: selected.source_chunk_count || selected.coverage?.source_chunk_count || excerpts.length, source_coverage: selected.coverage, gap: false },
+          provenance: resultProvenance(this.model, selected.source, "condense_whole_document"),
+          limitations: ["This brief is grounded only in the uploaded source.", "Material statements link to source excerpts; open questions identify what the source does not establish.", "Citations do not grant rights, approval, or permission to publish."],
+        }
+      : {
+          schema_version: "grounded-script-result@1",
+          workflow: "grounded_script_brief",
+          status: "succeeded",
+          brief_run_id: runId,
+          document_id: run.document_id,
+          title: proposal.title,
+          summary: proposal.summary,
+          key_points: proposal.key_points,
+          cited_citation_ids: proposal.cited_citation_ids,
+          citations,
+          grounding: { source: "local", selected_excerpt_count: excerpts.length, gap: false },
+          provenance: resultProvenance(this.model, selected.source, "select_excerpts"),
+          limitations: ["This brief is grounded only in selected excerpts from the uploaded source.", "Citations open source excerpts and do not grant rights or approval.", "Video, audio, image, music, and VFX generation are separate future adapters and are not available here."],
+        };
     this.store.addScriptResult(runId, result);
     this.store.appendScriptEvent(runId, "script.succeeded", "projection", "succeeded", "Grounded script brief ready", { citation_count: citations.length });
-    this.audit?.record({ type: "request_outcome", outcome: "succeeded", mode: result.provenance.model_backend.backend, runId, provenance: result.provenance, attributes: { workflow: "grounded_script_brief", citation_count: citations.length } });
+    this.audit?.record({ type: "request_outcome", outcome: "succeeded", mode: result.provenance.model_backend.backend, runId, provenance: result.provenance, attributes: { workflow: result.workflow, citation_count: citations.length } });
     return this.store.getScriptRun(runId);
   }
 }

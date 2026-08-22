@@ -164,6 +164,30 @@ test("grounded brief REST requests contain only bounded excerpts and reject unkn
   await assert.rejects(unknown.groundedBrief({ schema_version: "grounded-script-brief@1", question: "Where?", excerpts: [{ citation_id: "cite_known", text: "Known source", source_locations: [] }] }, { run_id: "grounded-unknown" }), (error) => error.code === "schema_invalid");
 });
 
+test("v2 Script Brief Gemini requests carry intent, source coverage, and citation-safe structured output", async () => {
+  const citation = "cite_known";
+  const brief = {
+    schema_version: "grounded-script-brief@2",
+    title: "Script Brief",
+    logline: { text: "Mara enters the observatory and faces the signal.", citation_ids: [citation] },
+    synopsis: { text: "Mara enters the observatory and faces the signal.", citation_ids: [citation] },
+    main_characters: [{ name: "Mara", description: "Mara enters the observatory.", citation_ids: [citation] }],
+    setting_tone_themes: { setting: "The observatory.", tone: "Tense.", themes: ["truth"], citation_ids: [citation] },
+    production_details: [{ label: "Scene location", value: "INT. OBSERVATORY", citation_ids: [citation] }],
+    open_questions: [{ question: "What happens after the signal?", citation_ids: [] }],
+    cited_citation_ids: [citation],
+  };
+  const { calls, transport } = transportFor(brief);
+  const backend = new GeminiRestBackend({ config: baseConfig(), transport, tokenProvider: async () => "test-token" });
+  const result = await backend.groundedBrief({ schema_version: "grounded-script-brief@2", request_intent: "Focus on the protagonist and production needs.", source_coverage: { strategy: "whole_document_condensation", source_chunk_count: 40, selected_chunk_count: 24 }, source_chunk_count: 40, excerpts: [{ citation_id: citation, text: "Mara enters the observatory.", source_locations: [{ kind: "section", section: "Opening" }], source_ordinal: 0 }] }, { run_id: "script-brief-v2" });
+  assert.equal(result.schema_version, "grounded-script-brief@2");
+  const body = JSON.parse(calls[0].body);
+  assert.equal(body.contents[0].parts[0].text.includes("Focus on the protagonist"), true);
+  assert.equal(body.contents[0].parts[0].text.includes("whole_document_condensation"), true);
+  assert.equal(body.systemInstruction.parts[0].text.includes("Every material statement"), true);
+  assert.equal(Object.hasOwn(body, "tools"), false);
+});
+
 test("prompt injection remains data and cannot select a provider or endpoint", async () => {
   const { calls, transport } = transportFor(plan);
   const backend = new GeminiRestBackend({ config: baseConfig(), transport, tokenProvider: async () => "test-token" });

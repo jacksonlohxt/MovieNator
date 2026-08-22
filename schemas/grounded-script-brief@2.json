@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "grounded-script-brief@2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "title", "logline", "synopsis", "main_characters", "setting_tone_themes", "production_details", "open_questions", "cited_citation_ids"],
+  "properties": {
+    "schema_version": { "const": "grounded-script-brief@2" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 180 },
+    "logline": { "$ref": "#/$defs/cited_text" },
+    "synopsis": { "$ref": "#/$defs/cited_text" },
+    "main_characters": {
+      "type": "array", "maxItems": 8,
+      "items": { "type": "object", "additionalProperties": false, "required": ["name", "description", "citation_ids"], "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "citation_ids": { "$ref": "#/$defs/citation_ids" }
+      }}
+    },
+    "setting_tone_themes": {
+      "type": "object", "additionalProperties": false, "required": ["setting", "tone", "themes", "citation_ids"], "properties": {
+        "setting": { "type": "string", "minLength": 1, "maxLength": 420 },
+        "tone": { "type": "string", "minLength": 1, "maxLength": 420 },
+        "themes": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 120 } },
+        "citation_ids": { "$ref": "#/$defs/citation_ids" }
+      }
+    },
+    "production_details": {
+      "type": "array", "maxItems": 8,
+      "items": { "type": "object", "additionalProperties": false, "required": ["label", "value", "citation_ids"], "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "value": { "type": "string", "minLength": 1, "maxLength": 420 },
+        "citation_ids": { "$ref": "#/$defs/citation_ids" }
+      }}
+    },
+    "open_questions": {
+      "type": "array", "maxItems": 8,
+      "items": { "type": "object", "additionalProperties": false, "required": ["question", "citation_ids"], "properties": {
+        "question": { "type": "string", "minLength": 1, "maxLength": 420 },
+        "citation_ids": { "$ref": "#/$defs/citation_ids" }
+      }}
+    },
+    "cited_citation_ids": { "$ref": "#/$defs/citation_ids" }
+  },
+  "$defs": {
+    "citation_ids": { "type": "array", "maxItems": 24, "items": { "type": "string", "maxLength": 160 } },
+    "cited_text": { "type": "object", "additionalProperties": false, "required": ["text", "citation_ids"], "properties": {
+      "text": { "type": "string", "minLength": 1, "maxLength": 1500 },
+      "citation_ids": { "$ref": "#/$defs/citation_ids" }
+    }}
+  }
+}

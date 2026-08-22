@@ -14,7 +14,9 @@ import {
 import {
   GroundingSource,
   LocalDeterministicGroundingSource,
+  deterministicScriptBriefProposal,
   validateGroundedBriefProposal,
+  validateScriptBriefProposal,
 } from "../src/grounding.js";
 import { GroundedBriefEngine } from "../src/grounding-engine.js";
 import { FakeModel } from "../src/engine.js";
@@ -99,6 +101,41 @@ test("local grounding keeps citation integrity and exposes a grounding gap", asy
   assert.equal(citation.excerpt.includes("observatory"), true);
   assert.equal((await source.search(document.document_id, "rights clearance")).status, "gap");
   assert.throws(() => validateGroundedBriefProposal({ schema_version: "grounded-script-brief@1", title: "x", summary: "x", key_points: [{ text: "x", citation_ids: ["unknown"] }], cited_citation_ids: ["unknown"] }, new Set([selected.excerpts[0].citation_id])), /unknown citation/);
+});
+
+test("whole-document Script Brief condensation covers long sources and validates cited sections", async () => {
+  const store = new FileStore(tempPath("whole-document"));
+  const sourceText = Array.from({ length: 90 }, (_, index) => `SECTION_${index + 1}\n${index === 74 ? "MARA reaches the final observatory and confronts the signal." : `The crew crosses location ${index + 1} while the story develops.`}`).join("\n\n");
+  const document = parseGroundingDocument({ filename: "long-script.txt", contentType: "text/plain", bytes: Buffer.from(sourceText) });
+  store.createDocument(document);
+  const source = new LocalDeterministicGroundingSource({ store });
+  const condensed = await source.condense(document.document_id, "observatory");
+  assert.equal(condensed.status, "selected");
+  assert.equal(condensed.coverage.strategy, "whole_document_condensation");
+  assert.ok(condensed.excerpts.length > 6);
+  assert.equal(condensed.excerpts.some((excerpt) => excerpt.text.includes("final observatory")), true);
+  const proposal = deterministicScriptBriefProposal({ schema_version: "grounded-script-brief@2", request_intent: "Create a brief", excerpts: condensed.excerpts, source_coverage: condensed.coverage });
+  validateScriptBriefProposal(proposal, condensed.excerpts.map((excerpt) => excerpt.citation_id));
+  assert.ok(proposal.logline.citation_ids.length > 0);
+  assert.ok(proposal.synopsis.citation_ids.length > 0);
+});
+
+test("Movie-Inator API uses the default Script Brief request and returns structured cited sections", async (t) => {
+  const { app, base } = await startApp(t);
+  const uploaded = await upload(base, "script.txt", "text/plain", Buffer.from("OPENING\nMARA enters the observatory.\n\nEXT. SHORE - DAY\nThe family faces loss and chooses hope."));
+  const document = await uploaded.json();
+  const request = await fetch(`${base}/v1/documents/${document.document_id}/briefs`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "script-brief-default" }, body: JSON.stringify({ schema_version: "grounded-brief-request@2" }) });
+  assert.equal(request.status, 202);
+  const accepted = await request.json();
+  await app.groundedEngine.waitForIdle(accepted.run_id);
+  const completed = await fetch(`${base}/v1/script-briefs/${accepted.run_id}`).then((response) => response.json());
+  assert.equal(completed.state, "succeeded");
+  assert.equal(completed.result.schema_version, "grounded-script-result@2");
+  for (const section of [completed.result.logline, completed.result.synopsis]) assert.ok(section.citation_ids.length > 0);
+  assert.ok(Array.isArray(completed.result.main_characters));
+  assert.ok(Array.isArray(completed.result.open_questions));
+  assert.equal(completed.result.grounding.strategy, "whole_document_condensation");
+  assert.equal(completed.result.provenance.provider, "Movie-Inator uploaded script source");
 });
 
 test("Movie-Inator API uploads duplicate sources and runs a cited grounded brief without approval", async (t) => {

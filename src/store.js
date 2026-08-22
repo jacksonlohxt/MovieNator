@@ -437,7 +437,7 @@ export class FileStore {
     return clone(this.state.documents[documentId]);
   }
 
-  createScriptRun({ documentId, question, idempotencyHash, parentRunId = null, retryCount = 0, provenance }) {
+  createScriptRun({ documentId, question, requestIntent = question, briefVersion = 1, idempotencyHash, parentRunId = null, retryCount = 0, provenance }) {
     const existing = this.state.scriptIdempotency[idempotencyHash];
     if (existing) {
       if (existing.document_id !== documentId || existing.question !== question) throw new ContractError("IDEMPOTENCY_KEY_REUSED", "Idempotency-Key was already used for a different grounded brief");
@@ -452,6 +452,8 @@ export class FileStore {
       workflow: "grounded_script_brief",
       document_id: documentId,
       question,
+      request_intent: requestIntent,
+      brief_version: briefVersion,
       parent_run_id: parentRunId,
       retry_count: retryCount,
       state: "accepted",
