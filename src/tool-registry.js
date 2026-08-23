@@ -1,4 +1,5 @@
 import { TOOL_MANIFEST_SCHEMA, TOOL_EXECUTION_RESULT_SCHEMA, LogicContractError, boundedInteger, boundedString, containsSensitiveKey, containsUnsafeValue, hashContract, isRecord, redactValue, rejectUnknownFields, safeClone, safeUnavailable } from "./logic-contracts.js";
+import { LOCAL_MOCK_TOOL_ENDPOINT, PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
 export class ToolPolicyError extends LogicContractError {
   constructor(code, message, field = undefined) {
@@ -240,7 +241,7 @@ export function createToolManifest({ toolId, operations, inputSchema, outputSche
     kind: "database",
     capabilities,
     operations,
-    endpoint: { kind: "local", id: "local:movie-inator-mock" },
+    endpoint: { kind: "local", id: LOCAL_MOCK_TOOL_ENDPOINT },
     credentials: "none",
     permissions: ["database.read"],
     scope: { workspace },
@@ -250,6 +251,6 @@ export function createToolManifest({ toolId, operations, inputSchema, outputSche
     budget: { max_calls: maxCalls, max_input_bytes: 12000, max_output_bytes: 60000 },
     side_effects: false,
     redaction: "normalized",
-    provenance: { source: "Movie-Inator local deterministic fixture", manifest_hash: hashContract({ toolId, operations, workspace }) },
+    provenance: { source: `${PRODUCT_DISPLAY_NAME} local deterministic fixture`, manifest_hash: hashContract({ toolId, operations, workspace }) },
   };
 }

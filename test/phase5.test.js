@@ -34,6 +34,8 @@ test("runtime configuration keeps mock, ADC local, and deployed identity explici
     GOOGLE_AUTH_MODE: "adc",
   }).mode, "adc_local");
   assert.equal(readRuntimeConfig(live).mode, "deployed_identity");
+  assert.equal(readRuntimeConfig({ ...live, MOVIEINATOR_SECRET_REF: secretRef }).secretReferenceCount, 1);
+  assert.equal(readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: secretRef }).secretReferenceCount, 1);
   assert.throws(() => readRuntimeConfig({ ...live, GOOGLE_MODEL_ID: "" }), RuntimeConfigError);
   assert.throws(() => readRuntimeConfig({ NODE_ENV: "production" }), /explicit/);
   assert.throws(() => readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: "not-a-value" }), /Secret Manager/);

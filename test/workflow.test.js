@@ -11,7 +11,7 @@ import { BoundedFunctionOrchestrator } from "../src/orchestrator.js";
 import { ToolRegistry, createToolManifest } from "../src/tool-registry.js";
 
 function tempStore() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movieinator-"));
   return new FileStore(path.join(directory, "runs.json"));
 }
 
@@ -132,7 +132,7 @@ test("lease expiry fences a stale worker before duplicate evidence or publicatio
       return super.describe_asset(...args);
     }
   }
-  const store = new FileStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-lease-fence-")), "runs.json"), { clock: ManualClock });
+  const store = new FileStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "movieinator-lease-fence-")), "runs.json"), { clock: ManualClock });
   const provider = new PausingProvider();
   const run = store.createRun({ request: requestFor("season_2_audience_engagement"), requestHash: "lease-fence", idempotencyHash: "lease-fence" }).run;
   const stale = new MockEngine({ store, provider, clock: ManualClock, leaseTtlMs: 10, leaseRenewIntervalMs: 1_000 });
@@ -268,7 +268,7 @@ test("cancellation wins over queued work and publishes no late result", async ()
 });
 
 test("HTTP API is durable, idempotent, safe, and event-readable", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-http-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movieinator-http-"));
   const app = createApp({ dataPath: path.join(directory, "runs.json") });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   t.after(() => app.server.close());

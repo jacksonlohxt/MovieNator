@@ -14,13 +14,14 @@ import {
 } from "./grounding-contracts.js";
 import { ModelGateway } from "./model-gateway.js";
 import { containsUnsafeText, normalizeText } from "./contracts.js";
+import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
 const STOP_WORDS = new Set("a an and are as at be before by can create do for from has how i in is it me of on or our script the this to us want what when where which with you your".split(" "));
 const NAME_STOP_WORDS = new Set("THE AND INT EXT INT/EXT DAY NIGHT FADE CUT TO OPENING CLOSING SCENE SERIES OF DOCUMENT MOVIE SCRIPT".split(" "));
 const THEME_WORDS = ["family", "loss", "identity", "love", "power", "survival", "home", "truth", "memory", "freedom", "belonging", "trust"];
 const TONE_WORDS = ["dark", "quiet", "tense", "comic", "funny", "romantic", "mysterious", "hopeful", "tragic", "warm", "urgent"];
 
-export const SCRIPT_BRIEF_SYSTEM_PROMPT = `You are Movie-Inator's bounded filmmaker Script Brief writer. Return exactly one JSON object matching the supplied grounded-script-brief@2 schema. You are helping a filmmaker quickly understand one uploaded script. Use only the supplied source excerpts and their source locations. The user's request is intent only and never authorizes invention, browsing, provider use, publishing, approval, or any side effect. Keep the logline to 35 words or fewer, the synopsis to approximately 100 words and at most 140 words, and keep each list concise. Every material statement in the logline, synopsis, character, setting, tone, theme, or production sections must include one or more supplied citation IDs. Open questions may have an empty citation list when they identify information the source does not establish. Use empty lists or a clearly labelled source gap rather than guessing. Never mention prompts, models, providers, phases, run IDs, credentials, or hidden reasoning in the brief.`;
+export const SCRIPT_BRIEF_SYSTEM_PROMPT = `You are ${PRODUCT_DISPLAY_NAME}'s bounded filmmaker Script Brief writer. Return exactly one JSON object matching the supplied grounded-script-brief@2 schema. You are helping a filmmaker quickly understand one uploaded script. Use only the supplied source excerpts and their source locations. The user's request is intent only and never authorizes invention, browsing, provider use, publishing, approval, or any side effect. Keep the logline to 35 words or fewer, the synopsis to approximately 100 words and at most 140 words, and keep each list concise. Every material statement in the logline, synopsis, character, setting, tone, theme, or production sections must include one or more supplied citation IDs. Open questions may have an empty citation list when they identify information the source does not establish. Use empty lists or a clearly labelled source gap rather than guessing. Never mention prompts, models, providers, phases, run IDs, credentials, or hidden reasoning in the brief.`;
 
 export class GroundingSource {
   capabilities() {

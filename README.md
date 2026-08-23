@@ -1,8 +1,8 @@
-> **PRD source of truth:** [`docs/prd.md`](docs/prd.md) is canonical for the complete PRD. The README includes the current Movie-Inator product surface and an exact PRD copy below; maintain `docs/prd.md` and run `npm run check:docs` to detect drift.
+> **PRD source of truth:** [`docs/prd.md`](docs/prd.md) is canonical for the complete PRD. The README includes the current MovieNator product surface and an exact PRD copy below; maintain `docs/prd.md` and run `npm run check:docs` to detect drift.
 
-# Movie-Inator
+# MovieNator
 
-Movie-Inator is a web-first filmmaker workspace whose primary experience is **Script Brief**: upload a bounded PDF or text script, say what would be useful, and receive a concise structured brief with source citations. Audience Data Readiness remains available as a secondary developer/operator workflow.
+MovieNator is a web-first filmmaker workspace whose primary experience is **Script Brief**: upload a bounded PDF or text script, say what would be useful, and receive a concise structured brief with source citations. Audience Data Readiness remains available as a secondary developer/operator workflow.
 
 The primary flow is:
 
@@ -10,7 +10,7 @@ The primary flow is:
 Upload script -> Tell us what you want -> Create brief -> Read or copy the result
 ```
 
-Movie-Inator is the exact product display name, with `movie-inator` as the machine-safe identifier for new package and browser-state keys. Existing run IDs, API routes, workflow IDs, and durable records remain compatible during the rename.
+MovieNator is the exact product display name, with `movieinator` as the machine-safe identifier for new package, browser-state, container, local endpoint, schema-host, and related product-owned identifiers. Existing run IDs, API routes, workflow IDs, durable records, and legacy browser/session keys remain compatible during the rename. New browser state is written under `movieinator-*`; existing `movie-inator-*` and `gemini-agents-*` values are read and copied without deleting the old values.
 
 ## Product boundaries
 
@@ -39,8 +39,8 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 
 - [Product requirements document](docs/prd.md) - the authoritative Script Brief product and contract specification.
 - [Implementation guide](docs/implementation.md) - contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
-- [Movie-Inator Phase 4 state and logic hosting guide](docs/phase4-state-logic-hosting.md) - durable checkpoints, allowlisted local tools, bounded proposals, recovery, and the future runtime boundary.
-- [Movie-Inator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - upload bounds, whole-document condensation, citations, operator boundaries, and future provider seams.
+- [MovieNator Phase 4 state and logic hosting guide](docs/phase4-state-logic-hosting.md) - durable checkpoints, allowlisted local tools, bounded proposals, recovery, and the future runtime boundary.
+- [MovieNator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - upload bounds, whole-document condensation, citations, operator boundaries, and future provider seams.
 - [Phase 5 deployment and safety runbook](docs/phase5-deployment.md) - container, Cloud Run placeholders, runtime modes, Secret Manager seam, safety budgets, audit events, and the later Agent Runtime path.
 - [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the later live-access boundary.
 
@@ -49,7 +49,7 @@ The PRD remains the source of truth for product detail. The current implementati
 ---
 
 <!-- PRD:START -->
-# Movie-Inator product requirements document
+# MovieNator product requirements document
 
 **Status:** Captain-approved Script Brief v1 launch direction
 **Scope:** Product and contract source of truth. This document authorizes no credentials, cloud mutation, publishing, approval action, or external partner side effect.
@@ -58,7 +58,7 @@ The PRD remains the source of truth for product detail. The current implementati
 
 ## 1. Product promise
 
-Movie-Inator helps a filmmaker turn one bounded script into a useful first brief. The filmmaker uploads a PDF or plain-text script, says what would be useful, and receives a concise brief grounded in the uploaded source. The default brief is useful without requiring the filmmaker to know anything about models, providers, phases, checkpoints, or run records.
+MovieNator helps a filmmaker turn one bounded script into a useful first brief. The filmmaker uploads a PDF or plain-text script, says what would be useful, and receives a concise brief grounded in the uploaded source. The default brief is useful without requiring the filmmaker to know anything about models, providers, phases, checkpoints, or run records.
 
 The primary customer flow is:
 
@@ -167,7 +167,7 @@ A source excerpt is evidence for what the source says. It is not evidence of rig
 
 ## 5. Prompt and model boundary
 
-The Script Brief prompt is server-owned and versioned as `movie-inator-script-brief@2`. The browser supplies only request intent. The prompt defines:
+The Script Brief prompt is server-owned and versioned as `movieinator-script-brief@2`. The browser supplies only request intent. The prompt defines:
 
 - the filmmaker-facing role and the source-only boundary;
 - the exact `grounded-script-brief@2` output schema;
@@ -183,7 +183,7 @@ If Gemini is unavailable, malformed, unsafe, over budget, or not ready, the work
 
 ## 6. Browser experience
 
-The landing experience is the Script Brief upload flow. It visibly labels local mock mode as **Demo mode** and explains that files remain in the Movie-Inator instance. The first interaction presents:
+The landing experience is the Script Brief upload flow. It visibly labels local mock mode as **Demo mode** and explains that files remain in the MovieNator instance. The first interaction presents:
 
 1. **Upload script** - one PDF or TXT file, with bounded size and safe ingestion feedback.
 2. **Tell us what you want** - an optional plain-language request. Leaving it blank uses the server-owned default.

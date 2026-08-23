@@ -1,5 +1,6 @@
 import { hashContract, isRecord, redactValue } from "./logic-contracts.js";
 import { ToolPolicyError, createToolManifest } from "./tool-registry.js";
+import { LOCAL_MOCK_TOOL_ENDPOINT, PRODUCT_DISPLAY_NAME, PRODUCT_IDENTIFIER } from "./product-identity.js";
 
 const WORKSPACE = "Demo Media Workspace";
 const OBSERVED_AT = "2026-08-14T14:00:00.000Z";
@@ -52,10 +53,10 @@ export class LocalMcpDatabase {
     this.calls = [];
     this.manifest = Object.freeze({
       schema_version: "mcp-capability-manifest@1",
-      server_id: "movie-inator-local-database",
+      server_id: `${PRODUCT_IDENTIFIER}-local-database`,
       protocol: "mcp-style-local",
       transport: "in-process",
-      endpoint: "local:movie-inator-mock",
+      endpoint: LOCAL_MOCK_TOOL_ENDPOINT,
       credentials: "none",
       read_only: true,
       private_rows: false,
@@ -63,8 +64,8 @@ export class LocalMcpDatabase {
       mutation_operations: [],
       operations: [...operations],
       workspace,
-      manifest_hash: hashContract({ server: "movie-inator-local-database", operations, workspace }),
-      provenance: "Movie-Inator local deterministic fixture",
+      manifest_hash: hashContract({ server: `${PRODUCT_IDENTIFIER}-local-database`, operations, workspace }),
+      provenance: `${PRODUCT_DISPLAY_NAME} local deterministic fixture`,
     });
   }
 

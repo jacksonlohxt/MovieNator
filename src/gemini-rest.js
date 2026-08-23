@@ -10,6 +10,7 @@ import {
   safeErrorProjection,
 } from "./safety.js";
 import { SCRIPT_BRIEF_SYSTEM_PROMPT, validateGroundedBriefProposal, validateScriptBriefProposal } from "./grounding.js";
+import { PRODUCT_DISPLAY_NAME, PRODUCT_IDENTIFIER } from "./product-identity.js";
 import {
   DRAFT_SCHEMA,
   PLAN_SCHEMA,
@@ -407,7 +408,7 @@ export class GeminiRestBackend extends ModelGateway {
     const systemInstruction = isPlan
       ? `You are the bounded Request Interpreter. Return exactly one JSON object with only these keys: schema_version, workflow, asset_query, container_query, purpose, time_window, required_evidence, clarification. Use schema_version="${PLAN_SCHEMA}", workflow="audience_data_readiness", required_evidence=["asset","quality","governance","lineage"], and clarification=null unless the request is genuinely missing required information. Use time_window only as an object with start and end strings. Never return readiness_question, asset_hints, or any other key. Never select a provider, tool, endpoint, project, location, model, threshold, credential, or side effect.`
       : isGroundedBrief
-        ? (isScriptBrief ? `${SCRIPT_BRIEF_SYSTEM_PROMPT} Use schema_version="${SCRIPT_BRIEF_SCHEMA}" and do not add fields.` : `You are the bounded Movie-Inator Script Grounding Writer. Return exactly one JSON object with only these keys: schema_version, title, summary, key_points, cited_citation_ids. Use schema_version="${GROUNDED_BRIEF_SCHEMA}". Use only the supplied excerpts. Every key point must cite one or more supplied citation_id values. Never invent a source, citation, filmmaker claim, provider, tool, endpoint, model, threshold, credential, or side effect. Video, audio, image, music, and VFX generation are not available.`)
+        ? (isScriptBrief ? `${SCRIPT_BRIEF_SYSTEM_PROMPT} Use schema_version="${SCRIPT_BRIEF_SCHEMA}" and do not add fields.` : `You are the bounded ${PRODUCT_DISPLAY_NAME} Script Grounding Writer. Return exactly one JSON object with only these keys: schema_version, title, summary, key_points, cited_citation_ids. Use schema_version="${GROUNDED_BRIEF_SCHEMA}". Use only the supplied excerpts. Every key point must cite one or more supplied citation_id values. Never invent a source, citation, filmmaker claim, provider, tool, endpoint, model, threshold, credential, or side effect. Video, audio, image, music, and VFX generation are not available.`)
         : `You are the bounded Brief Writer. Return exactly one JSON object with only these keys: schema_version, headline, summary, summary_evidence_ids, risks, recommendations, cited_evidence_ids. Use schema_version="${DRAFT_SCHEMA}". Each risk must contain only severity (low, medium, or high), kind, text, and evidence_ids. Cite only supplied evidence IDs. Never change policy, select providers or tools, create evidence, or request a side effect.`;
     return {
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -486,7 +487,7 @@ export class GeminiRestBackend extends ModelGateway {
         model_id: this.config.modelId,
         location: this.config.location,
         api_version: this.config.apiVersion,
-        prompt_id: stage === "planner" ? "request-interpreter@1" : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_PROMPT_ID : "movie-inator-script-grounding@1") : "brief-writer@1",
+        prompt_id: stage === "planner" ? "request-interpreter@1" : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_PROMPT_ID : `${PRODUCT_IDENTIFIER}-script-grounding@1`) : "brief-writer@1",
         prompt_hash: hashPrompt(promptText),
         schema_version: stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_SCHEMA : GROUNDED_BRIEF_SCHEMA) : DRAFT_SCHEMA,
         schema_hash: `sha256:${schemaHash}`,
@@ -512,7 +513,7 @@ export class GeminiRestBackend extends ModelGateway {
         model_id: this.config.modelId || null,
         location: this.config.location || null,
         api_version: this.config.apiVersion,
-        prompt_id: stage === "planner" ? "request-interpreter@1" : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_PROMPT_ID : "movie-inator-script-grounding@1") : "brief-writer@1",
+        prompt_id: stage === "planner" ? "request-interpreter@1" : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_PROMPT_ID : `${PRODUCT_IDENTIFIER}-script-grounding@1`) : "brief-writer@1",
         prompt_hash: null,
         schema_version: stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_SCHEMA : GROUNDED_BRIEF_SCHEMA) : DRAFT_SCHEMA,
         schema_hash: `sha256:${hashValue(stage === "planner" ? PLAN_SCHEMA : stage === "grounded_brief" ? (input?.schema_version === SCRIPT_BRIEF_SCHEMA ? SCRIPT_BRIEF_SCHEMA : GROUNDED_BRIEF_SCHEMA) : DRAFT_SCHEMA)}`,

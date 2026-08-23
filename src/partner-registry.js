@@ -5,6 +5,7 @@ import {
   parsePartnerCapability,
   safePartnerProjection,
 } from "./partner-contracts.js";
+import { LEGACY_LOCAL_MOCK_ENDPOINTS, LOCAL_MOCK_ENDPOINT } from "./product-identity.js";
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -20,7 +21,7 @@ function normalizeOperation(value) {
  * before calling adapter.invoke(), so unknown input cannot reach transport.
  */
 export class PartnerRegistry {
-  constructor({ endpointAllowlist = ["local://movie-inator/mock"], clock = Date } = {}) {
+  constructor({ endpointAllowlist = [LOCAL_MOCK_ENDPOINT, ...LEGACY_LOCAL_MOCK_ENDPOINTS], clock = Date } = {}) {
     this.clock = clock;
     this.endpointAllowlist = new Set(endpointAllowlist);
     this.providers = new Map();
