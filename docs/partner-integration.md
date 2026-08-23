@@ -15,7 +15,7 @@ The browser uses `GET /v1/partners` for a safe provider status and provenance pr
 
 ## Live enablement seam
 
-The future adapter shape is `CredentialGatedReadOnlyPartnerAdapter` (with the IBM-compatible naming seam `IbmCompatibleReadOnlyAdapter`). It is disabled and unregistered by default. It does not choose between watsonx.data intelligence, Flow MCP, or another IBM product. It accepts an injected transport only after an operator has an exact, approved capability manifest.
+The future adapter shape is `CredentialGatedReadOnlyPartnerAdapter` (with the IBM-compatible naming seam `IbmCompatibleReadOnlyAdapter`). It is disabled and unregistered by default. It does not choose between watsonx.data intelligence, Flow MCP, or another IBM product. It accepts an injected transport only after an operator has an exact, approved capability manifest. The server can parse that manifest from `PARTNER_CAPABILITY_JSON` or `PARTNER_CONFIG_JSON`, but it never accepts partner configuration from a browser request.
 
 Before adding a live registration, record all of the following in the operator configuration and Captain decision record:
 
@@ -34,6 +34,8 @@ Never ask an operator or Captain to paste a secret into a chat, issue, PR, envir
 
 `ready` means the registered manifest, endpoint reference, auth reference, scope, and transport passed the configured checks. `not_configured` and `missing_auth` fail closed. `stale` means the last readiness check exceeded its freshness bound. `degraded`, `unavailable`, `denied`, and `circuit_open` remain visible and do not trigger automatic partner fallback.
 
+The injected transport contract receives a normalized input object plus opaque `endpoint_ref`, `credential_ref`, `scope_ref`, provider, operation, tool, and manifest references. A `partnerTransportFactory({ capability, secretProvider })` may close over the server-owned `SecretProvider`; secret values are never placed in the transport request. Before transport invocation, the adapter validates and checks the configured credential reference. Missing, malformed, unavailable, or denied references fail closed with zero partner transport calls. An optional synchronous `partnerReadiness` check reports the actual injected health state and receives no secret value.
+
 When a live partner is unavailable, the safe result says that partner evidence is unavailable and offers a manual check or an explicit, separately labelled demo run. It never silently switches to another partner or makes synthetic evidence look live. A retry is bounded and preserves the original provenance.
 
 ## Local checks
@@ -45,5 +47,7 @@ npm start
 # GET http://127.0.0.1:4173/v1/partners
 # GET http://127.0.0.1:4173/v1/partners/mock-provider/readiness
 ```
+
+A future server-owned capability must use the versioned `partner-capability@1` shape, an opaque endpoint reference that is explicitly allowlisted, a bounded read-only operation list, and a Secret Manager resource reference for live credentials. The server injects the matching transport and secret provider in `createApp`; no product-specific request semantics are defined here.
 
 These commands use synthetic data only. No partner credentials or outbound network access are needed.

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuditEvent, AuditRecorder } from "../src/audit.js";
-import { MockSecretProvider, parseSecretReference, SecretManagerProvider } from "../src/secrets.js";
+import { MockSecretProvider, parseSecretReference, SecretManagerProvider, createSecretProvider } from "../src/secrets.js";
 import { createGeminiReadiness, readGeminiConfig } from "../src/gemini-rest.js";
 import { GEMINI_SAFETY_POLICY, GEMINI_SAFETY_SETTINGS, RateLimiter, redactForAudit } from "../src/safety.js";
-import { RuntimeConfigError, readRuntimeConfig } from "../src/runtime-config.js";
+import { RuntimeConfigError, readRuntimeConfig, readPartnerConfig } from "../src/runtime-config.js";
+import { createPartnerCapability } from "../src/partner-contracts.js";
 
 const live = {
   RUNTIME_MODE: "deployed_identity",
@@ -47,6 +48,27 @@ test("runtime configuration keeps mock, ADC local, and deployed identity explici
   assert.throws(() => readRuntimeConfig({ ...live, GOOGLE_MODEL_ID: "" }), RuntimeConfigError);
   assert.throws(() => readRuntimeConfig({ NODE_ENV: "production" }), /explicit/);
   assert.throws(() => readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: "not-a-value" }, { googleReadiness: liveReadiness }), /Secret Manager/);
+});
+
+test("server-owned partner configuration accepts only capability references", () => {
+  const capability = createPartnerCapability({
+    provider: { provider_id: "future.config", display_name: "Future configured partner", confirmation_state: "confirmed" },
+    environment: "staging",
+    endpointRef: "config://partners/future",
+    authMode: "oauth2_client_credentials",
+    credentialRef: secretRef,
+    scopeRef: "config://scope/future",
+    allowedOperations: [{ operation: "read_metadata", tool_ref: "future.read_metadata" }],
+    dataClasses: ["metadata"],
+    enabled: true,
+  });
+  const config = readRuntimeConfig({ PARTNER_CAPABILITY_JSON: JSON.stringify(capability) });
+  assert.equal(config.partner.provider.provider_id, "future.config");
+  assert.equal(config.secretReferenceCount, 1);
+  assert.deepEqual(config.secretReferences, [{ name: "partner.credential_ref", reference: secretRef }]);
+  assert.equal(createSecretProvider({ env: { PARTNER_CAPABILITY_JSON: "configured" }, references: [secretRef], tokenProvider: async () => "test-token", transport: async () => ({ status: 200 }) }) instanceof SecretManagerProvider, true);
+  assert.deepEqual(readPartnerConfig({}), undefined);
+  assert.throws(() => readPartnerConfig({ PARTNER_CAPABILITY_JSON: JSON.stringify({ ...capability, credential_ref: "not-a-secret" }) }), RuntimeConfigError);
 });
 
 test("secret references are runtime-only and providers are injectable", async () => {

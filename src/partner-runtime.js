@@ -140,8 +140,9 @@ export class PartnerOperationRunner {
     const circuit = this.circuitFor(providerId);
     const deliveryKey = deliveryId ? `${providerId}|${operation}|${deliveryId}` : undefined;
     if (deliveryKey && this.deliveries.has(deliveryKey)) return { ...clone(this.deliveries.get(deliveryKey)), duplicate_delivery: true };
-    const boundedAttempts = Math.max(1, Math.min(2, maxAttempts));
-    const boundedTimeout = Math.max(1, Math.min(120_000, timeoutMs));
+    const configuredLimits = registration.capability.limits || {};
+    const boundedAttempts = Math.max(1, Math.min(2, configuredLimits.max_attempts || 2, maxAttempts));
+    const boundedTimeout = Math.max(1, Math.min(120_000, configuredLimits.timeout_ms || 120_000, timeoutMs));
     let lastError;
     let attemptsUsed = 0;
     for (let attempt = 1; attempt <= boundedAttempts; attempt += 1) {

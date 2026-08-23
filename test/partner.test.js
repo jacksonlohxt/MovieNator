@@ -10,7 +10,8 @@ import { MockEngine } from "../src/engine.js";
 import { LocalMockPartnerAdapter } from "../src/partner-mock.js";
 import { PartnerRegistry } from "../src/partner-registry.js";
 import { PartnerOperationRunner } from "../src/partner-runtime.js";
-import { PartnerContractError, assertReadOnlyOperation, createPartnerCapability } from "../src/partner-contracts.js";
+import { PartnerContractError, assertReadOnlyOperation, createPartnerCapability, partnerReadiness } from "../src/partner-contracts.js";
+import { MockSecretProvider } from "../src/secrets.js";
 import { createApp } from "../src/server.js";
 import { LEGACY_LOCAL_MOCK_ENDPOINTS, LOCAL_MOCK_ENDPOINT } from "../src/product-identity.js";
 
@@ -97,6 +98,81 @@ test("missing auth is a readiness failure and makes zero transport calls", async
   assert.equal(transportCalls, 0);
 });
 
+test("invalid credential references fail closed before transport", async () => {
+  let transportCalls = 0;
+  const secretProvider = new MockSecretProvider({ values: {} });
+  const adapter = new IbmCompatibleReadOnlyAdapter({
+    ...liveOptions({
+      provider: { provider_id: "future.invalid", display_name: "Future invalid", confirmation_state: "confirmed" },
+      endpointRef: "config://partners/invalid",
+      credentialRef: "config://not-a-secret-manager-reference",
+      enabled: true,
+      secretProvider,
+      transport: async () => { transportCalls += 1; },
+    }),
+  });
+  const runtime = new PartnerOperationRunner({ registry: registryFor(adapter, ["config://partners/invalid"]) });
+  assert.equal(runtime.readiness("future.invalid").state, "missing_auth");
+  const result = await runtime.execute({ providerId: "future.invalid", operation: "read_metadata" });
+  assert.equal(result.error_class, "missing_auth");
+  assert.equal(transportCalls, 0);
+});
+
+test("generic live transport receives opaque references and normalized input only", async () => {
+  const secretRef = "projects/demo-project/secrets/partner-auth/versions/latest";
+  const requests = [];
+  const secretProvider = new MockSecretProvider({ values: { [secretRef]: "do-not-forward" } });
+  const adapter = new IbmCompatibleReadOnlyAdapter({
+    ...liveOptions({
+      provider: { provider_id: "future.transport", display_name: "Future transport", confirmation_state: "confirmed" },
+      endpointRef: "config://partners/transport",
+      credentialRef: secretRef,
+      enabled: true,
+      secretProvider,
+      transport: async (request) => { requests.push(request); return { status: "complete", token: "do-not-forward" }; },
+    }),
+  });
+  const runtime = new PartnerOperationRunner({ registry: registryFor(adapter, ["config://partners/transport"]) });
+  const result = await runtime.execute({ providerId: "future.transport", operation: "read_metadata", input: { asset_id: "  asset_demo_001\u0000 ", nested: { label: "  Demo  " } } });
+  assert.equal(result.status, "complete");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].credential_ref, secretRef);
+  assert.equal(requests[0].endpoint_ref, "config://partners/transport");
+  assert.deepEqual(requests[0].input, { asset_id: "asset_demo_001", nested: { label: "Demo" } });
+  assert.equal(JSON.stringify(requests[0]).includes("do-not-forward"), false);
+  assert.deepEqual(secretProvider.reads, [secretRef]);
+});
+
+test("injected readiness checks control live readiness and remain fail closed", async () => {
+  let transportCalls = 0;
+  const secretRef = "projects/demo-project/secrets/partner-auth/versions/latest";
+  const adapter = new IbmCompatibleReadOnlyAdapter({
+    ...liveOptions({
+      provider: { provider_id: "future.degraded", display_name: "Future degraded", confirmation_state: "confirmed" },
+      endpointRef: "config://partners/degraded",
+      credentialRef: secretRef,
+      enabled: true,
+      secretProvider: new MockSecretProvider({ values: { [secretRef]: "opaque-test-secret" } }),
+      readiness: ({ capability, now }) => partnerReadiness({ capability, state: "degraded", checkedAt: now, reasonCodes: ["INJECTED_HEALTH_CHECK_FAILED"] }),
+      transport: async () => { transportCalls += 1; },
+    }),
+  });
+  const runtime = new PartnerOperationRunner({ registry: registryFor(adapter, ["config://partners/degraded"]) });
+  assert.equal(runtime.readiness("future.degraded").state, "degraded");
+  assert.deepEqual(runtime.readiness("future.degraded").reason_codes, ["INJECTED_HEALTH_CHECK_FAILED"]);
+  const result = await runtime.execute({ providerId: "future.degraded", operation: "read_metadata" });
+  assert.equal(result.error_class, "not_ready");
+  assert.equal(transportCalls, 0);
+});
+
+test("direct adapter invocation still rejects unknown and mutating operations", async () => {
+  let transportCalls = 0;
+  const adapter = new IbmCompatibleReadOnlyAdapter({ ...liveOptions({ credentialRef: "config://not-a-secret", transport: async () => { transportCalls += 1; } }) });
+  await assert.rejects(adapter.invoke("publish"), (error) => error.code === "UNKNOWN_CAPABILITY");
+  await assert.rejects(adapter.invoke("delete_asset"), (error) => error.code === "UNKNOWN_CAPABILITY");
+  assert.equal(transportCalls, 0);
+});
+
 test("timeout retries once within a bounded attempt budget", async () => {
   const adapter = new LocalMockPartnerAdapter({ faultPlan: { read_quality: [{ kind: "timeout" }] } });
   const runtime = new PartnerOperationRunner({ registry: registryFor(adapter), timeoutMs: 15, backoffMs: 0 });
@@ -152,6 +228,41 @@ test("future IBM-compatible shape stays pending and credential-gated", () => {
   assert.equal(adapter.capabilities().enabled, false);
   assert.equal(adapter.capabilities().endpoint_ref, "config://partners/ibm/pending");
   assert.equal(adapter.capabilities().auth_mode, "oauth2_client_credentials");
+});
+
+test("server-owned capability configuration registers a future adapter without vendor semantics", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-live-seam-"));
+  const secretRef = "projects/demo-project/secrets/partner-auth/versions/latest";
+  const capability = createPartnerCapability({
+    provider: { provider_id: "future.configured", display_name: "Future configured partner", product_ref: "exact-product-record-pending", confirmation_state: "confirmed" },
+    environment: "staging",
+    endpointRef: "config://partners/configured",
+    authMode: "oauth2_client_credentials",
+    credentialRef: secretRef,
+    scopeRef: "config://scope/configured",
+    allowedOperations: [{ operation: "read_metadata", tool_ref: "future.read_metadata", data_class: "metadata" }],
+    dataClasses: ["metadata"],
+    enabled: true,
+  });
+  const secretProvider = new MockSecretProvider({ values: { [secretRef]: "opaque-test-secret" } });
+  const calls = [];
+  const app = createApp({
+    env: {},
+    dataPath: path.join(directory, "runs.json"),
+    partnerConfig: capability,
+    secretProvider,
+    partnerTransportFactory: ({ secretProvider: injected }) => async (request) => {
+      assert.equal(injected, secretProvider);
+      calls.push(request);
+      return { status: "complete", facts: { source: "contract-test" } };
+    },
+  });
+  assert.deepEqual(app.partnerRegistry.list().map((entry) => entry.provider.provider_id), ["mock-provider", "future.configured"]);
+  assert.equal(app.partnerRuntime.readiness("future.configured").state, "ready");
+  const result = await app.partnerRuntime.execute({ providerId: "future.configured", operation: "read_metadata", input: { asset_id: " asset_demo_001 " } });
+  assert.equal(result.status, "complete");
+  assert.equal(calls[0].credential_ref, secretRef);
+  assert.equal(JSON.stringify(app.partnerRuntime.projections()).includes("opaque-test-secret"), false);
 });
 
 test("API exposes safe partner status and evidence provenance without raw payloads", async (t) => {

@@ -68,6 +68,11 @@ const OPERATION_FIELDS = new Set(["operation", "tool_ref", "read_only", "data_cl
 const LIMIT_FIELDS = new Set(["timeout_ms", "max_attempts", "max_response_bytes", "max_items"]);
 const PRIVATE_KEY = /(?:access[_ -]?token|authorization|api[_ -]?key|client[_ -]?secret|credential|password|private[_ -]?key|raw(?:_| )?(?:payload|request|response)|secret|token)/i;
 const SECRET_TEXT = /(?:bearer\s+|api[_ -]?key\s*[:=]|client[_ -]?secret\s*[:=]|password\s*[:=]|secret\s*[:=]|token\s*[:=])[^\s,;]+/gi;
+const SECRET_MANAGER_REFERENCE = /^projects\/[a-z0-9][a-z0-9-]{0,61}\/secrets\/[a-zA-Z0-9_-]{1,255}\/versions\/(?:latest|[1-9][0-9]*)$/;
+const MAX_PARTNER_INPUT_DEPTH = 4;
+const MAX_PARTNER_INPUT_KEYS = 50;
+const MAX_PARTNER_INPUT_ITEMS = 50;
+const MAX_PARTNER_INPUT_STRING = 4_000;
 
 export class PartnerContractError extends Error {
   constructor(code, message, field = undefined) {
@@ -132,6 +137,13 @@ function opaqueReference(value, field, { optional = false } = {}) {
     throw new PartnerContractError("INVALID_REFERENCE", `${field} must be an opaque local, config, or secret reference`, field);
   }
   return reference;
+}
+
+function credentialReference(value, field) {
+  const reference = boundedString(value, field, { max: 500, optional: true });
+  if (reference === undefined) return undefined;
+  if (SECRET_MANAGER_REFERENCE.test(reference)) return reference;
+  return opaqueReference(reference, field);
 }
 
 function hashReference(value, field, { optional = false } = {}) {
@@ -230,7 +242,7 @@ export function parsePartnerCapability(value) {
   const endpointRef = opaqueReference(value.endpoint_ref, "endpoint_ref");
   const authMode = enumValue(value.auth_mode, "auth_mode", PARTNER_AUTH_MODES);
   const scopeRef = boundedString(value.scope_ref, "scope_ref", { max: 240, optional: true });
-  const credentialRef = opaqueReference(value.credential_ref, "credential_ref", { optional: true });
+  const credentialRef = credentialReference(value.credential_ref, "credential_ref");
   if (authMode !== "none" && authMode !== "none_synthetic" && !credentialRef) {
     // The capability can describe a not-yet-configured live seam, but it may
     // never claim readiness or make a network call without this reference.
@@ -300,6 +312,41 @@ export function dataClassForOperation(operation) {
   if (operation.includes("telemetry")) return "telemetry";
   if (operation.includes("search")) return "search";
   return "metadata";
+}
+
+function normalizePartnerInputValue(value, depth) {
+  if (depth > MAX_PARTNER_INPUT_DEPTH) throw new PartnerContractError("INPUT_TOO_DEEP", "Partner input exceeds the supported nesting depth", "input");
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new PartnerContractError("INVALID_INPUT", "Partner input contains a non-finite number", "input");
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+    if (normalized.length > MAX_PARTNER_INPUT_STRING) throw new PartnerContractError("INPUT_TOO_LARGE", "Partner input contains an overlong string", "input");
+    return normalized;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAX_PARTNER_INPUT_ITEMS) throw new PartnerContractError("INPUT_TOO_LARGE", "Partner input contains too many items", "input");
+    return value.map((item) => normalizePartnerInputValue(item, depth + 1));
+  }
+  if (!isPlainObject(value)) throw new PartnerContractError("INVALID_INPUT", "Partner input must contain only JSON values", "input");
+  const entries = Object.entries(value);
+  if (entries.length > MAX_PARTNER_INPUT_KEYS) throw new PartnerContractError("INPUT_TOO_LARGE", "Partner input contains too many fields", "input");
+  const result = {};
+  for (const [key, item] of entries) {
+    if (PRIVATE_KEY.test(key)) throw new PartnerContractError("PRIVATE_INPUT_FIELD", "Partner input contains a restricted field", "input");
+    const normalizedKey = key.normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+    if (!normalizedKey || normalizedKey.length > 100 || ["__proto__", "prototype", "constructor"].includes(normalizedKey.toLowerCase())) throw new PartnerContractError("INVALID_INPUT", "Partner input contains an invalid field name", "input");
+    if (Object.hasOwn(result, normalizedKey)) throw new PartnerContractError("INVALID_INPUT", "Partner input contains duplicate normalized fields", "input");
+    result[normalizedKey] = normalizePartnerInputValue(item, depth + 1);
+  }
+  return result;
+}
+
+/** Normalize caller input before it reaches an injected partner transport. */
+export function normalizePartnerInput(value = {}) {
+  return normalizePartnerInputValue(value, 0);
 }
 
 export function assertReadOnlyOperation(operation) {
