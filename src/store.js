@@ -32,7 +32,7 @@ function clone(value) {
 }
 
 function defaultState() {
-  return { version: 3, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, auditEvents: [] };
+  return { version: 4, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, producerPackets: {}, auditEvents: [] };
 }
 
 function ensureWorkflowFields(run, clock = Date) {
@@ -57,8 +57,8 @@ export class FileStore {
   #read() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      if (!parsed || ![1, 2, 3].includes(parsed.version)) return defaultState();
-      return { ...defaultState(), ...parsed, version: 3, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
+      if (!parsed || ![1, 2, 3, 4].includes(parsed.version)) return defaultState();
+      return { ...defaultState(), ...parsed, version: 4, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, producerPackets: parsed.producerPackets || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
     } catch {
       return defaultState();
     }
@@ -435,6 +435,18 @@ export class FileStore {
 
   getDocument(documentId) {
     return clone(this.state.documents[documentId]);
+  }
+
+  createProducerPacket(packet) {
+    const existing = this.state.producerPackets[packet.packet_id];
+    if (existing) return { packet: clone(existing), created: false };
+    this.state.producerPackets[packet.packet_id] = clone(packet);
+    this.#persist();
+    return { packet: clone(packet), created: true };
+  }
+
+  getProducerPacket(packetId) {
+    return clone(this.state.producerPackets[packetId]);
   }
 
   createScriptRun({ documentId, question, requestIntent = question, briefVersion = 1, idempotencyHash, parentRunId = null, retryCount = 0, provenance }) {

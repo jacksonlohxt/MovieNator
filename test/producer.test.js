@@ -1,0 +1,169 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { createApp } from "../src/server.js";
+import {
+  MAX_PRODUCER_SOURCES,
+  PRODUCER_PACKET_SCHEMA,
+  buildProducerDecisionPacket,
+  parseProducerSource,
+  safeProducerPacketProjection,
+} from "../src/producer-consolidation.js";
+import { MAX_DOCUMENT_BYTES, parseGroundingDocument } from "../src/documents.js";
+
+function tempPath(prefix = "movie-inator-producer") {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
+  return path.join(directory, "runs.json");
+}
+
+function source(filename, source_kind, text) {
+  return parseProducerSource({ filename, source_kind, contentType: "text/plain", bytes: Buffer.from(text) });
+}
+
+function bundleForm(entries, { schema = "producer-source-bundle@1", extra = undefined } = {}) {
+  const form = new FormData();
+  form.append("schema_version", schema);
+  for (const entry of entries) {
+    form.append("source_kind", entry.source_kind);
+    form.append("file", new Blob([entry.text], { type: "text/plain" }), entry.filename);
+  }
+  if (extra) form.append(extra, "not allowed");
+  return form;
+}
+
+async function startApp(t) {
+  const app = createApp({ dataPath: tempPath() });
+  await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
+  t.after(() => app.server.close());
+  const address = app.server.address();
+  return { app, base: `http://127.0.0.1:${address.port}` };
+}
+
+const mixedEntries = [
+  { filename: "script.txt", source_kind: "script", text: "OPENING\nINT. WAREHOUSE - NIGHT\nMara enters the warehouse." },
+  { filename: "director.txt", source_kind: "director_notes", text: "Location: Riverside Studio\nThe director requires a quiet, tense performance." },
+  { filename: "cast.txt", source_kind: "cast_actor_notes", text: "ROLE: Mara - Ana\nStunt: harness rehearsal is pending." },
+  { filename: "location.txt", source_kind: "location_production_notes", text: "LOCATION: Warehouse 12\nPermit status: pending." },
+  { filename: "schedule.txt", source_kind: "schedule", text: "VERSION: 2\nSHOOT DATE: 2026-08-22\nCall time: 06:00." },
+  { filename: "budget.txt", source_kind: "budget", text: "BUDGET: $12,000\nContingency: $1,000." },
+  { filename: "lighting.txt", source_kind: "department_notes", text: "Lighting: practical fixtures and a night setup." },
+];
+
+test("producer consolidation keeps mixed source kinds, exact locations, and citation integrity", () => {
+  const sources = mixedEntries.map((entry) => source(entry.filename, entry.source_kind, entry.text));
+  const packet = buildProducerDecisionPacket(sources, { createdAt: "2026-08-14T00:00:00.000Z" });
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.workflow, "producer_consolidation");
+  assert.equal(packet.source_inventory.length, mixedEntries.length);
+  assert.deepEqual(packet.source_inventory.map((item) => item.source_kind), mixedEntries.map((entry) => entry.source_kind));
+  assert.equal(packet.source_inventory.every((item) => item.source_id.startsWith("source_")), true);
+  assert.equal(packet.source_inventory.find((item) => item.source_kind === "schedule").version_provenance.source_version, "2");
+  assert.equal(packet.source_inventory.find((item) => item.source_kind === "schedule").version_provenance.source_version_status, "stated_in_uploaded_source");
+  assert.equal(packet.version_provenance.sources.length, mixedEntries.length);
+  assert.equal(packet.reconciliation.topics.some((topic) => topic.topic === "location"), true);
+  assert.equal(packet.executive_summary.claim_type, "fact");
+  assert.equal(packet.production_decisions.every((item) => item.claim_type === "inference"), true);
+  assert.equal(packet.gaps_or_questions.every((item) => item.claim_type === "unknown"), true);
+  assert.equal(packet.locations_and_timing.some((item) => item.text === "INT. WAREHOUSE - NIGHT"), true);
+  assert.equal(packet.locations_and_timing.some((item) => item.text === "LOCATION: Warehouse 12"), true);
+  assert.equal(packet.locations_and_timing.some((item) => item.text === "SHOOT DATE: 2026-08-22"), true);
+  assert.equal(packet.cast_role_demands.some((item) => item.text.includes("ROLE: Mara - Ana")), true);
+  assert.equal(packet.department_requirements.some((item) => item.text.includes("Lighting: practical fixtures")), true);
+  const citationIds = new Set(packet.citations.map((citation) => citation.citation_id));
+  for (const item of [packet.executive_summary, ...packet.production_decisions, ...packet.locations_and_timing, ...packet.cast_role_demands, ...packet.department_requirements, ...packet.risks_or_conflicts, ...packet.gaps_or_questions]) {
+    assert.ok(item.citation_ids.length > 0, item.text);
+    for (const citationId of item.citation_ids) assert.equal(citationIds.has(citationId), true, citationId);
+  }
+  const locationCitation = packet.citations.find((citation) => citation.excerpt.includes("LOCATION: Warehouse 12"));
+  assert.ok(locationCitation);
+  assert.equal(locationCitation.source_kind, "location_production_notes");
+  assert.equal(locationCitation.source_locations[0].section, "Document");
+  assert.match(locationCitation.excerpt, /Permit status: pending/);
+});
+
+test("producer packet surfaces contradictions as conflicts and does not invent missing facts", () => {
+  const packet = buildProducerDecisionPacket([
+    source("director.txt", "director_notes", "Location: Riverside Studio\nThe director wants a warm look."),
+    source("location.txt", "location_production_notes", "LOCATION: Warehouse 12"),
+    source("script.txt", "script", "OPENING\nMara enters."),
+  ], { createdAt: "2026-08-14T00:00:00.000Z" });
+  assert.equal(packet.risks_or_conflicts.some((item) => item.kind === "conflict" && item.text.includes("Riverside Studio") && item.text.includes("Warehouse 12")), true);
+  assert.equal(packet.cross_document_conflicts.length, 1);
+  assert.equal(packet.reconciliation.topics.find((topic) => topic.topic === "location").status, "conflict");
+  assert.equal(packet.gaps_or_questions.some((item) => item.text.includes("No budget amount is established") && item.claim_type === "unknown"), true);
+  assert.equal(packet.decision_register.some((item) => item.priority === "high" && item.owner_role === "producer" && item.type === "question"), true);
+  assert.equal(packet.handoff.status, "review_required");
+  assert.equal(packet.handoff.open_register_ids.length, packet.decision_register.length);
+  assert.equal(JSON.stringify(packet).includes("permit status is approved"), false);
+  assert.equal(JSON.stringify(packet).includes("approved permit"), false);
+});
+
+test("producer reconciliation identifies duplicate source content without hiding the source records", () => {
+  const first = source("schedule.txt", "schedule", "SHOOT DATE: 2026-08-22");
+  const copy = source("schedule-copy.txt", "schedule", "SHOOT DATE: 2026-08-22");
+  const packet = buildProducerDecisionPacket([first, copy], { createdAt: "2026-08-14T00:00:00.000Z" });
+  assert.equal(packet.source_inventory.length, 2);
+  assert.equal(packet.reconciliation.duplicate_groups.length, 1);
+  assert.equal(packet.reconciliation.duplicate_groups[0].duplicate_count, 2);
+  assert.deepEqual(packet.reconciliation.duplicate_groups[0].filenames, ["schedule.txt", "schedule-copy.txt"]);
+});
+
+test("producer source identity is stable while source labels remain distinct", () => {
+  const first = source("notes.txt", "schedule", "SHOOT DATE: 2026-08-22");
+  const renamed = source("renamed.txt", "schedule", "SHOOT DATE: 2026-08-22");
+  const otherKind = source("notes.txt", "budget", "SHOOT DATE: 2026-08-22");
+  assert.equal(first.document_id, renamed.document_id);
+  assert.equal(first.source_id, renamed.source_id);
+  assert.equal(first.source_id === otherKind.source_id, false);
+  assert.equal(first.source_label, "Schedule");
+  assert.equal(otherKind.source_label, "Budget");
+});
+
+test("producer HTTP flow returns a safe packet and preserves packet retrieval", async (t) => {
+  const { app, base } = await startApp(t);
+  const accepted = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm(mixedEntries) });
+  assert.equal(accepted.status, 201);
+  const packet = await accepted.json();
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.source_inventory.length, mixedEntries.length);
+  assert.equal(JSON.stringify(packet).includes("prompt"), false);
+  assert.equal(JSON.stringify(packet).includes("chunks"), false);
+  assert.equal(packet.citations.every((citation) => citation.excerpt.length <= 900), true);
+  const duplicate = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm(mixedEntries) });
+  assert.equal(duplicate.status, 200);
+  const retrieved = await fetch(`${base}/v1/producer-packets/${packet.packet_id}`);
+  assert.equal(retrieved.status, 200);
+  assert.deepEqual(await retrieved.json(), packet);
+  const citation = packet.citations[0];
+  const citationResponse = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/citations/${citation.citation_id}`);
+  assert.equal(citationResponse.status, 200);
+  assert.equal((await citationResponse.json()).citation_id, citation.citation_id);
+  assert.equal((await fetch(`${base}/v1/producer-packets/unknown`)).status, 404);
+  assert.equal(app.store.getProducerPacket(packet.packet_id).provenance.external, false);
+});
+
+test("producer HTTP boundary rejects unknown fields, malformed labels, and oversized bundles", async (t) => {
+  const { base } = await startApp(t);
+  const unknown = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm([{ filename: "script.txt", source_kind: "script", text: "Mara enters." }], { extra: "unsafe" }) });
+  assert.equal(unknown.status, 400);
+  assert.equal((await unknown.json()).error.code, "UNKNOWN_FIELD");
+  const malformed = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm([{ filename: "script.txt", source_kind: "provider:gemini", text: "Mara enters." }]) });
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error.code, "INVALID_SOURCE_KIND");
+  const tooMany = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm(Array.from({ length: MAX_PRODUCER_SOURCES + 1 }, (_, index) => ({ filename: `source-${index}.txt`, source_kind: "other", text: "A bounded note." }))) });
+  assert.equal(tooMany.status, 400);
+  assert.equal((await tooMany.json()).error.code, "INVALID_BUNDLE");
+  assert.throws(() => parseProducerSource({ filename: "too-large.txt", source_kind: "other", contentType: "text/plain", bytes: Buffer.alloc(MAX_DOCUMENT_BYTES + 1) }), (error) => error.code === "DOCUMENT_TOO_LARGE");
+  assert.throws(() => parseGroundingDocument({ filename: "bad.pdf", contentType: "application/pdf", bytes: Buffer.from("not a pdf") }), (error) => error.code === "INVALID_PDF");
+});
+
+test("safe producer projection is bounded and strips internal source chunks", () => {
+  const packet = buildProducerDecisionPacket([source("secret.txt", "other", "A source says api_key=do-not-leak.")]);
+  const safe = safeProducerPacketProjection(packet);
+  assert.equal(JSON.stringify(safe).includes("chunks"), false);
+  assert.equal(JSON.stringify(safe).includes("do-not-leak"), false);
+  assert.equal(safe.source_inventory[0].source_kind, "other");
+  assert.equal(safe.citations.every((citation) => citation.excerpt.length <= 900), true);
+});

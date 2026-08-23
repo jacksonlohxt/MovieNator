@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "producer-source@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_id", "document_id", "filename", "media_type", "source_kind", "source_label", "byte_size", "text_char_count", "truncated", "chunk_count", "locations", "version_provenance", "ingestion"],
+  "properties": {
+    "schema_version": { "const": "producer-source@1" },
+    "source_id": { "type": "string", "pattern": "^source_[A-Za-z0-9_-]+$" },
+    "document_id": { "type": "string", "pattern": "^doc_[A-Za-z0-9_-]+$" },
+    "filename": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "media_type": { "enum": ["application/pdf", "text/plain"] },
+    "source_kind": { "enum": ["script", "director_notes", "cast_actor_notes", "location_production_notes", "schedule", "budget", "department_notes", "other"] },
+    "source_label": { "type": "string" },
+    "byte_size": { "type": "integer", "minimum": 1 },
+    "text_char_count": { "type": "integer", "minimum": 1 },
+    "truncated": { "type": "boolean" },
+    "chunk_count": { "type": "integer", "minimum": 1, "maximum": 240 },
+    "locations": { "type": "array", "maxItems": 240, "items": { "type": "object", "additionalProperties": false, "properties": { "kind": { "type": "string" }, "page": { "type": "integer" }, "section": { "type": "string", "maxLength": 120 }, "line_start": { "type": "integer" }, "line_end": { "type": "integer" } } } },
+    "version_provenance": { "type": "object", "additionalProperties": false, "required": ["schema_version", "source_schema_version", "source_version", "source_version_status", "identity_basis"], "properties": { "schema_version": { "const": "producer-version-provenance@1" }, "source_schema_version": { "const": "producer-source@1" }, "source_version": { "type": ["string", "null"] }, "source_version_status": { "enum": ["stated_in_uploaded_source", "not_stated_in_uploaded_source"] }, "source_version_citation_ids": { "type": "array", "maxItems": 1, "items": { "type": "string" } }, "identity_basis": { "type": "string" } } },
+    "ingestion": { "type": "object", "additionalProperties": true }
+  }
+}

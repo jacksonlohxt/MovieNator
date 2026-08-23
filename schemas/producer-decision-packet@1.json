@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "producer-decision-packet@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workflow", "status", "packet_id", "created_at", "bundle", "executive_summary", "source_inventory", "version_provenance", "reconciliation", "production_decisions", "decision_register", "locations_and_timing", "cast_role_demands", "department_requirements", "risks_or_conflicts", "cross_document_conflicts", "gaps_or_questions", "handoff", "cited_citation_ids", "citations", "provenance", "limitations"],
+  "properties": {
+    "schema_version": { "const": "producer-decision-packet@1" },
+    "workflow": { "const": "producer_consolidation" },
+    "status": { "const": "succeeded" },
+    "packet_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "bundle": { "$ref": "producer-source-bundle@1" },
+    "executive_summary": { "$ref": "#/$defs/statement" },
+    "source_inventory": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/source" } },
+    "version_provenance": { "$ref": "#/$defs/version_provenance" },
+    "reconciliation": { "$ref": "#/$defs/reconciliation" },
+    "production_decisions": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "decision_register": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/register" } },
+    "locations_and_timing": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "cast_role_demands": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "department_requirements": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "risks_or_conflicts": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "cross_document_conflicts": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "gaps_or_questions": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } },
+    "handoff": { "$ref": "#/$defs/handoff" },
+    "cited_citation_ids": { "type": "array", "maxItems": 128, "items": { "type": "string" } },
+    "citations": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/citation" } },
+    "provenance": { "type": "object", "additionalProperties": false, "required": ["schema_version", "mode", "backend", "provider", "external", "read_only"], "properties": { "schema_version": { "const": "producer-provenance@1" }, "mode": { "const": "demo" }, "backend": { "type": "string" }, "provider": { "type": "string" }, "external": { "const": false }, "read_only": { "const": true } } },
+    "limitations": { "type": "array", "maxItems": 8, "items": { "type": "string" } }
+  },
+  "$defs": {
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "citation_ids", "claim_type"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 700 },
+        "citation_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
+        "claim_type": { "enum": ["fact", "inference", "unknown"] },
+        "kind": { "type": "string" },
+        "topic": { "type": "string" },
+        "category": { "type": "string" },
+        "source_id": { "type": "string" },
+        "source_kind": { "type": "string" },
+        "source_ids": { "type": "array", "maxItems": 4, "items": { "type": "string" } }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "source_id", "document_id", "filename", "media_type", "source_kind", "source_label", "byte_size", "text_char_count", "truncated", "chunk_count", "locations", "version_provenance", "ingestion"],
+      "properties": {
+        "schema_version": { "const": "producer-source@1" },
+        "source_id": { "type": "string" },
+        "document_id": { "type": "string" },
+        "filename": { "type": "string" },
+        "media_type": { "enum": ["application/pdf", "text/plain"] },
+        "source_kind": { "enum": ["script", "director_notes", "cast_actor_notes", "location_production_notes", "schedule", "budget", "department_notes", "other"] },
+        "source_label": { "type": "string" },
+        "byte_size": { "type": "integer" },
+        "text_char_count": { "type": "integer" },
+        "truncated": { "type": "boolean" },
+        "chunk_count": { "type": "integer" },
+        "locations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "kind": { "type": "string" }, "page": { "type": "integer" }, "section": { "type": "string" }, "line_start": { "type": "integer" }, "line_end": { "type": "integer" } } } },
+        "version_provenance": { "$ref": "#/$defs/source_version" },
+        "ingestion": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "source_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "source_schema_version", "source_version", "source_version_status", "identity_basis"],
+      "properties": {
+        "schema_version": { "const": "producer-version-provenance@1" },
+        "source_schema_version": { "const": "producer-source@1" },
+        "source_version": { "type": ["string", "null"] },
+        "source_version_status": { "enum": ["stated_in_uploaded_source", "not_stated_in_uploaded_source"] },
+        "source_version_citation_ids": { "type": "array", "maxItems": 1, "items": { "type": "string" } },
+        "identity_basis": { "type": "string" }
+      }
+    },
+    "version_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "packet_schema_version", "source_schema_version", "sources"],
+      "properties": {
+        "schema_version": { "const": "producer-version-provenance@1" },
+        "packet_schema_version": { "const": "producer-decision-packet@1" },
+        "source_schema_version": { "const": "producer-source@1" },
+        "sources": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false, "required": ["source_id", "source_kind", "document_id", "source_schema_version", "source_version", "source_version_status"], "properties": { "source_id": { "type": "string" }, "source_kind": { "type": "string" }, "document_id": { "type": "string" }, "source_schema_version": { "const": "producer-source@1" }, "source_version": { "type": ["string", "null"] }, "source_version_status": { "enum": ["stated_in_uploaded_source", "not_stated_in_uploaded_source"] }, "source_version_citation_ids": { "type": "array", "maxItems": 1, "items": { "type": "string" } } } } }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "method", "source_ids", "duplicate_groups", "topics", "cross_document_conflicts"],
+      "properties": {
+        "schema_version": { "const": "producer-reconciliation@1" },
+        "method": { "type": "string" },
+        "source_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
+        "duplicate_groups": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false, "required": ["duplicate_group_id", "status", "source_id", "source_kind", "document_id", "filenames", "duplicate_count"], "properties": { "duplicate_group_id": { "type": "string" }, "status": { "const": "duplicate_content_and_source_kind" }, "source_id": { "type": "string" }, "source_kind": { "type": "string" }, "document_id": { "type": "string" }, "filenames": { "type": "array", "items": { "type": "string" } }, "duplicate_count": { "type": "integer" } } } },
+        "topics": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false, "required": ["topic", "status", "source_ids", "source_kinds", "fact_count", "citation_ids"], "properties": { "topic": { "type": "string" }, "status": { "enum": ["established", "conflict", "unknown"] }, "source_ids": { "type": "array", "items": { "type": "string" } }, "source_kinds": { "type": "array", "items": { "type": "string" } }, "fact_count": { "type": "integer" }, "citation_ids": { "type": "array", "items": { "type": "string" } } } } },
+        "cross_document_conflicts": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/statement" } }
+      }
+    },
+    "register": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "register_id", "type", "title", "action", "owner_role", "priority", "status", "claim_type", "citation_ids", "source_ids"],
+      "properties": {
+        "schema_version": { "const": "producer-register-entry@1" },
+        "register_id": { "type": "string" },
+        "type": { "enum": ["decision", "question"] },
+        "title": { "type": "string", "maxLength": 180 },
+        "action": { "type": "string", "maxLength": 700 },
+        "owner_role": { "type": "string", "maxLength": 80 },
+        "priority": { "enum": ["high", "medium", "low"] },
+        "status": { "const": "open" },
+        "claim_type": { "enum": ["fact", "inference", "unknown"] },
+        "citation_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
+        "source_ids": { "type": "array", "maxItems": 4, "items": { "type": "string" } }
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "audience", "status", "next_owner", "source_ids", "open_register_ids", "prioritized_register_ids", "next_action", "claim_type", "citation_ids"],
+      "properties": {
+        "schema_version": { "const": "producer-handoff@1" },
+        "audience": { "type": "array", "items": { "type": "string" } },
+        "status": { "enum": ["review_required", "ready_for_review"] },
+        "next_owner": { "const": "producer" },
+        "source_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
+        "open_register_ids": { "type": "array", "maxItems": 24, "items": { "type": "string" } },
+        "prioritized_register_ids": { "type": "array", "maxItems": 24, "items": { "type": "string" } },
+        "next_action": { "type": "string", "maxLength": 700 },
+        "claim_type": { "const": "inference" },
+        "citation_ids": { "type": "array", "maxItems": 16, "items": { "type": "string" } }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "citation_id", "source_id", "document_id", "filename", "media_type", "source_kind", "source_label", "source_locations", "excerpt"],
+      "properties": {
+        "schema_version": { "const": "producer-citation@1" },
+        "citation_id": { "type": "string" },
+        "source_id": { "type": "string" },
+        "document_id": { "type": "string" },
+        "filename": { "type": "string" },
+        "media_type": { "enum": ["application/pdf", "text/plain"] },
+        "source_kind": { "type": "string" },
+        "source_label": { "type": "string" },
+        "source_locations": { "type": "array" },
+        "excerpt": { "type": "string", "maxLength": 900 }
+      }
+    }
+  }
+}

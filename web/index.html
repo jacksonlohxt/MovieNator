@@ -186,6 +186,34 @@
           <p id="grounding-model-status" class="model-status" role="status" aria-live="polite"></p>
           <p id="grounding-limitations" class="limitation-note"></p>
         </article>
+        <details class="producer-bundle-details">
+          <summary><span><span class="section-kicker">Producer view</span><strong>Consolidate a production source bundle</strong></span><span class="summary-hint">Up to 8 PDF or TXT sources</span></summary>
+          <div class="producer-bundle-copy">
+            <p>Upload the sources your team already uses. Choose a fixed source label for each file and MovieNator will return one source-grounded producer decision packet.</p>
+            <p class="field-help">Demo mode keeps the bundle local. It does not select a provider, model, credentials, URL, tool, or side effect.</p>
+          </div>
+          <form id="producer-form" class="producer-form" novalidate>
+            <div class="field-group"><label for="producer-files">Production sources <span class="required">PDF or TXT</span></label><input id="producer-files" name="files" type="file" accept="application/pdf,text/plain,.pdf,.txt" multiple required aria-describedby="producer-help producer-error"><span id="producer-help" class="field-help">Maximum 8 files, 5 MiB each. Every source keeps its page or section and line locations.</span><p id="producer-error" class="field-error" role="alert" hidden></p></div>
+            <div id="producer-file-labels" class="producer-file-labels"></div>
+            <button id="submit-producer" class="button button-primary" type="submit"><span>Create producer packet</span><span aria-hidden="true">→</span></button>
+          </form>
+          <article id="producer-result" class="producer-result" aria-labelledby="producer-result-title" hidden>
+            <div class="result-heading"><p class="section-kicker">Source-grounded packet</p><h3 id="producer-result-title">Producer decision packet</h3></div>
+            <p id="producer-result-summary" class="producer-summary"></p>
+            <div id="producer-handoff" class="producer-handoff" role="status"></div>
+            <div class="producer-meta" id="producer-source-inventory"></div>
+            <section class="brief-section"><h4>Source-bundle reconciliation</h4><div id="producer-reconciliation" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Prioritized producer decision register</h4><div id="producer-register" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Production decisions and next steps</h4><div id="producer-decisions" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Locations and timing</h4><div id="producer-locations" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Cast and role demands</h4><div id="producer-cast" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Department requirements</h4><div id="producer-departments" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Risks and conflicts</h4><div id="producer-risks" class="brief-list"></div></section>
+            <section class="brief-section"><h4>Gaps and questions</h4><div id="producer-gaps" class="brief-list"></div></section>
+            <details class="citation-details"><summary>Source citations</summary><div id="producer-citations" class="grounding-citations"></div></details>
+            <p id="producer-limitations" class="limitation-note"></p>
+          </article>
+        </details>
       </section>
     </main>
 
