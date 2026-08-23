@@ -18,7 +18,7 @@ import {
   validateGroundedBriefProposal,
   validateScriptBriefProposal,
 } from "../src/grounding.js";
-import { GroundedBriefEngine } from "../src/grounding-engine.js";
+import { GroundedBriefEngine, projectGroundedRun } from "../src/grounding-engine.js";
 import { FakeModel } from "../src/engine.js";
 
 function tempPath(prefix = "movieinator-grounding") {
@@ -118,6 +118,45 @@ test("whole-document Script Brief condensation covers long sources and validates
   validateScriptBriefProposal(proposal, condensed.excerpts.map((excerpt) => excerpt.citation_id));
   assert.ok(proposal.logline.citation_ids.length > 0);
   assert.ok(proposal.synopsis.citation_ids.length > 0);
+  assert.equal(proposal.producer_intelligence.schema_version, "producer-intelligence@1");
+  assert.ok(Array.isArray(proposal.producer_intelligence.scene_breakdown));
+});
+
+test("deterministic producer intelligence preserves exact Singapore scene wording and bounded signals", () => {
+  const document = parseGroundingDocument({ filename: "singapore-shoot.txt", contentType: "text/plain", bytes: Buffer.from("EXT. KAMPONG GLAM, SINGAPORE - NIGHT\nMAYA (12) carries a red umbrella. A taxi waits as rain falls and a crowd gathers.\n\nINT. GOLDEN MILE TOWER - DAY\nMAYA wears a school uniform and fights a masked stranger. A phone alarm rings.") });
+  const excerpts = document.chunks.map((chunk) => ({ citation_id: `cite_${chunk.ordinal}`, text: chunk.excerpt, source_locations: chunk.source_locations, source_ordinal: chunk.ordinal }));
+  const proposal = deterministicScriptBriefProposal({ schema_version: "grounded-script-brief@2", request_intent: "production details", excerpts });
+  validateScriptBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
+  const intelligence = proposal.producer_intelligence;
+  assert.equal(intelligence.scene_breakdown[0].scene_heading, "EXT. KAMPONG GLAM, SINGAPORE - NIGHT");
+  assert.equal(intelligence.scene_breakdown[0].location_wording, "KAMPONG GLAM, SINGAPORE");
+  assert.equal(intelligence.scene_breakdown[0].int_ext, "EXT");
+  assert.equal(intelligence.scene_breakdown[0].time_of_day, "NIGHT");
+  assert.ok(intelligence.cast_and_role_demands.some((item) => item.role === "MAYA" && item.demand.includes("(12)")));
+  assert.ok(intelligence.production_signals.some((item) => item.category === "vehicles" && item.value.includes("taxi")));
+  assert.ok(intelligence.production_signals.some((item) => item.category === "weather" && item.value.includes("rain")));
+  assert.ok(intelligence.production_signals.some((item) => item.category === "stunts"));
+  for (const item of intelligence.scene_breakdown) assert.ok(item.citation_ids.every((id) => proposal.cited_citation_ids.includes(id)));
+  const unknownCitation = structuredClone(proposal);
+  unknownCitation.producer_intelligence.production_signals = [{ category: "props", value: "A red umbrella.", citation_ids: ["unknown"] }];
+  assert.throws(() => validateScriptBriefProposal(unknownCitation, excerpts.map((excerpt) => excerpt.citation_id)), /unknown citation/);
+  const unsafeSignal = structuredClone(proposal);
+  unsafeSignal.producer_intelligence.production_signals = [{ category: "props", value: "<script>alert(1)</script>", citation_ids: [excerpts[0].citation_id] }];
+  assert.throws(() => validateScriptBriefProposal(unsafeSignal, excerpts.map((excerpt) => excerpt.citation_id)), /unsafe or unbounded/);
+});
+
+test("producer intelligence asks for an exact location instead of inventing one", () => {
+  const document = parseGroundingDocument({ filename: "no-location.txt", contentType: "text/plain", bytes: Buffer.from("OPENING\nMara asks for help in a busy city.\n\nCODA\nThe family leaves at dawn.") });
+  const excerpts = document.chunks.map((chunk) => ({ citation_id: `cite_${chunk.ordinal}`, text: chunk.excerpt, source_locations: chunk.source_locations, source_ordinal: chunk.ordinal }));
+  const proposal = deterministicScriptBriefProposal({ schema_version: "grounded-script-brief@2", request_intent: "production details", excerpts });
+  validateScriptBriefProposal(proposal, excerpts.map((excerpt) => excerpt.citation_id));
+  const intelligence = proposal.producer_intelligence;
+  assert.equal(intelligence.scene_breakdown.length, 0);
+  const locationGap = intelligence.gaps_and_questions.find((item) => item.category === "locations");
+  assert.ok(locationGap);
+  assert.match(locationGap.question, /not stated in the source/i);
+  assert.match(locationGap.question, /confirm/i);
+  assert.equal(JSON.stringify(intelligence).includes("Singapore"), false);
 });
 
 test("MovieNator API uses the default Script Brief request and returns structured cited sections", async (t) => {
@@ -134,6 +173,8 @@ test("MovieNator API uses the default Script Brief request and returns structure
   for (const section of [completed.result.logline, completed.result.synopsis]) assert.ok(section.citation_ids.length > 0);
   assert.ok(Array.isArray(completed.result.main_characters));
   assert.ok(Array.isArray(completed.result.open_questions));
+  assert.equal(completed.result.producer_intelligence.schema_version, "producer-intelligence@1");
+  assert.ok(Array.isArray(completed.result.producer_intelligence.scene_breakdown));
   assert.equal(completed.result.grounding.strategy, "whole_document_condensation");
   assert.equal(completed.result.provenance.provider, "MovieNator uploaded script source");
 });
@@ -185,6 +226,17 @@ test("grounding gaps remain explicit and unsafe model output falls back determin
   const gapRun = app.store.getScriptRun(gap.run_id);
   assert.equal(gapRun.state, "grounding_gap");
   assert.equal(gapRun.result.citations.length, 0);
+});
+
+test("old stored Script Brief results remain readable without producer intelligence", () => {
+  const store = new FileStore(tempPath("legacy-result"));
+  const document = parseGroundingDocument({ filename: "legacy.txt", contentType: "text/plain", bytes: Buffer.from("OPENING\nMara enters.") });
+  store.createDocument(document);
+  const run = store.createScriptRun({ documentId: document.document_id, question: "Where?", briefVersion: 2, idempotencyHash: "legacy-result", provenance: {} }).run;
+  store.addScriptResult(run.run_id, { schema_version: "grounded-script-result@2", workflow: "script_brief", status: "succeeded", title: "Legacy", citations: [] });
+  const projection = projectGroundedRun(store.getScriptRun(run.run_id), store);
+  assert.equal(projection.result.schema_version, "grounded-script-result@2");
+  assert.equal(projection.result.producer_intelligence, undefined);
 });
 
 test("grounding source failure is recoverable and retry preserves the original", async () => {

@@ -4,14 +4,15 @@ import {
 } from "./documents.js";
 import {
   deterministicGroundedBriefProposal,
+  deterministicProducerIntelligence,
   deterministicScriptBriefProposal,
   groundedPromptInput,
   validateGroundedBriefProposal,
   validateScriptBriefProposal,
 } from "./grounding.js";
-import { SCRIPT_BRIEF_RESULT_SCHEMA } from "./grounding-contracts.js";
+import { PRODUCER_INTELLIGENCE_SCHEMA, SCRIPT_BRIEF_PROMPT_ID, SCRIPT_BRIEF_RESULT_SCHEMA } from "./grounding-contracts.js";
 import { combineProvenance, hashValue } from "./contracts.js";
-import { PRODUCT_DISPLAY_NAME, PRODUCT_IDENTIFIER } from "./product-identity.js";
+import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
 const TERMINAL_SCRIPT_STATES = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
 
@@ -25,7 +26,7 @@ function sourceProvenance(source, operation = "condense_whole_document") {
 }
 
 function modelProvenance(model) {
-  return typeof model?.provenance === "function" ? model.provenance("grounded_brief") : { backend: "fake", prompt_id: `${PRODUCT_IDENTIFIER}-script-brief@2` };
+  return typeof model?.provenance === "function" ? model.provenance("grounded_brief") : { backend: "fake", prompt_id: SCRIPT_BRIEF_PROMPT_ID };
 }
 
 function resultProvenance(model, source, operation = "condense_whole_document") {
@@ -54,6 +55,14 @@ function gapResult(run, reason, source) {
       main_characters: [],
       setting_tone_themes: { setting: "Not established.", tone: "Not established.", themes: [], citation_ids: [] },
       production_details: [],
+      producer_intelligence: {
+        schema_version: PRODUCER_INTELLIGENCE_SCHEMA,
+        scene_breakdown: [],
+        cast_and_role_demands: [],
+        production_signals: [],
+        production_risks: [],
+        gaps_and_questions: [{ category: "locations", question: "What exact filming location or venue should production prepare for? A named location or scene heading is not stated in the source; confirm the intended place with the producer.", citation_ids: [] }],
+      },
       open_questions: [{ question: "Upload a readable PDF or text script and try again.", citation_ids: [] }],
       cited_citation_ids: [],
       citations: [],
@@ -201,6 +210,7 @@ export class GroundedBriefEngine {
           main_characters: proposal.main_characters,
           setting_tone_themes: proposal.setting_tone_themes,
           production_details: proposal.production_details,
+          producer_intelligence: proposal.producer_intelligence || deterministicProducerIntelligence(excerpts),
           open_questions: proposal.open_questions,
           cited_citation_ids: proposal.cited_citation_ids,
           citations,
