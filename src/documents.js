@@ -143,7 +143,7 @@ function looksLikeHeading(line) {
   const value = line.trim();
   if (!value || value.length > 120) return false;
   if (/^#+\s+/.test(value) || /^section\s*[:\-]/i.test(value) || /^(?:int|ext|i\/e)\.?\s+/i.test(value)) return true;
-  return /^[A-Z][A-Z0-9 &'().:/-]{3,}$/.test(value) && !/[.!?]$/.test(value);
+  return /^[A-Z][A-Z0-9 &'()./-]{3,}:?$/.test(value) && !/[.!?]$/.test(value);
 }
 
 function headingName(line) {

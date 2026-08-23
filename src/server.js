@@ -33,11 +33,21 @@ import { PartnerContractError } from "./partner-contracts.js";
 import { createLocalMcpDatabase } from "./mcp-database.js";
 import { createDefaultToolRegistry } from "./orchestrator.js";
 import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
+import {
+  MAX_PRODUCER_BUNDLE_BYTES,
+  MAX_PRODUCER_SOURCES,
+  buildProducerDecisionPacket,
+  parseProducerSource,
+  producerCitation,
+  safeProducerPacketProjection,
+  validateProducerBundleSchema,
+} from "./producer-consolidation.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_UPLOAD_BODY_BYTES = MAX_DOCUMENT_BYTES + 128 * 1024;
+const MAX_PRODUCER_UPLOAD_BODY_BYTES = MAX_PRODUCER_BUNDLE_BYTES;
 const TERMINAL = new Set(["needs_input", "succeeded", "canceled", "expired", "failed"]);
 const SCRIPT_TERMINAL = new Set(["succeeded", "grounding_gap", "canceled", "failed"]);
 const PARTNER_NOT_FOUND_CODES = new Set(["UNKNOWN_PROVIDER", "PARTNER_NOT_FOUND"]);
@@ -71,7 +81,7 @@ async function readRawBody(req, maxBytes) {
   return Buffer.concat(chunks);
 }
 
-function parseMultipart(body, contentType) {
+function parseMultipartParts(body, contentType) {
   const match = String(contentType || "").match(/boundary=(?:\"([^\"]+)\"|([^;]+))/i);
   if (!match) throw new DocumentContractError("INVALID_MULTIPART", "A multipart file upload is required", "file");
   const boundary = Buffer.from(`--${match[1] || match[2]}`);
@@ -84,7 +94,7 @@ function parseMultipart(body, contentType) {
     if (body.subarray(contentStart, contentStart + 2).toString() === "--") break;
     const partStart = body.subarray(contentStart, contentStart + 2).toString() === "\r\n" ? contentStart + 2 : contentStart;
     const next = body.indexOf(boundary, partStart);
-    if (next < 0) break;
+    if (next < 0) throw new DocumentContractError("INVALID_MULTIPART", "The multipart boundary is incomplete", "file");
     const part = body.subarray(partStart, Math.max(partStart, next - 2));
     const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
     if (headerEnd < 0) throw new DocumentContractError("INVALID_MULTIPART", "The file part headers are malformed", "file");
@@ -95,16 +105,41 @@ function parseMultipart(body, contentType) {
     const filename = headers.match(/\bfilename=\"([^\"]*)\"/i)?.[1];
     if (!disposition || !name) throw new DocumentContractError("INVALID_MULTIPART", "The file part is malformed", "file");
     parts.push({ name, filename, contentType: headers.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim() || "application/octet-stream", content });
-    offset = next + boundary.length;
+    offset = next;
   }
+  if (!parts.length) throw new DocumentContractError("INVALID_MULTIPART", "The multipart upload did not contain any parts", "file");
+  return parts;
+}
+
+function parseMultipart(body, contentType) {
+  const parts = parseMultipartParts(body, contentType);
   const fileParts = parts.filter((part) => part.name === "file" && part.filename !== undefined);
   if (parts.length !== 1 || fileParts.length !== 1) throw new DocumentContractError("INVALID_MULTIPART", "Upload exactly one file field", "file");
   return fileParts[0];
 }
 
+function parseProducerMultipart(body, contentType) {
+  const parts = parseMultipartParts(body, contentType);
+  const allowed = new Set(["schema_version", "source_kind", "file"]);
+  if (parts.some((part) => !allowed.has(part.name))) throw new DocumentContractError("UNKNOWN_FIELD", "Producer bundle contains an unknown multipart field", "bundle");
+  const schemaParts = parts.filter((part) => part.name === "schema_version" && part.filename === undefined);
+  const kindParts = parts.filter((part) => part.name === "source_kind" && part.filename === undefined);
+  const files = parts.filter((part) => part.name === "file" && part.filename !== undefined);
+  if (schemaParts.length !== 1 || files.length < 1 || files.length > MAX_PRODUCER_SOURCES || kindParts.length !== files.length) {
+    throw new DocumentContractError("INVALID_BUNDLE", `Provide one schema_version, ${files.length || "one"} source_kind field${files.length === 1 ? "" : "s"}, and 1 to ${MAX_PRODUCER_SOURCES} file fields (parts: schema=${schemaParts.length}, kinds=${kindParts.length}, files=${files.length})`, "bundle");
+  }
+  validateProducerBundleSchema({ schema_version: schemaParts[0].content.toString("utf8").trim() });
+  return files.map((file, index) => ({ ...file, source_kind: kindParts[index].content.toString("utf8").trim() }));
+}
+
 async function readUpload(req) {
   const part = parseMultipart(await readRawBody(req, MAX_UPLOAD_BODY_BYTES), req.headers["content-type"]);
   return parseGroundingDocument({ filename: part.filename, contentType: part.contentType, bytes: part.content });
+}
+
+async function readProducerBundle(req) {
+  const parts = parseProducerMultipart(await readRawBody(req, MAX_PRODUCER_UPLOAD_BODY_BYTES), req.headers["content-type"]);
+  return parts.map((part) => parseProducerSource({ filename: part.filename, contentType: part.contentType, bytes: part.content, source_kind: part.source_kind }));
 }
 
 async function readBody(req, maxBytes = MAX_BODY_BYTES) {
@@ -174,7 +209,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
     try {
       await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry });
     } catch (error) {
-      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
+      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", "PRODUCER_PACKET_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
       const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
       const safeContractError = error instanceof ContractError || error instanceof DocumentContractError || error instanceof PartnerContractError;
       const status = notFound ? 404 : conflict ? 409 : safeContractError ? 400 : 500;
@@ -213,6 +248,9 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   if (req.method === "GET" && url.pathname === "/v1/tools") return sendJson(res, 200, toolRegistry.readiness());
   if (req.method === "GET" && url.pathname === "/v1/logic/state") return sendJson(res, 200, { schema_version: "logic-host-state@1", mode: "local-mock", no_side_effect_mode: true, tool_readiness: toolRegistry.readiness(), database: { server_id: database.capabilities().server_id, read_only: true, operations: database.listOperations(), private_rows: false, arbitrary_sql: false } });
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "documents") return createDocument(req, res, store);
+  if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "producer-packets") return createProducerPacket(req, res, store);
+  if (req.method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "producer-packets") return getProducerPacket(res, store, parts[2]);
+  if (req.method === "GET" && parts.length === 5 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "citations") return getProducerCitation(res, store, parts[2], parts[4]);
   if (parts[0] === "v1" && parts[1] === "documents" && parts.length >= 3) {
     if (req.method === "GET" && parts.length === 3) return getDocument(res, store, parts[2]);
     if (req.method === "POST" && parts.length === 4 && parts[3] === "briefs") return createGroundedBrief(req, res, store, groundedEngine, parts[2]);
@@ -255,6 +293,27 @@ async function createDocument(req, res, store) {
   const document = await readUpload(req);
   const result = store.createDocument(document);
   return sendJson(res, result.created ? 201 : 200, { ...safeDocumentProjection(result.document), duplicate: !result.created, ingestion: { ...result.document.ingestion, stages: ["uploaded", "text extracted", "chunks mapped", "ready"] } });
+}
+
+async function createProducerPacket(req, res, store) {
+  const sources = await readProducerBundle(req);
+  const packet = buildProducerDecisionPacket(sources);
+  const result = store.createProducerPacket(packet);
+  return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
+}
+
+function getProducerPacket(res, store, packetId) {
+  const packet = store.getProducerPacket(packetId);
+  if (!packet) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet not found");
+  return sendJson(res, 200, safeProducerPacketProjection(packet));
+}
+
+function getProducerCitation(res, store, packetId, citationId) {
+  const packet = store.getProducerPacket(packetId);
+  if (!packet) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet not found");
+  const citation = producerCitation(packet, citationId);
+  if (!citation) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer citation not found");
+  return sendJson(res, 200, { ...citation, excerpt: citation.excerpt.slice(0, 900) });
 }
 
 function getDocument(res, store, documentId) {

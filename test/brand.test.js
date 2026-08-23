@@ -50,6 +50,9 @@ test("MovieNator identity uses the display name and machine-safe product identif
   assert.match(html, /Tell us what you want/);
   assert.match(html, /Create brief/);
   assert.match(html, /id="copy-brief"/);
+  assert.match(html, /id="producer-files"/);
+  assert.match(html, /id="producer-file-labels"/);
+  assert.match(html, /Create producer packet/);
   assert.match(html, /<summary><span>Developer details<\/span>/);
   assert.match(html, /aria-label="Choose a MovieNator workflow"/);
   assert.match(deployment, /- name: movieinator/);
