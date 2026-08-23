@@ -1,4 +1,12 @@
-import { LEGACY_SESSION_KEYS, SESSION_KEYS, readMigratedSessionValue, writeSessionValue } from "./session-state.js";
+import {
+  LEGACY_SESSION_KEYS,
+  SESSION_KEYS,
+  modelResultStatus,
+  partnerStatusFromProjection,
+  readMigratedSessionValue,
+  runtimeStatusFromReadiness,
+  writeSessionValue,
+} from "./session-state.js";
 
 const DEFAULT_SCRIPT_BRIEF_REQUEST = "Create a concise filmmaker-facing brief with the story essentials, key characters, setting, tone, themes, useful production details, and any open questions or gaps.";
 
@@ -58,6 +66,7 @@ const groundingQuestion = $("#grounding-question");
 const groundingError = $("#grounding-error");
 const groundingRun = $("#grounding-run");
 const groundingResult = $("#grounding-result");
+const groundingFailure = $("#grounding-failure");
 const groundingEventNames = ["script.accepted", "script.queued", "script.grounding_started", "script.grounding_gap", "script.composing", "script.writer_fallback", "script.verifying", "script.succeeded", "script.failed"];
 const groundingTerminalStates = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
 const runLive = $("#run-live");
@@ -75,6 +84,9 @@ let groundingEventSource = null;
 let groundingPollTimer = null;
 let groundingReconnectTimer = null;
 let groundingLastEventSeq = 0;
+const groundingFallbackRuns = new Set();
+const readinessFallbackRuns = new Set();
+let runtimeStatus = { state: "not-yet-checked" };
 
 function setText(selector, value) {
   const element = typeof selector === "string" ? $(selector) : selector;
@@ -84,6 +96,32 @@ function setText(selector, value) {
 
 function show(element, visible = true) {
   if (element) element.hidden = !visible;
+}
+
+function renderRuntimeStatus(status) {
+  runtimeStatus = status;
+  setText("#runtime-mode-label", status.label);
+  setText("#runtime-trust-label", status.trustLabel);
+  setText("#runtime-trust-copy", status.trustCopy);
+  setText("#runtime-disclosure", status.disclosure);
+  setText("#grounding-runtime-label", status.label);
+  setText("#grounding-runtime-copy", status.trustCopy);
+  const dot = $("#runtime-mode-dot");
+  if (dot) {
+    dot.classList.remove("mode-dot-pending", "mode-dot-mock", "mode-dot-live", "mode-dot-unavailable");
+    dot.classList.add(status.state === "mock" ? "mode-dot-mock" : status.state === "live-gemini" ? "mode-dot-live" : status.state === "unavailable" ? "mode-dot-unavailable" : "mode-dot-pending");
+  }
+  const icon = $("#runtime-trust-icon");
+  if (icon) icon.textContent = status.state === "mock" ? "✓" : status.state === "live-gemini" ? "◆" : status.state === "unavailable" ? "!" : "◌";
+}
+
+function renderPartnerStatus(projection, options = {}) {
+  const element = $("#partner-status");
+  if (!element) return;
+  const status = partnerStatusFromProjection(projection, options);
+  element.classList.toggle("is-ready", status.state === "ready");
+  element.classList.toggle("is-unavailable", status.state === "unavailable");
+  element.textContent = `${status.label}: ${status.detail}`;
 }
 
 function updateJourney(step) {
@@ -230,6 +268,7 @@ function onEvent(event) {
     const payload = JSON.parse(event.data);
     lastEventSeq = Math.max(lastEventSeq, Number(event.lastEventId || payload.seq || 0));
     const display = payload.display || "Run updated";
+    if (payload.type === "writer.fallback") readinessFallbackRuns.add(payload.run_id);
     setText(runLive, display);
     refreshRun(payload.run_id);
   } catch {
@@ -394,7 +433,9 @@ function renderResult(result) {
     resolved.hidden = true;
     resolved.textContent = "";
   }
-  setText("#result-limitations", `${result.policy_disclosure || "Recommended demo policy proposal."} ${result.limitations?.join(" ") || "Demo evidence is synthetic and this is not an approval."}`);
+  const modelBackend = result.provenance?.model_backend?.backend;
+  setText("#result-model-status", modelResultStatus({ backend: modelBackend, fallback: readinessFallbackRuns.has(currentRun?.run_id) }).copy);
+  setText("#result-limitations", `${result.policy_disclosure || "The API did not provide a policy disclosure."} ${result.limitations?.join(" ") || "No additional limitations were provided by the API."}`);
   renderChecks(result);
   const recommendations = $("#recommendations-list");
   recommendations.replaceChildren();
@@ -404,7 +445,7 @@ function renderResult(result) {
     recommendations.append(item);
   }
   setText("#policy-version", `Policy ${result.policy_version}`);
-  setText("#result-provenance", result.provenance?.label || "Deterministic mock / Demo evidence");
+  setText("#result-provenance", result.provenance?.label || (modelBackend === "google_rest" ? "Live model provenance was not provided by the API" : "Mock result provenance was not provided by the API"));
 }
 
 function renderChecks(result) {
@@ -449,7 +490,7 @@ function titleCase(value) {
 
 function renderRecovery(run) {
   setText("#recovery-message", run.recovery?.message || "The run did not produce a verified result. Its history is preserved.");
-  setText("#recovery-provenance", run.provenance?.label || "Deterministic mock / Demo evidence");
+  setText("#recovery-provenance", run.provenance?.label || "Result provenance was not provided by the API");
   setText("#recovery-original", `Original run ${run.run_id}`);
   $("#retry-run").disabled = !run.recovery?.recoverable;
 }
@@ -557,6 +598,7 @@ async function uploadDocument(event) {
   const formData = new FormData();
   formData.append("file", file, file.name);
   show(documentProgress, true);
+  show(groundingFailure, false);
   setText("#document-progress-title", "Reading your source");
   setText("#document-progress-detail", "Uploading the script and mapping its page or section locations.");
   show(documentSummary, false);
@@ -599,6 +641,7 @@ async function submitGrounding(event) {
     groundingQuestion.value = DEFAULT_SCRIPT_BRIEF_REQUEST;
   }
   show(groundingRun, true);
+  show(groundingFailure, false);
   show(groundingResult, false);
   $("#submit-grounding").disabled = true;
   try {
@@ -636,6 +679,7 @@ function subscribeGrounded(runId) {
       try {
         const payload = JSON.parse(event.data);
         groundingLastEventSeq = Math.max(groundingLastEventSeq, Number(event.lastEventId || payload.seq || 0));
+        if (payload.type === "script.writer_fallback") groundingFallbackRuns.add(runId);
         setText("#document-progress-detail", "Your brief is being prepared and its source links are being checked.");
         refreshGroundedRun(runId);
       } catch {
@@ -672,8 +716,38 @@ async function refreshGroundedRun(runId) {
   }
 }
 
+function renderGroundingFailure(run) {
+  show(groundingResult, false);
+  groundingFailure.replaceChildren();
+  const heading = document.createElement("strong");
+  heading.textContent = runtimeStatus.state === "live-gemini" ? "The live model did not provide a verified brief" : "No verified brief was returned";
+  const message = document.createElement("p");
+  message.textContent = runtimeStatus.state === "live-gemini"
+    ? "The API did not provide a usable result, so no brief is shown. Your source remains safe and a retry creates a separate attempt."
+    : "The API did not provide a usable result. Your source remains safe and a retry creates a separate attempt.";
+  const retry = document.createElement("button");
+  retry.className = "button button-secondary";
+  retry.type = "button";
+  retry.textContent = "Try again";
+  retry.addEventListener("click", () => retryGroundedBrief(run.run_id, retry));
+  groundingFailure.append(heading, message, retry);
+  show(groundingFailure, true);
+}
+
+function renderGroundingModelStatus(result) {
+  const element = $("#grounding-model-status");
+  if (!element) return;
+  if (result.status === "grounding_gap") {
+    element.textContent = "No model output is claimed because the source gap stopped the brief.";
+    return;
+  }
+  const backend = result.provenance?.model_backend?.backend;
+  element.textContent = modelResultStatus({ backend, fallback: groundingFallbackRuns.has(currentGroundingRun?.run_id) }).copy;
+}
+
 function renderGroundingRun(run) {
   show(groundingRun, true);
+  show(groundingFailure, false);
   const userPhase = { accepted: "Preparing your brief", queued: "Reading your source", grounding: "Reading your source", composing: "Preparing your brief", validating: "Checking source links", succeeded: "Ready", grounding_gap: "Source gap", failed: "We need to try again" }[run.state] || "Preparing your brief";
   setText("#grounding-phase", userPhase);
   const labels = ["Preparing your brief", "Reading your source", "Preparing your brief", "Checking source links", "Ready"];
@@ -691,15 +765,7 @@ function renderGroundingRun(run) {
     show(groundingResult, true);
     renderGroundingResult(run.result);
   } else if (run.state === "failed") {
-    show(groundingResult, true);
-    const result = { title: "We couldn't finish this brief", summary: "Your source is still safe. Try again to create a new brief.", key_points: [], citations: [], limitations: ["Your original attempt is preserved and a retry creates a separate brief."] };
-    renderGroundingResult(result);
-    const retry = document.createElement("button");
-    retry.className = "button button-secondary";
-    retry.type = "button";
-    retry.textContent = "Try again";
-    retry.addEventListener("click", () => retryGroundedBrief(run.run_id, retry));
-    $("#grounding-citations").append(retry);
+    renderGroundingFailure(run);
   }
 }
 
@@ -814,6 +880,7 @@ function renderGroundingResult(result) {
     empty.textContent = "No source citations were created because the source could not be read safely.";
     citations.append(empty);
   }
+  renderGroundingModelStatus(result);
   setText("#grounding-limitations", (result.limitations || []).join(" "));
   $("#copy-brief").dataset.brief = briefText(result);
   setText("#copy-status", "");
@@ -897,7 +964,12 @@ async function restoreGroundingSession() {
   if (!savedRunId) return;
   try {
     await refreshGroundedRun(savedRunId);
-    if (currentGroundingRun && !groundingTerminalStates.has(currentGroundingRun.state)) subscribeGrounded(savedRunId);
+    if (currentGroundingRun) {
+      // Replay the bounded redacted event stream for terminal runs so a
+      // fallback remains truthful after a browser refresh.
+      groundingLastEventSeq = groundingTerminalStates.has(currentGroundingRun.state) ? 0 : currentGroundingRun.last_event_seq || 0;
+      subscribeGrounded(savedRunId);
+    }
   } catch {
     // A stale browser reference does not block a new brief.
   }
@@ -942,21 +1014,38 @@ setWorkflow("grounding");
 loadToolReadiness();
 restoreGroundingSession();
 const savedRunId = readMigratedSessionValue(sessionStorage, SESSION_KEYS.readinessRun, LEGACY_SESSION_KEYS.readinessRun);
-if (savedRunId) refreshRun(savedRunId).then(() => { if (currentRun && !terminalStates.has(currentRun.state)) subscribe(savedRunId); });
+if (savedRunId) refreshRun(savedRunId).then(() => {
+  if (!currentRun) return;
+  lastEventSeq = terminalStates.has(currentRun.state) ? 0 : currentRun.last_event_seq || 0;
+  subscribe(savedRunId);
+});
 updateCount();
 
+async function loadRuntimeReadiness() {
+  try {
+    const response = await fetch("/readyz", { headers: { accept: "application/json" } });
+    let projection;
+    try {
+      projection = await response.json();
+    } catch {
+      projection = null;
+    }
+    renderRuntimeStatus(runtimeStatusFromReadiness(projection, { httpStatus: response.status }));
+  } catch {
+    renderRuntimeStatus(runtimeStatusFromReadiness({}, { httpStatus: 503 }));
+  }
+}
+
 async function loadPartnerStatus() {
-  const status = $("#partner-status");
-  if (!status) return;
   try {
     const response = await fetch("/v1/partners", { headers: { accept: "application/json" } });
     if (!response.ok) throw new Error("unavailable");
     const data = await response.json();
-    const provider = data.providers?.[0];
-    const state = provider?.readiness?.state || "unknown";
-    status.textContent = `Partner status: ${provider?.provider?.display_name || "not registered"} (${state.replaceAll("_", " ")})`;
+    renderPartnerStatus(data.providers?.[0]);
   } catch {
-    status.textContent = "Partner status: unavailable";
+    renderPartnerStatus(null, { requestFailed: true });
   }
 }
+
+loadRuntimeReadiness();
 loadPartnerStatus();

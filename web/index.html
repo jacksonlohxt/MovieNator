@@ -14,9 +14,10 @@
         <span class="brand-mark" aria-hidden="true">✦</span>
         <span>MovieNator</span>
       </div>
-      <div class="header-meta">
-        <span class="mode-dot" aria-hidden="true"></span>
-        <span>Demo mode</span>
+      <div class="header-meta" aria-live="polite">
+        <span id="runtime-mode-dot" class="mode-dot mode-dot-pending" aria-hidden="true"></span>
+        <span id="runtime-mode-label">Runtime status not yet checked</span>
+        <span id="partner-status" class="partner-status">Partner status not yet checked</span>
       </div>
     </header>
 
@@ -25,8 +26,8 @@
         <p id="hero-eyebrow" class="eyebrow">Filmmaker Script Brief</p>
         <h1 id="page-title">Turn your script into a useful brief.</h1>
         <p id="hero-copy" class="hero-copy">Upload a script, tell us what you need, and get the story essentials in one clear place. Start with the default brief or ask for a specific focus.</p>
-        <div class="trust-strip" role="note">
-          <span class="trust-item"><span class="trust-icon" aria-hidden="true">◈</span><strong>Demo evidence</strong><span>synthetic and deterministic</span></span>
+        <div class="trust-strip" role="note" aria-live="polite">
+          <span class="trust-item"><span id="runtime-trust-icon" class="trust-icon" aria-hidden="true">◌</span><strong id="runtime-trust-label">Checking runtime</strong><span id="runtime-trust-copy">Checking server evidence before describing this brief.</span></span>
           <span class="trust-divider" aria-hidden="true"></span>
           <span class="trust-item"><span class="trust-icon" aria-hidden="true">✓</span><strong>No partner data is changed</strong></span>
         </div>
@@ -95,7 +96,7 @@
           </details>
 
           <div class="form-action-row">
-            <p class="form-disclosure">Your question stays in this local demo. No credentials or external calls are needed.</p>
+            <p id="runtime-disclosure" class="form-disclosure">Runtime status is being checked. The browser does not receive credentials.</p>
             <button id="submit-run" class="button button-primary" type="submit"><span>Run demo brief</span><span aria-hidden="true">→</span></button>
           </div>
         </form>
@@ -123,6 +124,7 @@
       <section id="result-section" data-workflow-surface="readiness" class="panel result-panel" aria-labelledby="result-title" hidden>
         <div class="section-heading"><div><p class="section-kicker">Decision from code</p><h2 id="result-title">Your readiness brief</h2></div><span class="step-badge">04 / Decision</span></div>
         <div id="decision-card" class="decision-card"></div>
+        <p id="result-model-status" class="model-status" role="status" aria-live="polite"></p>
         <p id="resolved-asset" class="resolved-asset"></p>
         <div id="result-limitations" class="limitation-note"></div>
         <div class="result-grid">
@@ -156,7 +158,7 @@
       <section id="grounding-section" class="panel grounding-panel" data-workflow-surface="grounding" aria-labelledby="grounding-title" hidden>
         <div class="section-heading"><div><p class="section-kicker">Start here</p><h2 id="grounding-title">Create your Script Brief.</h2></div><span class="step-badge">1 · Upload</span></div>
         <p class="state-copy">Upload one PDF or plain-text script. MovieNator reads the bounded source as a whole, keeps page or section locations, and links material statements to the source.</p>
-        <div class="grounding-trust" role="note"><strong>Demo mode</strong><span>Your file stays in this MovieNator instance. No credentials or external calls are needed.</span></div>
+        <div class="grounding-trust" role="note" aria-live="polite"><strong id="grounding-runtime-label">Runtime status not yet checked</strong><span id="grounding-runtime-copy">Checking server evidence before describing this brief.</span></div>
         <form id="document-form" class="document-form" novalidate>
           <div class="field-group"><label for="script-file">Script or document <span class="required">PDF or TXT</span></label><input id="script-file" name="file" type="file" accept="application/pdf,text/plain,.pdf,.txt" required aria-describedby="document-help document-error"><span id="document-help" class="field-help">Maximum 5 MiB. Source text is safely bounded before the brief is created.</span><p id="document-error" class="field-error" role="alert" hidden></p></div>
           <button id="upload-document" class="button button-primary" type="submit"><span>Upload script</span><span aria-hidden="true">↑</span></button>
@@ -169,6 +171,7 @@
           <button id="submit-grounding" class="button button-primary" type="submit"><span>Create brief</span><span aria-hidden="true">→</span></button>
         </form>
         <div id="grounding-run" class="grounding-run" aria-live="polite" hidden><div class="run-status-row"><div><span id="grounding-status-icon" class="status-icon status-icon-running" aria-hidden="true">◌</span><span id="grounding-phase">Preparing your brief</span></div></div><ol id="grounding-progress-list" class="progress-list" aria-label="Script brief progress"></ol></div>
+        <div id="grounding-failure" class="grounding-failure" role="alert" hidden></div>
         <article id="grounding-result" class="grounding-result" aria-labelledby="grounding-result-title" hidden>
           <div class="result-heading"><p class="section-kicker">Your Script Brief</p><h3 id="grounding-result-title">Script Brief</h3></div>
           <div class="brief-actions"><button id="copy-brief" class="button button-secondary" type="button">Copy brief</button><span id="copy-status" class="field-help" role="status" aria-live="polite"></span></div>
@@ -179,6 +182,7 @@
           <section class="brief-section"><h4>Useful production details</h4><div id="grounding-production" class="brief-list"></div></section>
           <section class="brief-section"><h4>Open questions and gaps</h4><div id="grounding-questions" class="brief-list"></div></section>
           <details class="citation-details"><summary>Source citations</summary><div id="grounding-citations" class="grounding-citations"></div></details>
+          <p id="grounding-model-status" class="model-status" role="status" aria-live="polite"></p>
           <p id="grounding-limitations" class="limitation-note"></p>
         </article>
       </section>
