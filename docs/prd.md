@@ -5,7 +5,7 @@
 **Product name:** MovieNator is the current display name and `movieinator` is the machine-safe identifier for new product-owned keys. Legacy `movie-inator-*`, `gemini-agents-*`, and `local://movie-inator/mock` values remain compatibility aliases where the current implementation supports them; existing run IDs, API routes, workflow IDs, and durable records remain valid.
 **Primary product direction:** `Producer Intake Decision Packet`
 **Compatibility surfaces:** single-document `Script Brief` and `Audience Data Readiness`
-**Research basis:** desk research report at `/Users/jacksonloh/firstmate-clean/data/movieinator-producer-market-research-s1/report.md`, read as evidence only. It is not customer validation.
+**Research basis:** desk research report at `/Users/jacksonloh/firstmate-clean/data/movieinator-producer-market-research-s1/report.md`, read as evidence only, plus the official Google NotebookLM/Gemini Notebook product pages cited in section 1. It is not customer validation.
 
 ## 1. Product promise
 
@@ -29,6 +29,85 @@ The target flow is:
 ```text
 Upload source bundle -> Label each input -> Generate packet -> Review facts, unknowns, and conflicts -> Open citations -> Copy or export a read-only handoff
 ```
+
+### The core job in plain language
+
+A producer receives fragmented information from many departments and many kinds of documents: a screenplay revision, director notes, cast material, location and access notes, breakdowns, schedule assumptions, budget assumptions, rights records, and department handoffs. The producer's business responsibilities require turning that material into an accountable view of what can be acted on, what is in conflict, what is missing, who owns the answer, how urgent it is, and what should happen next.
+
+MovieNator's single job is to **collect, identify, reconcile, and present** that decision-ready information:
+
+1. **Collect** the bounded source bundle without silently merging files or losing the source relationship.
+2. **Identify** exact source facts, supplied external facts, source-implied inferences, human assumptions, prior decisions, and missing inputs.
+3. **Reconcile** versions, departments, statuses, units, and claims. Preserve both sides of a conflict instead of selecting a plausible winner.
+4. **Present** one trusted Producer Intake Decision Packet with source inventory, provenance, exact facts, conflicts, missing inputs, owners, priorities, and next actions.
+
+The output is one packet, not a collection of disconnected summaries. Its workplace usefulness is whether a producer can use it to prepare the next budget, scale, rights, location, staffing, or department conversation without re-reading the whole bundle or mistaking a screenplay statement for an operational commitment. A packet that only sounds like a good summary has failed the product job.
+
+### Why a producer uses MovieNator instead of NotebookLM
+
+The plain-language rule is:
+
+> **Use NotebookLM when you want to understand or question a set of sources. Use MovieNator only when you need to reconcile a messy production source bundle and prepare the next producer decision.**
+
+Google's current official help pages use the name **Gemini Notebook** for the NotebookLM product surface. This PRD uses **NotebookLM** for that product. Google documents that it can import many source types, including PDFs, text, Google Docs and Slides, Word, web URLs, YouTube URLs, and audio; it supports up to 50 sources for free users and up to 500,000 words or 200 MB per uploaded source [N1]. Google also documents source-grounded chat with inline citations and transformations into briefing and study formats [N2]. Google's product material documents source discovery, Briefing Docs, FAQs, Audio Overviews, and citation and note-taking features [N3, N4]. Those are real areas of overlap.
+
+MovieNator must therefore not sell these as differentiation:
+
+- uploading documents;
+- asking questions over sources;
+- getting a summary, briefing document, or citation;
+- selecting sources for a question; or
+- collecting several documents in one workspace.
+
+The differentiation hypothesis is narrower and production-specific. MovieNator earns a place only if it turns the bundle into a trusted decision packet without asking the producer to manually build the production register that sits between a notebook and a production system of record.
+
+| Capability | What the official NotebookLM evidence supports | MovieNator contract | Status of the differentiation claim |
+|---|---|---|---|
+| Source grounding and citations | Source-grounded answers, summaries, and inline citations [N1, N2, N4] | Every packet claim has a classification, evidence state, source ID, and resolvable page or section/line citation | Overlap, not differentiation |
+| Broad source collection | Many source types, web and Drive import, source selection, and source limits [N1, N3] | A smaller bounded bundle with required production source kinds, department labels, safe relationships, stable IDs, and retention state | Deliberate production boundary, not a claim that NotebookLM is inadequate |
+| General understanding and generated artifacts | Chat, briefing formats, Audio Overviews, and other generated views [N2, N3, N4] | One fixed packet containing inventory, exact facts, production elements, conflicts, missing inputs, owners, priorities, and next actions | MovieNator hypothesis to test; not a claim that NotebookLM cannot produce any of these views |
+| Version and department reconciliation | The cited official pages do not establish a production-specific version authority, breakdown taxonomy, or conflict register | Preserve source relationships, compare supplied versions, label each assertion, and show unresolved conflicts without silent precedence | Product-specific contract; competitor absence is unproven |
+| Operational status safety | The cited official pages establish source-grounded assistance, not a production status authority | Never turn a screenplay location into a booking, a named actor into availability, a stunt into approval, or a cost driver into a budget amount | MovieNator safety requirement, not a claim about NotebookLM behavior |
+| Handoff usefulness | NotebookLM supports notebook interaction and generated formats [N2, N3] | Export one read-only producer packet whose open questions have supplied owners, priorities, evidence, and next actions | Hypothesis measured by workplace handoff, not by prose preference |
+
+MovieNator must be compared honestly with NotebookLM and with existing production tools. It must never demo an unanswered NotebookLM question and call that proof that NotebookLM cannot do production work. The test is whether a producer, given the same bundle and five minutes, reaches a more accurate, source-linked production decision surface with less manual reconciliation and re-entry.
+
+### The first-five-minute proof
+
+The first demo must prove the reconciliation job, not generate a logline and call it value. The deterministic fixture is synthetic and contains four labelled files:
+
+- `northline-shooting-script.txt`, labelled `primary_screenplay`, supplied version `shooting draft 3`, with a cited `SCENE 7 - INT. MILL - NIGHT`;
+- `northline-location-access.txt`, labelled `location_access`, with supplied status `permission pending`, a supplied owner `Jo - Locations`, and the statement that no location hold is confirmed;
+- `northline-schedule-assumption.txt`, labelled `schedule_assumptions`, with the human-labelled assumption `Scene 7 is on a Mill hold for 12 June`; and
+- `northline-budget-input.txt`, labelled `budget_assumptions`, with the externally supplied input `$1,200 per access day`, its unit and currency, and no total.
+
+The exact five-minute path is:
+
+| Time | Producer-visible proof |
+|---|---|
+| 0:00-1:00 | Select the four files, choose their source kinds, and see the source inventory, supplied version/status labels, content hashes, relationships, and ingestion state. |
+| 1:00-2:00 | Generate the packet in Demo mode. The browser shows source mapping and reconciliation, not a generic summary spinner. |
+| 2:00-3:00 | Open the conflict card: the schedule assumption references a Mill hold while the location source says no hold or permission is confirmed. Both sources and both citations remain visible. MovieNator does not decide which is true. |
+| 3:00-4:00 | Open the Scene 7 citation and inspect the exact script location. Open the budget row and see `$1,200/access day` as an externally supplied input, not a calculated budget total. |
+| 4:00-5:00 | Review the missing-input register: confirm permission or hold, owner `Jo - Locations`, priority supplied or explicitly marked unset, and next action `obtain or record the access evidence`. Copy the read-only handoff. |
+
+The five-minute acceptance proof passes only if the packet visibly contains the four-source inventory, exact script fact, two-sided conflict, cited external budget input without a total, owner, priority state, next action, and working citation drawer and copy action. A fluent synopsis without those records is a failed demo.
+
+### Falsifiable differentiation and kill condition
+
+The following are initial test gates, not customer-validated results. Run the same permissioned bundle through MovieNator, NotebookLM plus the minimum manual register needed to reach a producer handoff, and the team's current production workflow. Pre-register the bundle, prompt, operator, and scoring rubric before comparing results.
+
+| Measure | Initial MovieNator target | Product interpretation |
+|---|---|---|
+| Time to a trusted, cited production handoff | At least 30% lower median time than NotebookLM plus manual reconciliation, with no accuracy loss | If the time is not lower, MovieNator must show a material quality or safety advantage or should not proceed |
+| Exact fact and citation correctness | At least 95% of scored claims correctly state the source and open the right location | A good summary with weak citations is not a win |
+| Conflict recall | At least 90% of seeded version, status, unit, and cross-department conflicts found, with both sides preserved | Missing a conflict that changes a producer decision is a release blocker |
+| Unsupported operational status | Zero accepted false claims of booked, available, contracted, permitted, cleared, safe, approved, or budgeted | Any such false claim is a safety failure regardless of fluency |
+| Missing-input and owner usefulness | At least 90% of seeded missing inputs surfaced; no owner invented; supplied owners preserved exactly | The packet must route work, not merely list uncertainty |
+| Re-entry burden | At least 50% fewer repeated fields or manual source switches than the observed baseline for the same handoff | If the packet creates another spreadsheet to re-key, it has not solved the job |
+| Workplace handoff | At least 4 of 5 producer or line-production reviewers can name the next action and would use the packet in the next meeting or handoff | Preference for a summary alone does not count |
+
+**Condition under which MovieNator should not exist:** if a producer using NotebookLM and the existing production stack can create the same source inventory, provenance, exact-fact register, conflict and missing-input register, owner/priority/next-action handoff, and safety distinctions with no material additional time, correction burden, or loss of trust, MovieNator is redundant and should not be built. It should also not exist if interviews show that producers do not make or route decisions from this intake package, or if the product's only demonstrable value is another screenplay summary. The correct outcome is to use NotebookLM or the existing production tools, not to preserve MovieNator for branding.
 
 ## 2. Users, jobs, and decision boundary
 
@@ -183,6 +262,7 @@ The target result is `producer-intake-decision-packet@1`. A successful result mu
   "generated_at": "2026-08-23T00:00:00.000Z",
   "executive_summary": { "text": "...", "citation_ids": [], "classification": "source_fact" },
   "source_manifest": [],
+  "exact_facts": [],
   "scene_index": [],
   "production_elements": [],
   "locations_and_timing": [],
@@ -203,8 +283,9 @@ The target result is `producer-intake-decision-packet@1`. A successful result mu
 The minimum sections have the following contract:
 
 1. **Executive production summary** - a concise account of what the current bundle establishes, the decision context supplied by the user, the major production drivers, and the most consequential gaps. It must not contain an invented total, date, location, cast commitment, legal conclusion, or approval.
-2. **Source and version manifest** - one row per source with `source_id`, safe filename, media type, byte size, content hash, source kind, department when supplied, `version_label` and `status_label` only when supplied, relationships, ingestion state, truncation, and source limitations. It must expose missing or competing version authority.
-3. **Scene index** - each row has a scene reference or source location, script source ID, scene description, setting, interior or exterior marker, time marker, page or section location when established, classification, evidence state, and citation IDs. `shooting_order`, `day_break`, `page_count`, or `unit` are included only when supplied or explicitly source-grounded.
+2. **Source and version manifest** - the packet's source inventory. It has one row per source with `source_id`, safe filename, media type, byte size, content hash, source kind, department when supplied, `version_label` and `status_label` only when supplied, relationships, ingestion state, truncation, provenance, and source limitations. It must expose missing or competing version authority.
+3. **Exact fact register** - atomic source facts and externally supplied facts with their original bounded wording, classification, evidence state, source IDs, provenance, and citation IDs. It is the packet's answer to "what do we know exactly?" and cannot upgrade a supplied claim into verified operational truth.
+4. **Scene index** - each row has a scene reference or source location, script source ID, scene description, setting, interior or exterior marker, time marker, page or section location when established, classification, evidence state, and citation IDs. `shooting_order`, `day_break`, `page_count`, or `unit` are included only when supplied or explicitly source-grounded.
 4. **Production-element index** - each row has a controlled category, label, scene references, classification, evidence state, source IDs, citation IDs, and optional department. Categories include cast or role, extras, location or set, props, set dressing, wardrobe, makeup and hair, vehicles, animals, stunts, VFX/SFX, special equipment, sound, music, graphics, and other. A source-implied row is visibly distinct from a source fact.
 5. **Locations and timing** - reports only established settings, INT/EXT, day/night, travel or timing language, and explicitly supplied candidate or access records. Script settings are never labelled booked, permitted, available, or approved without supplied evidence.
 6. **Cast and role demands** - roles, speaking or named-character evidence, extras, minors, physical or continuity demands, and supplied candidate or availability records. A role demand is not a cast commitment and an actor name is not availability or contract status.
@@ -213,9 +294,9 @@ The minimum sections have the following contract:
 9. **Supplied budget inputs** - only supplied rates, units, currencies, quotes, estimates, fringes, incentives, travel, access, contingency assumptions, and cost drivers. Every numeric value has a source and unit when supplied. No invented rate, currency, total, forecast, or contingency amount.
 10. **Rights, access, and logistics evidence states** - separate rows for rights and clearance, releases, location permission, insurance, access, parking, travel, equipment, cast logistics, and safety dependencies. Each row uses an evidence state such as `established`, `supplied_not_verified`, `not_established`, `conflict`, `stale`, or `unavailable`, with owner and last-supplied version only when present.
 11. **Conflicts** - both or all conflicting assertions, source IDs, citation IDs, conflict kind, impact, and the human question needed to resolve it. A conflict is not resolved by source order, filename, model confidence, or a hidden precedence rule.
-12. **Decision and question register** - an `entry_type` of `decision` or `open_question`, the related scene or element, owner only when supplied, decision maker only when supplied, due date only when supplied, evidence state, citations, and a handoff-ready next action. A generated recommendation is never written as a decision.
-13. **Gaps and handoff-ready next steps** - missing source or metadata, suggested human owner or department only when the role is evident or supplied, why it matters, and what evidence would close it. Next steps are read-only instructions, not tasks sent to anyone.
-14. **Citations and limitations** - every material claim resolves to a bounded citation containing `citation_id`, `source_id`, `chunk_id`, source locations, and a safe source label. Limitations state truncation, unreadable or missing material, unverified external inputs, retention limits, and the fact that the packet does not grant rights, approval, booking, safety clearance, or permission to publish.
+13. **Decision and question register** - an `entry_type` of `decision` or `open_question`, the related scene or element, owner only when supplied, decision maker only when supplied, due date only when supplied, `priority` as a supplied value or explicitly `unset`, `priority_basis`, evidence state, citations, and a handoff-ready next action. A generated recommendation is never written as a decision, owner, due date, or priority.
+14. **Gaps and handoff-ready next steps** - missing source or metadata, suggested human owner or department only when the role is evident or supplied, why it matters, its priority state, and what evidence would close it. Next steps are read-only instructions, not tasks sent to anyone.
+15. **Citations and limitations** - every material claim resolves to a bounded citation containing `citation_id`, `source_id`, `chunk_id`, source locations, and a safe source label. Limitations state truncation, unreadable or missing material, unverified external inputs, retention limits, and the fact that the packet does not grant rights, approval, booking, safety clearance, or permission to publish.
 
 A packet may be `succeeded` while containing conflicts and open questions. `source_gap` means the required source was unreadable, absent, or outside the safe bound; `failed` means no verified result was produced; `expired` means source retention no longer permits citation access. A partial or malformed packet is never presented as succeeded.
 
@@ -380,6 +461,7 @@ The MVP is accepted only when all of the following are true:
 
 - A producer can upload and label a bundle, generate a packet, see bounded progress, review classifications and unknowns, open a citation, copy a read-only handoff, and request an allowlisted read-only export.
 - End-to-end browser behavior is safe at narrow widths, keyboard accessible, focus-correct in citation drawers, and honest about Demo mode, source limitations, and failures.
+- The synthetic four-file first-five-minute fixture proves source inventory, exact fact, two-sided conflict, cited external budget input without a total, owner, priority state, next action, citation opening, and read-only copying. A fluent summary without those records fails the demo.
 - Browser fields cannot choose providers, models, credentials, URLs, tools, thresholds, approvals, publishing, or side effects. Server routes reject unknown or authority fields even if the UI is bypassed.
 
 **Compatibility and readiness truth**
@@ -427,6 +509,17 @@ No stage may skip a failed readiness gate by changing the displayed status or si
 
 The completed report is desk research dated 2026-08-23 UTC. It supports a workflow hypothesis, not product-market fit, market size, willingness to pay, or customer trust.
 
+### NotebookLM evidence used for comparison
+
+These are official Google product sources, not customer validation and not evidence that a producer prefers one tool. They establish the documented overlap only:
+
+- **N1, Google NotebookLM help, Add or discover new sources:** https://support.google.com/notebooklm/answer/16215270 - documents supported source types, source selection, up to 50 sources for free users, and per-source limits of up to 500,000 words or 200 MB for uploaded files.
+- **N2, Google NotebookLM help, Learn about Gemini Notebook:** https://support.google.com/notebooklm/answer/16164461 - describes uploading or discovering sources, source-grounded chat with inline citations, and transformations such as study guides, briefings, and Audio Overviews.
+- **N3, Google blog, New in NotebookLM: Discover sources from around the web:** https://blog.google/innovation-and-ai/models-and-research/google-labs/notebooklm-discover-sources/ - describes Discover Sources, annotated source recommendations, Briefing Docs, FAQs, Audio Overviews, citation, and note-taking features.
+- **N4, Google blog, NotebookLM adds audio and YouTube support:** https://blog.google/innovation-and-ai/products/notebooklm-audio-video-sources/ - describes source-grounded responses with citations and relevant quotes, public YouTube and audio sources, and generated Audio Overviews.
+
+The PRD makes no unsupported claim that NotebookLM lacks version comparison, production taxonomies, conflict detection, ownership, or handoff outputs. Those are MovieNator's differentiation hypotheses and must be tested head-to-head. If a current NotebookLM capability changes, update this evidence table and the comparison without turning a feature assumption into a product fact.
+
 ### Evidence carried into the PRD
 
 - **E1, ScreenSkills producer guidance:** producers choose or secure rights, decide scale and budget, approve locations, and delegate execution. This supports the producer decision boundary, not demand for this product.
@@ -447,6 +540,7 @@ The canonical evidence URLs and passages remain in the report. The report must n
 5. Sensitive scripts and rights materials can be used only with acceptable access, retention, redaction, and deployment controls.
 6. A single deterministic pipeline is sufficient for the first product and may outperform a multi-agent design on trust, correction rate, latency, and cost.
 7. A live partner becomes valuable only if current external costs, access, document control, or downstream re-entry is a dominant observed problem. It is not an MVP dependency.
+8. NotebookLM or an existing production stack may already provide enough source understanding and handoff value; MovieNator must prove a production-specific reconciliation and decision-preparation win rather than assume one.
 
 ### Falsification criteria
 
@@ -456,7 +550,8 @@ The product or architecture hypothesis should be reconsidered if observation sho
 - the packet does not change a next action, reduce a real review step, or get handed into the next tool or meeting;
 - users reject the retention or confidentiality boundary for the intended source material;
 - a single pipeline matches or beats proposed specialists on citation accuracy, element recall, unknown detection, conflict detection, correction rate, latency, and total cost; or
-- the dominant pain is scheduling, budgeting, legal clearance, booking, permitting, or document control that this read-only packet cannot responsibly address.
+- the dominant pain is scheduling, budgeting, legal clearance, booking, permitting, or document control that this read-only packet cannot responsibly address; or
+- NotebookLM plus the current production stack produces an equally accurate source inventory, exact-fact register, conflict and missing-input register, and owner/priority/next-action handoff without material extra time, corrections, or trust loss.
 
 ### Interview and observation plan
 
