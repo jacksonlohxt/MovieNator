@@ -67,6 +67,23 @@ gcloud auth application-default login
 
 Use an attached workload identity or approved workload federation in production. Do not create, store, commit, log, or send service-account JSON keys. Never put an ADC token or bearer token in browser state, an SSE event, an error, a trace, a fixture, or a report.
 
+## Exact live-run checklist
+
+A live Google result is not proven by a complete configuration or a `passed` readiness value. An authorized operator must complete and retain this sequence:
+
+1. Record the Captain-approved project, billing account, API, region, endpoint host, exact model ID, API or SDK version, authentication mode, source retention/residency policy, quota, budget, and public enablement decision.
+2. Inspect the project, billing state, enabled services, model availability, identity, quota, and policy with read-only commands before any cloud mutation.
+3. If approved, enable `aiplatform.googleapis.com` and apply least-privilege IAM. These are operator mutations and are not run by the application or tests.
+4. For local testing, use an ignored `.env.local` with `DEPLOYMENT_TARGET=local`, `RUNTIME_MODE=adc_local`, `MODEL_BACKEND=google_rest`, `GOOGLE_GEMINI_ENABLED=true`, `GOOGLE_GEMINI_READINESS=passed`, the selected project/location/model/API version, and `GOOGLE_AUTH_MODE=adc`. For Cloud Run, use the placeholder manifest only after replacing every operator placeholder and use an attached identity or approved workload federation.
+5. Establish identity safely with local ADC on an authorized operator machine or workload identity in the deployment. Never create, store, commit, log, or transmit a service-account JSON key.
+6. Run `npm run start:google` locally or the operator-selected deployment, then require `/readyz` to return HTTP 200 with Google state `passed`. Readiness alone does not prove a model request.
+7. Upload a non-sensitive synthetic screenplay fixture and create one Script Brief. Verify the v2 result, all required sections, citation locations, bounds, safe projections, and redacted audit outcome.
+8. Preserve a redacted operator record showing that the request reached the selected Google endpoint and returned an accepted model response. Fake transport tests, a readiness response, or a model configuration do not count as live-call evidence.
+9. Exercise an unavailable, malformed, unsafe, or over-budget response and confirm deterministic fallback or safe recovery is labelled and does not switch providers silently.
+10. If any step is incomplete, keep the deployment in Demo mode or fail closed and do not describe the product as live Google-backed.
+
+No live Google call, selected cloud project, hosted URL, or public Google enablement is proven by this repository.
+
 ## Request boundary
 
 The first request is the standard server-derived `generateContent` REST method:

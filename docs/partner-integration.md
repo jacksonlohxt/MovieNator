@@ -30,6 +30,14 @@ Before adding a live registration, record all of the following in the operator c
 
 Never ask an operator or Captain to paste a secret into a chat, issue, PR, environment committed to git, prompt, browser field, or log. Ask for a secret-store reference and an approved runtime identity instead. A missing credential reference produces `missing_auth` and no transport call.
 
+## IBM selection and evidence gate
+
+The exact IBM partner product and API or MCP surface remain unresolved. `watsonx.data intelligence`, `Flow MCP`, and other IBM product families are possibilities only, not integrations. Do not use `IBM`, `IVM`, or `IBM-compatible` as a substitute for an exact selection.
+
+Before any live registration, the Captain must select and record the exact product, API or MCP surface and version, read-only operations, tenant or workspace, region, endpoint reference, authentication mode and scopes, synthetic dataset, retention policy, accountable owners, and rollback plan. The operator must then run contract, redaction, readiness, and bounded read-only tests against that exact surface. The repository currently has no IBM product selection, tenant, endpoint, credential, SDK, MCP client, live adapter, runtime partner, or live evidence.
+
+If a contest or public submission requires development with IBM Bob, that is a separate evidence gate. The Captain must confirm the governing rule and acceptable reviewer evidence, then retain an authorized Bob transcript/export or dated screenshots that directly show the Movie-Inator development work. This repository contains no Bob evidence. Do not claim Bob usage until the evidence is captured and approved for submission.
+
 ## Readiness states and recovery
 
 `ready` means the registered manifest, endpoint reference, auth reference, scope, and transport passed the configured checks. `not_configured` and `missing_auth` fail closed. `stale` means the last readiness check exceeded its freshness bound. `degraded`, `unavailable`, `denied`, and `circuit_open` remain visible and do not trigger automatic partner fallback.

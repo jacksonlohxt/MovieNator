@@ -82,6 +82,12 @@ SMOKE_BASE_URL='https://<OPERATOR_SELECTED_CLOUD_RUN_HOST>' npm run smoke:deploy
 
 The smoke URL is an operator-provided target. The worker does not discover or select a target.
 
+### Hosting readiness gate
+
+The manifest, Dockerfile, and smoke script are not a hosted deployment and do not prove a public URL. Before advertising a hosted Movie-Inator, the operator must verify HTTPS, access control for screenplay uploads, request/body/rate/cost limits, health and readiness behavior, bounded logs and alerts, storage and deletion policy, residency, backups, persistent state appropriate to the selected scale, Secret Manager access, rollback, accessibility, and cost/quota posture. `FileStore` and `.data` prove local mock behavior only and are not a durable multi-instance public database. Record the final URL, runtime mode, model/partner status, smoke result, owner, and retention decision separately.
+
+No hosted Movie-Inator URL, public service, persistent production store, or live runtime is proven by this repository.
+
 ## Secret Manager seam
 
 Application code accepts only named Secret Manager references such as:
