@@ -21,7 +21,7 @@ import {
 import { GroundedBriefEngine, projectGroundedRun } from "./grounding-engine.js";
 import { LocalDeterministicGroundingSource } from "./grounding.js";
 import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
-import { GeminiRestBackend, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
+import { GeminiRestBackend, createGeminiReadiness, isGeminiReadinessForConfig, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 import { createAdcTokenProvider } from "./google-auth.js";
 import { createAuditRecorder } from "./audit.js";
 import { createSecretProvider } from "./secrets.js";
@@ -135,19 +135,21 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, database, toolRegistry } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, database, toolRegistry } = {}) {
   const actualStore = store || new FileStore(dataPath);
-  const runtimeConfig = readRuntimeConfig(env, { googleConfig });
   const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
   const actualProvider = provider || new MockProvider();
   const actualDatabase = database || createLocalMcpDatabase();
   const actualToolRegistry = toolRegistry || createDefaultToolRegistry({ database: actualDatabase });
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
   const actualTokenProvider = googleTokenProvider || (["adc", "workload_identity", "attached_identity"].includes(configuredGoogle.authMode) ? createAdcTokenProvider() : undefined);
+  const actualReadiness = isGeminiReadinessForConfig(googleReadiness, configuredGoogle) ? googleReadiness : createGeminiReadiness({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider });
+  const runtimeConfig = readRuntimeConfig(env, { googleConfig: configuredGoogle, googleReadiness: actualReadiness });
   const actualSecretProvider = createSecretProvider({ env, provider: secretProvider, tokenProvider: actualTokenProvider });
   audit.record({ type: "configuration_state", outcome: runtimeConfig.readiness, mode: runtimeConfig.mode, attributes: { target: runtimeConfig.target, google_intent: runtimeConfig.googleIntent, google_state: runtimeConfig.google.readiness, configured: runtimeConfig.google.configured, secret_reference_count: runtimeConfig.secretReferenceCount } });
-  const actualModel = model || (isGeminiReady(configuredGoogle) ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider, audit }) : new FakeModel());
-  audit.record({ type: "model_provenance", outcome: "configured", mode: runtimeConfig.mode, provenance: typeof actualModel.provenance === "function" ? actualModel.provenance() : undefined, attributes: { backend: isGeminiReady(configuredGoogle) ? "google_rest" : "fake" } });
+  const googleReady = isGeminiReady(configuredGoogle, actualReadiness);
+  const actualModel = model || (googleReady ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider, readiness: actualReadiness, audit }) : new FakeModel());
+  audit.record({ type: "model_provenance", outcome: "configured", mode: runtimeConfig.mode, provenance: typeof actualModel.provenance === "function" ? actualModel.provenance() : undefined, attributes: { backend: googleReady ? "google_rest" : "fake" } });
   audit.record({ type: "provider_provenance", outcome: "configured", mode: runtimeConfig.mode, provenance: actualProvider.capabilities?.(), attributes: { provider_id: actualProvider.manifest?.provider_id || "unknown", read_only: actualProvider.manifest?.read_only !== false } });
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel, audit });
   const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
@@ -163,7 +165,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
       req.destroy();
     });
     try {
-      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry });
+      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry });
     } catch (error) {
       const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
       const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
@@ -176,16 +178,16 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   server.requestTimeout = runtimeConfig.requestTimeoutMs;
   server.headersTimeout = Math.min(runtimeConfig.requestTimeoutMs, 30_000);
   server.keepAliveTimeout = Math.min(runtimeConfig.requestTimeoutMs, 10_000);
-  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry };
+  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry };
 }
 
-async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, runtimeConfig, audit, partnerRuntime, database, toolRegistry }) {
+async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, googleReadiness, runtimeConfig, audit, partnerRuntime, database, toolRegistry }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
-    const google = engine.model?.readiness?.() || { state: googleConfig.readiness, configured: googleConfig.configured, missing: [...googleConfig.missing] };
-    const ready = runtimeConfig.mode === "mock" || (google.state === "passed" && google.configured);
-    return sendJson(res, ready ? 200 : 503, { ok: ready, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", runtime_mode: runtimeConfig.mode, provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend, config_state: runtimeConfig.readiness });
+    const google = engine.model?.readiness?.() || googleReadiness.readiness();
+    const ready = runtimeConfig.mode === "mock" || (google.state === "passed" && google.configured && google.checked && google.passed && !google.stale);
+    return sendJson(res, ready ? 200 : 503, { ok: ready, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", runtime_mode: runtimeConfig.mode, provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), checked: Boolean(google.checked), passed: Boolean(google.passed), failed: Boolean(google.failed), stale: Boolean(google.stale), checked_at: google.checked_at || null, evidence: google.evidence || null, missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend, config_state: runtimeConfig.readiness });
   }
   if (req.method === "GET" && url.pathname === "/") return sendStatic(res, "index.html", "text/html; charset=utf-8");
   if (req.method === "GET" && ["/app.js", "/session-state.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");

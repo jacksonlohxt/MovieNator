@@ -49,6 +49,9 @@ export const GEMINI_ERROR_CODES = Object.freeze([
   "deadline_exceeded",
 ]);
 
+export const GEMINI_READINESS_SCHEMA = "gemini-readiness@1";
+export const GEMINI_READINESS_MAX_AGE_MS = 5 * 60 * 1000;
+
 const DEFAULTS = Object.freeze({
   modelBackend: "fake",
   apiVersion: "v1",
@@ -89,10 +92,6 @@ function asText(value) {
   return typeof value === "string" ? value : "";
 }
 
-function validReadiness(value) {
-  return GEMINI_READINESS_STATES.includes(value) ? value : "unknown";
-}
-
 function missingFields(config) {
   return ["projectId", "location", "modelId", "authMode"].filter((field) => !asText(config[field]).trim());
 }
@@ -123,8 +122,7 @@ export function readGeminiConfig(env = process.env) {
   };
   const missing = missingFields(config);
   const configured = missing.length === 0;
-  let readiness = "disabled";
-  if (enabled) readiness = configured ? validReadiness(env.GOOGLE_GEMINI_READINESS || "not_run") : "not_set";
+  const readiness = !enabled ? "disabled" : configured ? "not_run" : "not_set";
   return Object.freeze({ ...config, configured, missing, readiness });
 }
 
@@ -155,7 +153,7 @@ export function normalizeGeminiConfig(input = {}) {
   config.temperature = boundedFloat(config.temperature, DEFAULTS.temperature, 0, 1);
   config.missing = missingFields(config);
   config.configured = config.missing.length === 0;
-  config.readiness = config.enabled ? (config.configured ? validReadiness(config.readiness || "not_run") : "not_set") : "disabled";
+  config.readiness = !config.enabled ? "disabled" : config.configured ? "not_run" : "not_set";
   return Object.freeze(config);
 }
 
@@ -196,6 +194,208 @@ function providerToken(provider) {
   if (typeof provider === "function") return provider;
   if (provider && typeof provider.getToken === "function") return provider.getToken.bind(provider);
   return defaultTokenProvider;
+}
+
+function providerTransport(provider) {
+  if (typeof provider === "function") return provider;
+  if (provider && typeof provider.request === "function") return provider.request.bind(provider);
+  return defaultTransport;
+}
+
+function currentTime(clock) {
+  try {
+    return new clock();
+  } catch {
+    return new Date(clock());
+  }
+}
+
+function readinessErrorProjection(error) {
+  const code = GEMINI_ERROR_CODES.includes(error?.code) ? error.code : "server_failure";
+  const status = Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599 ? error.status : null;
+  return { error_code: code, transport_status: status };
+}
+
+function readinessStateForConfig(config) {
+  if (!config.enabled) return "disabled";
+  if (!config.configured) return "not_set";
+  return "not_run";
+}
+
+function readinessConfigIdentity(config) {
+  return {
+    enabled: config.enabled,
+    modelBackend: config.modelBackend,
+    projectId: config.projectId || null,
+    location: config.location || null,
+    modelId: config.modelId || null,
+    publisher: config.publisher,
+    endpoint: config.endpoint || null,
+    apiVersion: config.apiVersion,
+    authMode: config.authMode || null,
+  };
+}
+
+export class GeminiReadiness {
+  #tokenProvider;
+  #transport;
+  #evidence;
+
+  constructor({ config, transport, tokenProvider, clock = Date } = {}) {
+    this.config = normalizeGeminiConfig(config);
+    this.#tokenProvider = providerToken(tokenProvider);
+    this.#transport = providerTransport(transport);
+    this.configurationFingerprint = hashValue(readinessConfigIdentity(this.config));
+    this.clock = clock;
+    this.#evidence = Object.freeze({
+      schema_version: GEMINI_READINESS_SCHEMA,
+      check_kind: "gemini_rest_preflight",
+      state: readinessStateForConfig(this.config),
+      configured: this.config.configured,
+      checked: false,
+      passed: false,
+      checked_at: null,
+      duration_ms: 0,
+      error_code: this.config.configured ? null : "missing_configuration",
+      transport_status: null,
+    });
+  }
+
+  tokenProvider() {
+    return this.#tokenProvider;
+  }
+
+  transport() {
+    return this.#transport;
+  }
+
+  matches(config) {
+    return this.configurationFingerprint === hashValue(readinessConfigIdentity(normalizeGeminiConfig(config)));
+  }
+
+  #now() {
+    return currentTime(this.clock);
+  }
+
+  #projection({ now = this.#now(), maxAgeMs = GEMINI_READINESS_MAX_AGE_MS } = {}) {
+    const checkedAt = this.#evidence.checked_at;
+    const age = checkedAt ? now.getTime() - Date.parse(checkedAt) : 0;
+    const stale = this.#evidence.state === "passed" && (!Number.isFinite(Date.parse(checkedAt)) || age > maxAgeMs);
+    const state = stale ? "not_run" : this.#evidence.state;
+    const checked = stale ? false : this.#evidence.checked;
+    const passed = state === "passed" && checked;
+    return {
+      schema_version: GEMINI_READINESS_SCHEMA,
+      state,
+      configured: this.#evidence.configured,
+      checked,
+      passed,
+      failed: state === "failed",
+      stale,
+      checked_at: checkedAt,
+      evidence: Object.freeze({ ...this.#evidence, stale }),
+      missing: [...this.config.missing],
+    };
+  }
+
+  readiness(options = {}) {
+    return this.#projection(options);
+  }
+
+  async check({ signal } = {}) {
+    if (!this.config.enabled || !this.config.configured) return this.#projection();
+    const started = this.#now();
+    try {
+      if (signal?.aborted) throw new GeminiRestError("canceled", "Google readiness check was canceled");
+      const url = buildGenerateContentUrl(this.config);
+      if (!url) throw new GeminiRestError("missing_configuration", "Google readiness endpoint configuration is invalid");
+      let tokenValue;
+      try {
+        tokenValue = await this.#tokenProvider({ scope: "https://www.googleapis.com/auth/cloud-platform", signal });
+      } catch (error) {
+        if (signal?.aborted) throw new GeminiRestError("canceled", "Google readiness check was canceled");
+        if (error instanceof GeminiRestError) throw error;
+        throw new GeminiRestError("auth_denied", "Google authentication was unavailable");
+      }
+      const token = safeToken(tokenValue);
+      if (!token) throw new GeminiRestError("auth_denied", "Google authentication did not return an access token");
+
+      const controller = new AbortController();
+      let timedOut = false;
+      const abortParent = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) throw new GeminiRestError("canceled", "Google readiness check was canceled");
+        signal.addEventListener("abort", abortParent, { once: true });
+      }
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, this.config.timeoutMs);
+      let response;
+      try {
+        response = await this.#transport({
+          purpose: "readiness_preflight",
+          method: "POST",
+          url,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Movie-Inator Gemini readiness preflight. Reply with OK." }] }], generationConfig: { temperature: 0, maxOutputTokens: 1 } }),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (signal?.aborted) throw new GeminiRestError("canceled", "Google readiness check was canceled", { cause: error });
+        if (timedOut || error?.name === "AbortError") throw new GeminiRestError("timeout", "Google readiness check timed out", { retryable: true, cause: error });
+        if (error instanceof GeminiRestError) throw error;
+        throw new GeminiRestError("server_failure", "Google readiness transport failed", { retryable: true, cause: error });
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abortParent);
+      }
+      const status = responseStatus(response);
+      if (status < 200 || status >= 300) throw mapHttpError(status);
+      const checkedAt = this.#now().toISOString();
+      this.#evidence = Object.freeze({
+        schema_version: GEMINI_READINESS_SCHEMA,
+        check_kind: "gemini_rest_preflight",
+        state: "passed",
+        configured: true,
+        checked: true,
+        passed: true,
+        checked_at: checkedAt,
+        duration_ms: Math.min(Math.max(0, this.#now().getTime() - started.getTime()), this.config.timeoutMs),
+        error_code: null,
+        transport_status: status,
+      });
+    } catch (error) {
+      const mapped = error instanceof GeminiRestError ? error : new GeminiRestError("server_failure", "Google readiness check failed", { retryable: false, cause: error });
+      const safe = readinessErrorProjection(mapped);
+      this.#evidence = Object.freeze({
+        schema_version: GEMINI_READINESS_SCHEMA,
+        check_kind: "gemini_rest_preflight",
+        state: "failed",
+        configured: true,
+        checked: true,
+        passed: false,
+        checked_at: this.#now().toISOString(),
+        duration_ms: Math.min(Math.max(0, this.#now().getTime() - started.getTime()), this.config.timeoutMs),
+        error_code: safe.error_code,
+        transport_status: safe.transport_status,
+      });
+    }
+    return this.#projection();
+  }
+
+  preflight(options = {}) {
+    return this.check(options);
+  }
+}
+
+export function createGeminiReadiness(options = {}) {
+  return new GeminiReadiness(options);
+}
+
+export function isGeminiReadiness(value) {
+  return value instanceof GeminiReadiness;
+}
+
+export function isGeminiReadinessForConfig(value, config) {
+  return isGeminiReadiness(value) && value.matches(config);
 }
 
 function safeToken(value) {
@@ -311,11 +511,12 @@ function hashPrompt(value) {
 }
 
 export class GeminiRestBackend extends ModelGateway {
-  constructor({ config, transport = defaultTransport, tokenProvider, clock = Date, audit } = {}) {
+  constructor({ config, transport, tokenProvider, clock = Date, audit, readiness } = {}) {
     super();
     this.config = normalizeGeminiConfig(config);
-    this.transport = transport;
-    this.tokenProvider = providerToken(tokenProvider);
+    this.readinessGate = isGeminiReadinessForConfig(readiness, this.config) ? readiness : createGeminiReadiness({ config: this.config, transport, tokenProvider, clock });
+    this.transport = transport ? providerTransport(transport) : this.readinessGate.transport();
+    this.tokenProvider = tokenProvider ? providerToken(tokenProvider) : this.readinessGate.tokenProvider();
     this.clock = clock;
     this.audit = audit;
     this.rateLimiter = new RateLimiter({ limit: this.config.rateLimitPerMinute, maxKeys: GEMINI_SAFETY_POLICY.rate_limit_key_capacity, clock });
@@ -324,7 +525,7 @@ export class GeminiRestBackend extends ModelGateway {
   }
 
   readiness() {
-    return { state: this.config.readiness, configured: this.config.configured, missing: [...this.config.missing] };
+    return this.readinessGate.readiness();
   }
 
   provenance() {
@@ -370,9 +571,10 @@ export class GeminiRestBackend extends ModelGateway {
   #assertReady(signal, context = {}) {
     if (signal?.aborted) throw new GeminiRestError("canceled", "Google model request was canceled");
     if (context.deadline_at && Date.parse(context.deadline_at) <= Date.now()) throw new GeminiRestError("deadline_exceeded", "Google model request exceeded its deadline", { retryable: true });
-    if (!this.config.enabled || this.config.readiness === "disabled") throw new GeminiRestError("missing_configuration", "Google model backend is disabled");
+    const readiness = this.readiness();
+    if (!this.config.enabled || readiness.state === "disabled") throw new GeminiRestError("missing_configuration", "Google model backend is disabled");
     if (!this.config.configured) throw new GeminiRestError("missing_configuration", "Google model configuration is incomplete");
-    if (this.config.readiness !== "passed") throw new GeminiRestError("not_ready", "Google model readiness has not passed");
+    if (readiness.state !== "passed" || !readiness.checked || !readiness.passed) throw new GeminiRestError("not_ready", "Google model readiness has not passed");
     const url = buildGenerateContentUrl(this.config);
     if (!url) throw new GeminiRestError("missing_configuration", "Google model endpoint configuration is invalid");
     return url;
@@ -545,7 +747,9 @@ export class GeminiRestBackend extends ModelGateway {
   }
 }
 
-export function isGeminiReady(config) {
+export function isGeminiReady(config, readiness) {
   const normalized = normalizeGeminiConfig(config);
-  return normalized.modelBackend === "google_rest" && normalized.enabled && normalized.configured && normalized.readiness === "passed";
+  if (!isGeminiReadinessForConfig(readiness, normalized)) return false;
+  const status = readiness.readiness();
+  return normalized.modelBackend === "google_rest" && normalized.enabled && normalized.configured && status.state === "passed" && status.checked && status.passed && !status.stale;
 }

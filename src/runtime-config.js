@@ -1,5 +1,5 @@
 import { GEMINI_SAFETY_POLICY } from "./safety.js";
-import { normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
+import { isGeminiReadinessForConfig, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 
 export const RUNTIME_MODES = Object.freeze(["mock", "adc_local", "deployed_identity"]);
 export const DEPLOYMENT_TARGETS = Object.freeze(["local", "container", "cloud_run"]);
@@ -64,7 +64,22 @@ function hasGoogleIntent(env, google, explicitMode) {
   return bool(env.GOOGLE_GEMINI_ENABLED) || google.modelBackend === "google_rest" || ["adc_local", "deployed_identity"].includes(explicitMode);
 }
 
-function deriveMode({ env, target, google, explicitMode, googleIntent }) {
+function activeGoogleReadiness(google, readiness) {
+  if (isGeminiReadinessForConfig(readiness, google)) return readiness.readiness();
+  return {
+    state: google.readiness,
+    configured: google.configured,
+    checked: false,
+    passed: false,
+    stale: false,
+    checked_at: null,
+    evidence: null,
+  };
+}
+
+function deriveMode({ env, target, google, explicitMode, googleIntent, readiness }) {
+  const googleReadiness = activeGoogleReadiness(google, readiness);
+  const readinessState = googleReadiness.state;
   if (explicitMode && !RUNTIME_MODES.includes(explicitMode)) throw new RuntimeConfigError("INVALID_CONFIGURATION", "RUNTIME_MODE is not supported");
   if (explicitMode === "mock") {
     if (googleIntent) throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "RUNTIME_MODE=mock cannot be combined with live Gemini settings");
@@ -79,7 +94,7 @@ function deriveMode({ env, target, google, explicitMode, googleIntent }) {
     if (!google.configured || !google.enabled || google.modelBackend !== "google_rest" || !["workload_identity", "attached_identity"].includes(google.authMode)) {
       throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Cloud Run Gemini configuration is incomplete or does not use a deployed identity");
     }
-    if (google.readiness !== "passed") throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Cloud Run Gemini configuration must have passed operator readiness");
+    if (readinessState !== "passed" || !googleReadiness.checked || !googleReadiness.passed) throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Cloud Run Gemini configuration must have passed an active operator readiness check");
     return "deployed_identity";
   }
   if (explicitMode && explicitMode !== "adc_local") throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Local live Gemini requires RUNTIME_MODE=adc_local");
@@ -87,9 +102,9 @@ function deriveMode({ env, target, google, explicitMode, googleIntent }) {
     if (target === "local" && !explicitMode && bool(env.GOOGLE_GEMINI_ENABLED)) return "mock";
     throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Local Gemini requires complete ADC-backed server configuration");
   }
-  if (google.readiness !== "passed") {
-    if (target === "local" && !explicitMode && google.authMode === "adc") return "mock";
-    throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Local Gemini readiness must be explicitly passed");
+  if (readinessState !== "passed" || !googleReadiness.checked || !googleReadiness.passed) {
+    if (target === "local" && !explicitMode) return "mock";
+    throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Local Gemini readiness must pass an active operator check");
   }
   return "adc_local";
 }
@@ -98,12 +113,13 @@ function deriveMode({ env, target, google, explicitMode, googleIntent }) {
  * Validate process-owned runtime configuration. This function intentionally
  * does not accept browser input and never reads a secret value.
  */
-export function readRuntimeConfig(env = process.env, { googleConfig } = {}) {
+export function readRuntimeConfig(env = process.env, { googleConfig, googleReadiness } = {}) {
   const target = deploymentTarget(env);
   const explicitMode = text(env.RUNTIME_MODE) || undefined;
   const google = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
+  const activeReadiness = activeGoogleReadiness(google, googleReadiness);
   const googleIntent = hasGoogleIntent(env, google, explicitMode);
-  const mode = deriveMode({ env, target, google, explicitMode, googleIntent });
+  const mode = deriveMode({ env, target, google, explicitMode, googleIntent, readiness: googleReadiness });
   const production = env.NODE_ENV === "production" || env.RUNTIME_ENV === "production" || target === "cloud_run";
   if (production && mode === "mock" && explicitMode !== "mock") {
     throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Production mock mode must be explicit with RUNTIME_MODE=mock");
@@ -114,7 +130,7 @@ export function readRuntimeConfig(env = process.env, { googleConfig } = {}) {
   const requestTimeoutMs = boundedEnvNumber(env.REQUEST_TIMEOUT_MS, 30_000, 1_000, 120_000, "REQUEST_TIMEOUT_MS");
   const gracefulShutdownMs = boundedEnvNumber(env.GRACEFUL_SHUTDOWN_MS, 10_000, 1_000, 60_000, "GRACEFUL_SHUTDOWN_MS");
   const maxBodyBytes = boundedEnvNumber(env.MAX_BODY_BYTES, 128 * 1024, 1_024, 8 * 1024 * 1024, "MAX_BODY_BYTES");
-  const readiness = mode === "mock" ? "ready" : google.readiness === "passed" ? "ready" : "not_ready";
+  const readiness = mode === "mock" ? "ready" : activeReadiness.state === "passed" && activeReadiness.checked && activeReadiness.passed ? "ready" : "not_ready";
   return Object.freeze({
     mode,
     target,
@@ -129,7 +145,12 @@ export function readRuntimeConfig(env = process.env, { googleConfig } = {}) {
     google: Object.freeze({
       enabled: google.enabled,
       configured: google.configured,
-      readiness: google.readiness,
+      readiness: activeReadiness.state,
+      checked: activeReadiness.checked,
+      passed: activeReadiness.passed,
+      stale: activeReadiness.stale,
+      checked_at: activeReadiness.checked_at,
+      evidence: activeReadiness.evidence,
       authMode: google.authMode || null,
       missing: Object.freeze([...google.missing]),
     }),
