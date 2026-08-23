@@ -135,7 +135,7 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, database, toolRegistry } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, partnerConfig, partnerTransport, partnerTransportFactory, partnerReadiness, partnerEndpointAllowlist, database, toolRegistry } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
   const actualProvider = provider || new MockProvider();
@@ -144,8 +144,8 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
   const actualTokenProvider = googleTokenProvider || (["adc", "workload_identity", "attached_identity"].includes(configuredGoogle.authMode) ? createAdcTokenProvider() : undefined);
   const actualReadiness = isGeminiReadinessForConfig(googleReadiness, configuredGoogle) ? googleReadiness : createGeminiReadiness({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider });
-  const runtimeConfig = readRuntimeConfig(env, { googleConfig: configuredGoogle, googleReadiness: actualReadiness });
-  const actualSecretProvider = createSecretProvider({ env, provider: secretProvider, tokenProvider: actualTokenProvider });
+  const runtimeConfig = readRuntimeConfig(env, { googleConfig: configuredGoogle, googleReadiness: actualReadiness, partnerConfig });
+  const actualSecretProvider = createSecretProvider({ env, provider: secretProvider, tokenProvider: actualTokenProvider, references: runtimeConfig.secretReferences.map(({ reference }) => reference) });
   audit.record({ type: "configuration_state", outcome: runtimeConfig.readiness, mode: runtimeConfig.mode, attributes: { target: runtimeConfig.target, google_intent: runtimeConfig.googleIntent, google_state: runtimeConfig.google.readiness, configured: runtimeConfig.google.configured, secret_reference_count: runtimeConfig.secretReferenceCount } });
   const googleReady = isGeminiReady(configuredGoogle, actualReadiness);
   const actualModel = model || (googleReady ? new GeminiRestBackend({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider, readiness: actualReadiness, audit }) : new FakeModel());
@@ -154,7 +154,14 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel, audit });
   const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
   const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel, audit });
-  const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry();
+  const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry({
+    secretProvider: actualSecretProvider,
+    partnerConfig: runtimeConfig.partner,
+    transport: partnerTransport,
+    transportFactory: partnerTransportFactory,
+    readiness: partnerReadiness,
+    endpointAllowlist: partnerEndpointAllowlist,
+  });
   const actualPartnerRuntime = partnerRuntime || new PartnerOperationRunner({ registry: actualPartnerRegistry });
   engine.resumeActive();
 
@@ -186,8 +193,10 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
     const google = engine.model?.readiness?.() || googleReadiness.readiness();
-    const ready = runtimeConfig.mode === "mock" || (google.state === "passed" && google.configured && google.checked && google.passed && !google.stale);
-    return sendJson(res, ready ? 200 : 503, { ok: ready, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", runtime_mode: runtimeConfig.mode, provider: "Demo evidence", partners: partnerRuntime.projections(), google: { state: google.state, configured: Boolean(google.configured), checked: Boolean(google.checked), passed: Boolean(google.passed), failed: Boolean(google.failed), stale: Boolean(google.stale), checked_at: google.checked_at || null, evidence: google.evidence || null, missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend, config_state: runtimeConfig.readiness });
+    const partners = partnerRuntime.projections();
+    const activePartnersReady = partners.filter((partner) => partner.enabled).every((partner) => partner.readiness.state === "ready");
+    const ready = (runtimeConfig.mode === "mock" || (google.state === "passed" && google.configured && google.checked && google.passed && !google.stale)) && activePartnersReady;
+    return sendJson(res, ready ? 200 : 503, { ok: ready, mode: engine.model instanceof GeminiRestBackend ? "google_rest" : "mock-only", runtime_mode: runtimeConfig.mode, provider: "Demo evidence", partners, google: { state: google.state, configured: Boolean(google.configured), checked: Boolean(google.checked), passed: Boolean(google.passed), failed: Boolean(google.failed), stale: Boolean(google.stale), checked_at: google.checked_at || null, evidence: google.evidence || null, missing: google.missing || [] }, model_backend: engine.provenance.model_backend.backend, config_state: runtimeConfig.readiness });
   }
   if (req.method === "GET" && url.pathname === "/") return sendStatic(res, "index.html", "text/html; charset=utf-8");
   if (req.method === "GET" && ["/app.js", "/session-state.js", "/styles.css"].includes(url.pathname)) return sendStatic(res, url.pathname.slice(1), url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");

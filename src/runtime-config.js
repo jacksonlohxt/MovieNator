@@ -1,5 +1,7 @@
 import { GEMINI_SAFETY_POLICY } from "./safety.js";
 import { isGeminiReadinessForConfig, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
+import { parsePartnerCapability } from "./partner-contracts.js";
+import { isSecretReference } from "./secrets.js";
 
 export const RUNTIME_MODES = Object.freeze(["mock", "adc_local", "deployed_identity"]);
 export const DEPLOYMENT_TARGETS = Object.freeze(["local", "container", "cloud_run"]);
@@ -60,6 +62,35 @@ function assertSecretReferences(references) {
   }
 }
 
+function parsePartnerCapabilityConfig(value, source = "PARTNER_CAPABILITY_JSON") {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new RuntimeConfigError("INVALID_PARTNER_CONFIGURATION", `${source} must contain valid JSON`);
+    }
+  }
+  try {
+    return parsePartnerCapability(parsed);
+  } catch (error) {
+    throw new RuntimeConfigError("INVALID_PARTNER_CONFIGURATION", `${source} is not a valid partner capability`, { field: error.field, code: error.code });
+  }
+}
+
+/** Parse only process-owned partner capability configuration. */
+export function readPartnerConfig(env = process.env) {
+  const capabilityJson = text(env.PARTNER_CAPABILITY_JSON);
+  const configJson = text(env.PARTNER_CONFIG_JSON);
+  if (capabilityJson && configJson && capabilityJson !== configJson) throw new RuntimeConfigError("INVALID_PARTNER_CONFIGURATION", "Set only one partner capability configuration variable");
+  const raw = capabilityJson || configJson;
+  return raw ? parsePartnerCapabilityConfig(raw, capabilityJson ? "PARTNER_CAPABILITY_JSON" : "PARTNER_CONFIG_JSON") : undefined;
+}
+
+export function parsePartnerConfig(value) {
+  return value === undefined || value === null ? undefined : parsePartnerCapabilityConfig(value, "partnerConfig");
+}
+
 function hasGoogleIntent(env, google, explicitMode) {
   return bool(env.GOOGLE_GEMINI_ENABLED) || google.modelBackend === "google_rest" || ["adc_local", "deployed_identity"].includes(explicitMode);
 }
@@ -113,11 +144,12 @@ function deriveMode({ env, target, google, explicitMode, googleIntent, readiness
  * Validate process-owned runtime configuration. This function intentionally
  * does not accept browser input and never reads a secret value.
  */
-export function readRuntimeConfig(env = process.env, { googleConfig, googleReadiness } = {}) {
+export function readRuntimeConfig(env = process.env, { googleConfig, googleReadiness, partnerConfig } = {}) {
   const target = deploymentTarget(env);
   const explicitMode = text(env.RUNTIME_MODE) || undefined;
   const google = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
   const activeReadiness = activeGoogleReadiness(google, googleReadiness);
+  const partner = partnerConfig === undefined ? readPartnerConfig(env) : parsePartnerConfig(partnerConfig);
   const googleIntent = hasGoogleIntent(env, google, explicitMode);
   const mode = deriveMode({ env, target, google, explicitMode, googleIntent, readiness: googleReadiness });
   const production = env.NODE_ENV === "production" || env.RUNTIME_ENV === "production" || target === "cloud_run";
@@ -125,6 +157,9 @@ export function readRuntimeConfig(env = process.env, { googleConfig, googleReadi
     throw new RuntimeConfigError("UNSAFE_CONFIGURATION", "Production mock mode must be explicit with RUNTIME_MODE=mock");
   }
   const secretReferences = collectSecretReferences(env);
+  if (partner?.credential_ref && isSecretReference(partner.credential_ref) && !secretReferences.some(({ reference }) => reference === partner.credential_ref)) {
+    secretReferences.push({ name: "partner.credential_ref", reference: partner.credential_ref });
+  }
   assertSecretReferences(secretReferences);
   const port = parsePort(env.PORT, { defaultPort: target === "cloud_run" ? 8080 : 4173 });
   const requestTimeoutMs = boundedEnvNumber(env.REQUEST_TIMEOUT_MS, 30_000, 1_000, 120_000, "REQUEST_TIMEOUT_MS");
@@ -154,6 +189,7 @@ export function readRuntimeConfig(env = process.env, { googleConfig, googleReadi
       authMode: google.authMode || null,
       missing: Object.freeze([...google.missing]),
     }),
+    partner,
     safety: GEMINI_SAFETY_POLICY,
     secretReferenceCount: secretReferences.length,
     secretReferences: Object.freeze(secretReferences.map(({ name, reference }) => Object.freeze({ name, reference }))),

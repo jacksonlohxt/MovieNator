@@ -20,13 +20,37 @@ export function parseSecretReference(reference) {
   return Object.freeze({ resourceName: reference, projectId: match[1], secretId: match[2], version: match[3] });
 }
 
+export function isSecretReference(reference) {
+  try {
+    parseSecretReference(reference);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class SecretProvider {
+  isConfigured() {
+    return true;
+  }
+
+  validateReference(reference) {
+    return parseSecretReference(reference);
+  }
+
   async read() {
     throw new Error("SecretProvider.read is not implemented");
   }
 
   async getSecret(reference, options) {
     return this.read(reference, options);
+  }
+
+  /** Check availability without returning a secret to the caller's boundary. */
+  async check(reference, options) {
+    this.validateReference(reference);
+    await this.getSecret(reference, options);
+    return true;
   }
 }
 
@@ -51,6 +75,10 @@ export class MockSecretProvider extends SecretProvider {
 }
 
 export class NullSecretProvider extends SecretProvider {
+  isConfigured() {
+    return false;
+  }
+
   async read() {
     throw new SecretReferenceError("SECRET_NOT_CONFIGURED", "No secret provider is configured");
   }
@@ -141,9 +169,10 @@ export class SecretManagerProvider extends SecretProvider {
   }
 }
 
-export function createSecretProvider({ env = process.env, provider, transport, tokenProvider, mockValues } = {}) {
+export function createSecretProvider({ env = process.env, provider, transport, tokenProvider, mockValues, references = [] } = {}) {
   if (provider) return provider;
   if (env.SECRET_PROVIDER === "mock") return new MockSecretProvider({ values: mockValues });
-  if (Object.keys(env).some((name) => /_SECRET_REF$/.test(name))) return new SecretManagerProvider({ transport, tokenProvider });
+  const hasConfiguredReference = Object.keys(env).some((name) => /_SECRET_REF$/.test(name)) || references.some((reference) => isSecretReference(reference));
+  if (hasConfiguredReference) return new SecretManagerProvider({ transport, tokenProvider });
   return new NullSecretProvider();
 }
