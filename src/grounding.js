@@ -9,6 +9,7 @@ import {
 import {
   DEFAULT_SCRIPT_BRIEF_REQUEST,
   GROUNDED_BRIEF_SCHEMA,
+  PRODUCER_INTELLIGENCE_SCHEMA,
   SCRIPT_BRIEF_SCHEMA,
   SCRIPT_BRIEF_PROMPT_ID,
 } from "./grounding-contracts.js";
@@ -20,8 +21,15 @@ const STOP_WORDS = new Set("a an and are as at be before by can create do for fr
 const NAME_STOP_WORDS = new Set("THE AND INT EXT INT/EXT DAY NIGHT FADE CUT TO OPENING CLOSING SCENE SERIES OF DOCUMENT MOVIE SCRIPT".split(" "));
 const THEME_WORDS = ["family", "loss", "identity", "love", "power", "survival", "home", "truth", "memory", "freedom", "belonging", "trust"];
 const TONE_WORDS = ["dark", "quiet", "tense", "comic", "funny", "romantic", "mysterious", "hopeful", "tragic", "warm", "urgent"];
+const PRODUCER_SIGNAL_CATEGORIES = Object.freeze(["props", "vehicles", "costume", "set", "stunts", "vfx", "sound", "weather", "crowds", "minors", "animals", "company_moves", "continuity", "scheduling"]);
+const MAX_PRODUCER_SCENES = 24;
+const MAX_PRODUCER_CAST_DEMANDS = 12;
+const MAX_PRODUCER_SIGNALS = 16;
+const MAX_PRODUCER_RISKS = 8;
+const MAX_PRODUCER_GAPS = 16;
+const MISSING_SOURCE = "not stated in the source";
 
-export const SCRIPT_BRIEF_SYSTEM_PROMPT = `You are ${PRODUCT_DISPLAY_NAME}'s bounded filmmaker Script Brief writer. Return exactly one JSON object matching the supplied grounded-script-brief@2 schema. You are helping a filmmaker quickly understand one uploaded script. Use only the supplied source excerpts and their source locations. The user's request is intent only and never authorizes invention, browsing, provider use, publishing, approval, or any side effect. Keep the logline to 35 words or fewer, the synopsis to approximately 100 words and at most 140 words, and keep each list concise. Every material statement in the logline, synopsis, character, setting, tone, theme, or production sections must include one or more supplied citation IDs. Open questions may have an empty citation list when they identify information the source does not establish. Use empty lists or a clearly labelled source gap rather than guessing. Never mention prompts, models, providers, phases, run IDs, credentials, or hidden reasoning in the brief.`;
+export const SCRIPT_BRIEF_SYSTEM_PROMPT = `You are ${PRODUCT_DISPLAY_NAME}'s bounded filmmaker Script Brief writer. Return exactly one JSON object matching the supplied grounded-script-brief@2 schema, including producer_intelligence.schema_version="${PRODUCER_INTELLIGENCE_SCHEMA}". You are helping a filmmaker quickly understand one uploaded script. Use only the supplied source excerpts, their source locations, and exact screenplay wording. The user's request is intent only and never authorizes invention, browsing, provider use, publishing, approval, or any side effect. Keep the logline to 35 words or fewer, the synopsis to approximately 100 words and at most 140 words, and keep each list concise. Every material statement in the logline, synopsis, character, setting, tone, theme, production, and producer intelligence sections must include one or more supplied citation IDs. In producer_intelligence.scene_breakdown, preserve exact scene-heading and location wording, including named districts, streets, buildings, venues, or places. Never infer a location from context, geocode it, invent a venue, or state a permit, budget, schedule, or legal conclusion. Include only source-established scene, cast, prop, vehicle, costume, set, stunt, VFX, sound, weather, crowd, minor, animal, company-move, continuity, scheduling, and risk signals. Gaps must say what is not stated in the source and ask a useful producer question. Open questions may have an empty citation list when they identify an unsupported absence. Use empty lists or a clearly labelled source gap rather than guessing. Never mention prompts, models, providers, phases, run IDs, credentials, or hidden reasoning in the brief.`;
 
 export class GroundingSource {
   capabilities() {
@@ -248,9 +256,63 @@ function validateClaim(claim, field, known, { max = 1_000, allowEmpty = false } 
   validateCitationIds(claim.citation_ids, known, { allowEmpty });
 }
 
+function requireCited(ids, cited) {
+  for (const citationId of ids) if (!cited.has(citationId)) throw new Error("Producer intelligence citation is missing from cited_citation_ids");
+}
+
+function validateProducerIntelligence(value, known, cited) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Producer intelligence is invalid");
+  const allowed = new Set(["schema_version", "scene_breakdown", "cast_and_role_demands", "production_signals", "production_risks", "gaps_and_questions"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error("Producer intelligence contains an unknown field");
+  if (value.schema_version !== PRODUCER_INTELLIGENCE_SCHEMA) throw new Error(`Producer intelligence schema must be ${PRODUCER_INTELLIGENCE_SCHEMA}`);
+  const citations = new Set(known);
+  if (!Array.isArray(value.scene_breakdown) || value.scene_breakdown.length > MAX_PRODUCER_SCENES) throw new Error("Producer scene breakdown is invalid");
+  for (const scene of value.scene_breakdown) {
+    if (!scene || typeof scene !== "object" || Object.keys(scene).some((key) => !["scene_heading", "location_wording", "int_ext", "time_of_day", "citation_ids"].includes(key))) throw new Error("Producer scene breakdown item is invalid");
+    assertGroundedText(scene.scene_heading, "producer scene heading", 180);
+    assertGroundedText(scene.location_wording, "producer location wording", 180);
+    if (!["INT", "EXT", "INT/EXT", MISSING_SOURCE].includes(scene.int_ext)) throw new Error("Producer scene INT/EXT value is invalid");
+    if (!["DAY", "NIGHT", MISSING_SOURCE].includes(scene.time_of_day)) throw new Error("Producer scene time of day is invalid");
+    validateCitationIds(scene.citation_ids, citations);
+    requireCited(scene.citation_ids, cited);
+  }
+  if (!Array.isArray(value.cast_and_role_demands) || value.cast_and_role_demands.length > MAX_PRODUCER_CAST_DEMANDS) throw new Error("Producer cast demands are invalid");
+  for (const demand of value.cast_and_role_demands) {
+    if (!demand || typeof demand !== "object" || Object.keys(demand).some((key) => !["role", "demand", "citation_ids"].includes(key))) throw new Error("Producer cast demand is invalid");
+    assertGroundedText(demand.role, "producer role", 120);
+    assertGroundedText(demand.demand, "producer cast demand", 420);
+    validateCitationIds(demand.citation_ids, citations);
+    requireCited(demand.citation_ids, cited);
+  }
+  if (!Array.isArray(value.production_signals) || value.production_signals.length > MAX_PRODUCER_SIGNALS) throw new Error("Producer signals are invalid");
+  for (const signal of value.production_signals) {
+    if (!signal || typeof signal !== "object" || Object.keys(signal).some((key) => !["category", "value", "citation_ids"].includes(key))) throw new Error("Producer production signal is invalid");
+    if (!PRODUCER_SIGNAL_CATEGORIES.includes(signal.category)) throw new Error("Producer signal category is invalid");
+    assertGroundedText(signal.value, "producer signal", 420);
+    validateCitationIds(signal.citation_ids, citations);
+    requireCited(signal.citation_ids, cited);
+  }
+  if (!Array.isArray(value.production_risks) || value.production_risks.length > MAX_PRODUCER_RISKS) throw new Error("Producer risks are invalid");
+  for (const risk of value.production_risks) {
+    if (!risk || typeof risk !== "object" || Object.keys(risk).some((key) => !["risk", "citation_ids"].includes(key))) throw new Error("Producer risk is invalid");
+    assertGroundedText(risk.risk, "producer risk", 420);
+    validateCitationIds(risk.citation_ids, citations);
+    requireCited(risk.citation_ids, cited);
+  }
+  if (!Array.isArray(value.gaps_and_questions) || value.gaps_and_questions.length > MAX_PRODUCER_GAPS) throw new Error("Producer gaps are invalid");
+  for (const gap of value.gaps_and_questions) {
+    if (!gap || typeof gap !== "object" || Object.keys(gap).some((key) => !["category", "question", "citation_ids"].includes(key))) throw new Error("Producer gap is invalid");
+    assertGroundedText(gap.category, "producer gap category", 80);
+    assertGroundedText(gap.question, "producer gap question", 420);
+    validateCitationIds(gap.citation_ids, citations, { allowEmpty: true });
+    requireCited(gap.citation_ids, cited);
+  }
+  return value;
+}
+
 export function validateScriptBriefProposal(value, knownCitationIds) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Script Brief proposal must be an object");
-  const allowed = new Set(["schema_version", "title", "logline", "synopsis", "main_characters", "setting_tone_themes", "production_details", "open_questions", "cited_citation_ids"]);
+  const allowed = new Set(["schema_version", "title", "logline", "synopsis", "main_characters", "setting_tone_themes", "production_details", "producer_intelligence", "open_questions", "cited_citation_ids"]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`Script Brief proposal contains unknown field: ${key}`);
   if (value.schema_version !== SCRIPT_BRIEF_SCHEMA) throw new Error(`Script Brief proposal schema must be ${SCRIPT_BRIEF_SCHEMA}`);
   assertGroundedText(value.title, "title");
@@ -285,6 +347,8 @@ export function validateScriptBriefProposal(value, knownCitationIds) {
     validateCitationIds(question.citation_ids, known, { allowEmpty: true });
   }
   validateCitationIds(value.cited_citation_ids, known, { allowEmpty: known.size === 0 });
+  const cited = new Set(value.cited_citation_ids);
+  if (value.producer_intelligence) validateProducerIntelligence(value.producer_intelligence, known, cited);
   return value;
 }
 
@@ -329,8 +393,141 @@ function sourceSentenceFor(name, sourceSentences) {
   return sourceSentences.find((sentence) => sentence.text.toLocaleLowerCase().includes(name.toLocaleLowerCase())) || sourceSentences[0];
 }
 
+function parseSceneHeading(value) {
+  const heading = String(value || "").trim();
+  const match = heading.match(/^(INT\.?\s*\/\s*EXT\.?|I\/E\.?|INT\.?|EXT\.?)\s+(.+)$/i);
+  if (!match) {
+    const explicit = heading.match(/^(?:LOCATION|PLACE|VENUE)\s*:\s*(.+)$/i);
+    if (!explicit) return undefined;
+    return { scene_heading: heading, location_wording: explicit[1].trim() || MISSING_SOURCE, int_ext: MISSING_SOURCE, time_of_day: MISSING_SOURCE };
+  }
+  const intExt = match[1].toUpperCase().replace(/\.?\s*\/\s*EXT\.?$/, "/EXT").replace(/\.$/, "");
+  const time = match[2].match(/\s+-\s+[^\n.!?]*?\b(DAY|NIGHT)\b(?:\s+-\s+[^\n.!?]*)?$/i);
+  const location = (time ? match[2].slice(0, time.index) : match[2]).trim();
+  return {
+    scene_heading: heading,
+    location_wording: location || MISSING_SOURCE,
+    int_ext: intExt === "I/E" ? "INT/EXT" : intExt,
+    time_of_day: time ? time[1].toUpperCase() : MISSING_SOURCE,
+  };
+}
+
 function firstSceneHeading(text) {
-  return text.match(/\b(?:INT\.?|EXT\.?|INT\.?\/EXT\.?)\s+[^\n.!?]{2,120}/i)?.[0]?.trim();
+  return String(text || "").split(/\n+/).map((line) => parseSceneHeading(line)?.scene_heading).find(Boolean);
+}
+
+function sourceLines(excerpts) {
+  return excerpts.flatMap((excerpt) => String(excerpt.text || "").split(/\n+/).map((line) => ({ text: line.trim(), citation_id: excerpt.citation_id })).filter((line) => line.text));
+}
+
+function producerScenes(excerpts) {
+  const scenes = new Map();
+  for (const excerpt of excerpts) {
+    const candidates = [
+      ...String(excerpt.text || "").split(/\n+/).map((line) => line.trim()),
+      ...(excerpt.source_locations || []).map((location) => location.section).filter(Boolean),
+    ];
+    for (const candidate of candidates) {
+      const parsed = parseSceneHeading(candidate);
+      if (!parsed) continue;
+      const existing = scenes.get(parsed.scene_heading) || { ...parsed, citation_ids: [] };
+      if (!existing.citation_ids.includes(excerpt.citation_id)) existing.citation_ids.push(excerpt.citation_id);
+      scenes.set(parsed.scene_heading, existing);
+    }
+  }
+  return [...scenes.values()].slice(0, MAX_PRODUCER_SCENES);
+}
+
+const PRODUCER_SIGNAL_PATTERNS = Object.freeze({
+  props: /\b(?:prop|props|holds?|carries?|grabs?|picks up|opens? the|takes? the)\b/i,
+  vehicles: /\b(?:car|taxi|motorcycle|motorbike|scooter|bus|van|truck|vehicle|boat|train|ferry|bicycle|bike)\b/i,
+  costume: /\b(?:wears?|wearing|dressed|costume|uniform|sari|tuxedo|scrubs|school clothes)\b/i,
+  set: /(?:\bset\s*:|\b(?:set dressing|furniture|decor(?:ation)?|wallpaper|curtains?|bookcase|interior is|room is filled)\b)/i,
+  stunts: /\b(?:stunt|fight(?:s|ing)?|chase(?:s|d)?|falls?|jumps?|crash(?:es|ed)?|punch(?:es|ed)?|kicks?|tackles?)\b/i,
+  vfx: /\b(?:VFX|CGI|visual effect|green[- ]screen|wire removal|digital double)\b/i,
+  sound: /\b(?:sound|music|song|radio|phone rings?|alarm|sirens?|voice[- ]over|O\.S\.|SFX)\b/i,
+  weather: /\b(?:weather|rain(?:s|ing)?|storm|thunder|lightning|fog|snow|wind(?:y)?|sunlight|humid(?:ity)?)\b/i,
+  crowds: /\b(?:crowd|crowds|extras|dozens|hundreds|market|festival|packed|crowded)\b/i,
+  minors: /(?:\b(?:child(?:ren)?|kid|kids|boy|girl|teen(?:ager)?|minor|\d{1,2}[- ]year[- ]old)\b|\(\s*\d{1,2}\s*\))/i,
+  animals: /\b(?:animal|dog|cat|horse|bird|snake|monkey|pet)\b/i,
+  company_moves: /\b(?:company move|move to the next location|company travels|crew moves|new location)\b/i,
+  continuity: /\b(?:continuity|still wearing|same as before|remains on|later that night|next morning|days later|weeks later)\b/i,
+  scheduling: /\b(?:scheduling|night shoot|day shoot|golden hour|call time|dawn|sunset|same day|flashback|one week later)\b/i,
+});
+
+function producerSignals(excerpts) {
+  const lines = sourceLines(excerpts);
+  const signals = [];
+  for (const category of PRODUCER_SIGNAL_CATEGORIES) {
+    const matches = lines.filter((line) => PRODUCER_SIGNAL_PATTERNS[category].test(line.text)).slice(0, 2);
+    if (!matches.length) continue;
+    const citationIds = [...new Set(matches.map((line) => line.citation_id).filter(Boolean))].slice(0, MAX_SELECTED_EXCERPTS);
+    signals.push({ category, value: matches.map((line) => line.text.slice(0, 420)).join(" / ").slice(0, 420), citation_ids: citationIds });
+    if (signals.length >= MAX_PRODUCER_SIGNALS) break;
+  }
+  return signals;
+}
+
+function producerCastDemands(excerpts) {
+  const demands = [];
+  const seen = new Set();
+  for (const line of sourceLines(excerpts)) {
+    const ageOrDemand = line.text.match(/(?:\(\s*\d{1,2}\s*\)|\b\d{1,2}\s*(?:years?\s*old|yo|s)\b|\b(?:child(?:ren)?|kid|teen(?:ager)?|elderly|pregnant|twins?|accent|dialect|wheelchair|deaf|blind)\b)/i);
+    const namedRole = line.text.match(/\b([A-Z][A-Z0-9']{2,})\b/);
+    const castLabel = line.text.match(/^\s*CAST\s*:\s*([^:-]{1,80})(?:\s*[-:]\s*(.+))?$/i);
+    const role = castLabel?.[1]?.trim() || namedRole?.[1] || ageOrDemand?.[0];
+    if (!role || (!ageOrDemand && !castLabel)) continue;
+    const key = `${role.toLocaleLowerCase()}|${line.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    demands.push({ role, demand: line.text.slice(0, 420), citation_ids: line.citation_id ? [line.citation_id] : [] });
+    if (demands.length >= MAX_PRODUCER_CAST_DEMANDS) break;
+  }
+  return demands;
+}
+
+const PRODUCER_SIGNAL_LABELS = Object.freeze({
+  props: "props", vehicles: "vehicles", costume: "costume", set: "set", stunts: "stunt or physical action", vfx: "VFX", sound: "sound", weather: "weather", crowds: "crowds or extras", minors: "minors", animals: "animals", company_moves: "company moves", continuity: "continuity", scheduling: "scheduling",
+});
+
+function producerGaps(scenes, castDemands, signals) {
+  const gaps = [];
+  if (!scenes.length) gaps.push({ category: "locations", question: "What exact filming location or venue should production prepare for? A named location or scene heading is not stated in the source; confirm the intended place with the producer.", citation_ids: [] });
+  if (scenes.some((scene) => scene.time_of_day === MISSING_SOURCE)) {
+    gaps.push({ category: "scene timing", question: "Which scene(s) should be treated as day or night? The screenplay does not state the time of day for every scene; confirm the intended timing with the producer.", citation_ids: [...new Set(scenes.filter((scene) => scene.time_of_day === MISSING_SOURCE).flatMap((scene) => scene.citation_ids))].slice(0, MAX_SELECTED_EXCERPTS) });
+  }
+  if (!castDemands.length) gaps.push({ category: "cast and role demands", question: "Which cast or role demands should production prepare for? They are not stated in the source; confirm the principal roles and any age, ability, or performance requirements with the producer.", citation_ids: [] });
+  const present = new Set(signals.map((signal) => signal.category));
+  for (const category of PRODUCER_SIGNAL_CATEGORIES) {
+    if (present.has(category)) continue;
+    gaps.push({ category: PRODUCER_SIGNAL_LABELS[category], question: `What ${PRODUCER_SIGNAL_LABELS[category]} requirements should production prepare for? They are not stated in the source; confirm with the producer.`, citation_ids: [] });
+    if (gaps.length >= MAX_PRODUCER_GAPS) break;
+  }
+  return gaps.slice(0, MAX_PRODUCER_GAPS);
+}
+
+function producerRisks(signals, excerpts) {
+  const riskCategories = new Set(["stunts", "vfx", "weather", "crowds", "minors", "animals", "company_moves", "continuity", "scheduling"]);
+  const derived = signals.filter((signal) => riskCategories.has(signal.category)).map((signal) => ({
+    risk: `The source describes ${PRODUCER_SIGNAL_LABELS[signal.category]}; confirm the practical requirements before production planning.`,
+    citation_ids: signal.citation_ids,
+  }));
+  const explicit = sourceLines(excerpts).filter((line) => /^\s*(?:PRODUCTION\s+)?RISK\s*:/i.test(line.text)).map((line) => ({ risk: line.text.slice(0, 420), citation_ids: line.citation_id ? [line.citation_id] : [] }));
+  return [...explicit, ...derived].slice(0, MAX_PRODUCER_RISKS);
+}
+
+function deterministicProducerIntelligence(excerpts) {
+  const scenes = producerScenes(excerpts);
+  const castDemands = producerCastDemands(excerpts);
+  const signals = producerSignals(excerpts);
+  return {
+    schema_version: PRODUCER_INTELLIGENCE_SCHEMA,
+    scene_breakdown: scenes,
+    cast_and_role_demands: castDemands,
+    production_signals: signals,
+    production_risks: producerRisks(signals, excerpts),
+    gaps_and_questions: producerGaps(scenes, castDemands, signals),
+  };
 }
 
 function deterministicScriptBriefProposal(input) {
@@ -361,6 +558,7 @@ function deterministicScriptBriefProposal(input) {
   if (!mainCharacters.length) openQuestions.push({ question: "Which characters should the production team treat as the principal roles? The source excerpts do not identify them clearly.", citation_ids: [] });
   if (!heading && !settingSentence.text) openQuestions.push({ question: "What is the primary setting? It is not established in the source excerpts.", citation_ids: [] });
   if (!tone.length || !themes.length) openQuestions.push({ question: "What tone or themes should the team prioritize? They are not stated clearly in the source excerpts.", citation_ids: [] });
+  const producerIntelligence = deterministicProducerIntelligence(excerpts);
   return {
     schema_version: SCRIPT_BRIEF_SCHEMA,
     title: "Script Brief",
@@ -373,13 +571,14 @@ function deterministicScriptBriefProposal(input) {
       themes,
       citation_ids: settingCitation.length ? settingCitation : citationIds.slice(0, 1),
     },
-    production_details: details,
+    production_details: details.slice(0, 8),
+    producer_intelligence: producerIntelligence,
     open_questions: openQuestions.slice(0, 8),
     cited_citation_ids: citationIds,
   };
 }
 
-export { deterministicScriptBriefProposal };
+export { deterministicProducerIntelligence, deterministicScriptBriefProposal };
 
 export class GroundedBriefModel extends ModelGateway {
   provenance() {

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "producer-intelligence@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scene_breakdown", "cast_and_role_demands", "production_signals", "production_risks", "gaps_and_questions"],
+  "properties": {
+    "schema_version": { "const": "producer-intelligence@1" },
+    "scene_breakdown": { "type": "array", "maxItems": 24, "items": { "type": "object", "additionalProperties": false, "required": ["scene_heading", "location_wording", "int_ext", "time_of_day", "citation_ids"], "properties": { "scene_heading": { "type": "string", "minLength": 1, "maxLength": 180 }, "location_wording": { "type": "string", "minLength": 1, "maxLength": 180 }, "int_ext": { "enum": ["INT", "EXT", "INT/EXT", "not stated in the source"] }, "time_of_day": { "enum": ["DAY", "NIGHT", "not stated in the source"] }, "citation_ids": { "$ref": "#/$defs/citation_ids" } } } },
+    "cast_and_role_demands": { "type": "array", "maxItems": 12, "items": { "type": "object", "additionalProperties": false, "required": ["role", "demand", "citation_ids"], "properties": { "role": { "type": "string", "minLength": 1, "maxLength": 120 }, "demand": { "type": "string", "minLength": 1, "maxLength": 420 }, "citation_ids": { "$ref": "#/$defs/citation_ids" } } } },
+    "production_signals": { "type": "array", "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["category", "value", "citation_ids"], "properties": { "category": { "enum": ["props", "vehicles", "costume", "set", "stunts", "vfx", "sound", "weather", "crowds", "minors", "animals", "company_moves", "continuity", "scheduling"] }, "value": { "type": "string", "minLength": 1, "maxLength": 420 }, "citation_ids": { "$ref": "#/$defs/citation_ids" } } } },
+    "production_risks": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false, "required": ["risk", "citation_ids"], "properties": { "risk": { "type": "string", "minLength": 1, "maxLength": 420 }, "citation_ids": { "$ref": "#/$defs/citation_ids" } } } },
+    "gaps_and_questions": { "type": "array", "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["category", "question", "citation_ids"], "properties": { "category": { "type": "string", "minLength": 1, "maxLength": 80 }, "question": { "type": "string", "minLength": 1, "maxLength": 420 }, "citation_ids": { "$ref": "#/$defs/citation_ids" } } } }
+  },
+  "$defs": {
+    "citation_ids": { "type": "array", "maxItems": 24, "items": { "type": "string", "maxLength": 160 } }
+  }
+}

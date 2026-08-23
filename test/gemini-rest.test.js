@@ -174,6 +174,14 @@ test("v2 Script Brief Gemini requests carry intent, source coverage, and citatio
     main_characters: [{ name: "Mara", description: "Mara enters the observatory.", citation_ids: [citation] }],
     setting_tone_themes: { setting: "The observatory.", tone: "Tense.", themes: ["truth"], citation_ids: [citation] },
     production_details: [{ label: "Scene location", value: "INT. OBSERVATORY", citation_ids: [citation] }],
+    producer_intelligence: {
+      schema_version: "producer-intelligence@1",
+      scene_breakdown: [{ scene_heading: "INT. OBSERVATORY - NIGHT", location_wording: "OBSERVATORY", int_ext: "INT", time_of_day: "NIGHT", citation_ids: [citation] }],
+      cast_and_role_demands: [],
+      production_signals: [{ category: "sound", value: "The signal sounds.", citation_ids: [citation] }],
+      production_risks: [],
+      gaps_and_questions: [{ category: "locations", question: "What exact venue is intended? It is not stated in the source; confirm with the producer.", citation_ids: [] }],
+    },
     open_questions: [{ question: "What happens after the signal?", citation_ids: [] }],
     cited_citation_ids: [citation],
   };
@@ -181,10 +189,14 @@ test("v2 Script Brief Gemini requests carry intent, source coverage, and citatio
   const backend = new GeminiRestBackend({ config: baseConfig(), transport, tokenProvider: async () => "test-token" });
   const result = await backend.groundedBrief({ schema_version: "grounded-script-brief@2", request_intent: "Focus on the protagonist and production needs.", source_coverage: { strategy: "whole_document_condensation", source_chunk_count: 40, selected_chunk_count: 24 }, source_chunk_count: 40, excerpts: [{ citation_id: citation, text: "Mara enters the observatory.", source_locations: [{ kind: "section", section: "Opening" }], source_ordinal: 0 }] }, { run_id: "script-brief-v2" });
   assert.equal(result.schema_version, "grounded-script-brief@2");
+  assert.equal(result.producer_intelligence.schema_version, "producer-intelligence@1");
+  assert.equal(result.producer_intelligence.scene_breakdown[0].location_wording, "OBSERVATORY");
   const body = JSON.parse(calls[0].body);
   assert.equal(body.contents[0].parts[0].text.includes("Focus on the protagonist"), true);
   assert.equal(body.contents[0].parts[0].text.includes("whole_document_condensation"), true);
   assert.equal(body.systemInstruction.parts[0].text.includes("Every material statement"), true);
+  assert.equal(body.systemInstruction.parts[0].text.includes("Never infer a location"), true);
+  assert.equal(body.systemInstruction.parts[0].text.includes("producer_intelligence"), true);
   assert.equal(Object.hasOwn(body, "tools"), false);
 });
 

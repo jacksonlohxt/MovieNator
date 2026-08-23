@@ -33,6 +33,7 @@
         "citation_ids": { "$ref": "#/$defs/citation_ids" }
       }}
     },
+    "producer_intelligence": { "$ref": "producer-intelligence@1.json" },
     "open_questions": {
       "type": "array", "maxItems": 8,
       "items": { "type": "object", "additionalProperties": false, "required": ["question", "citation_ids"], "properties": {

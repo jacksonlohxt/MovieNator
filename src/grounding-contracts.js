@@ -5,7 +5,8 @@ import { SCRIPT_BRIEF_PROMPT_ID as PRODUCT_SCRIPT_BRIEF_PROMPT_ID } from "./prod
 export const GROUNDED_BRIEF_SCHEMA = "grounded-script-brief@1";
 export const SCRIPT_BRIEF_SCHEMA = "grounded-script-brief@2";
 export const SCRIPT_BRIEF_RESULT_SCHEMA = "grounded-script-result@2";
+export const PRODUCER_INTELLIGENCE_SCHEMA = "producer-intelligence@1";
 export const SCRIPT_BRIEF_REQUEST_SCHEMA = "grounded-brief-request@2";
 export const SCRIPT_BRIEF_WORKFLOW = "script_brief";
-export const SCRIPT_BRIEF_PROMPT_ID = PRODUCT_SCRIPT_BRIEF_PROMPT_ID;
+export const SCRIPT_BRIEF_PROMPT_ID = `${PRODUCT_SCRIPT_BRIEF_PROMPT_ID.replace(/@\d+$/, "")}@3`;
 export const DEFAULT_SCRIPT_BRIEF_REQUEST = "Create a concise filmmaker-facing brief with the story essentials, key characters, setting, tone, themes, useful production details, and any open questions or gaps.";

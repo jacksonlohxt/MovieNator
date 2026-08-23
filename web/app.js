@@ -747,6 +747,12 @@ function briefText(result) {
     `Themes: ${result.setting_tone_themes?.themes?.join(", ") || "Not established."}`,
     "Useful production details",
     ...(result.production_details || []).map((detail) => `${detail.label}: ${detail.value}`),
+    "Producer intelligence",
+    ...(result.producer_intelligence?.scene_breakdown || []).map((scene) => `${scene.scene_heading} | ${scene.location_wording} | ${scene.int_ext} | ${scene.time_of_day}`),
+    ...(result.producer_intelligence?.cast_and_role_demands || []).map((item) => `${item.role}: ${item.demand}`),
+    ...(result.producer_intelligence?.production_signals || []).map((item) => `${item.category}: ${item.value}`),
+    ...(result.producer_intelligence?.production_risks || []).map((item) => `Risk: ${item.risk}`),
+    ...(result.producer_intelligence?.gaps_and_questions || []).map((item) => `Question: ${item.question}`),
     "Open questions and gaps",
     ...(result.open_questions || []).map((item) => item.question),
   ];
@@ -790,6 +796,22 @@ function renderGroundingResult(result) {
     heading.textContent = detail.label;
     card.append(heading);
     appendCitedText(card, detail.value, detail.citation_ids);
+    return card;
+  });
+  const producer = result.producer_intelligence;
+  const producerItems = [];
+  for (const scene of producer?.scene_breakdown || []) producerItems.push({ label: "Scene", value: `${scene.scene_heading} | Location: ${scene.location_wording} | ${scene.int_ext} | ${scene.time_of_day}`, citation_ids: scene.citation_ids });
+  for (const item of producer?.cast_and_role_demands || []) producerItems.push({ label: `Cast: ${item.role}`, value: item.demand, citation_ids: item.citation_ids });
+  for (const item of producer?.production_signals || []) producerItems.push({ label: item.category, value: item.value, citation_ids: item.citation_ids });
+  for (const item of producer?.production_risks || []) producerItems.push({ label: "Production risk", value: item.risk, citation_ids: item.citation_ids });
+  for (const item of producer?.gaps_and_questions || []) producerItems.push({ label: `Open ${item.category} question`, value: item.question, citation_ids: item.citation_ids });
+  renderBriefList("#grounding-producer", producerItems, "No producer intelligence was established clearly in the source.", (item) => {
+    const card = document.createElement("div");
+    card.className = "brief-card";
+    const heading = document.createElement("strong");
+    heading.textContent = item.label;
+    card.append(heading);
+    appendCitedText(card, item.value, item.citation_ids);
     return card;
   });
   renderBriefList("#grounding-questions", result.open_questions, "No open questions were flagged.", (item) => {
