@@ -56,7 +56,7 @@ The PRD remains the source of truth for product detail. Producer Intake Decision
 
 **Status:** Captain-authorized Producer Intake Decision Packet v1 direction
 **Authority:** This file is the authoritative product, safety, and implementation contract. It authorizes no credentials, cloud mutation, publishing, approval action, or external partner side effect.
-**Product name:** MovieNator. The current browser displays **Movie-Inator** and keeps the machine-safe identifier `movie-inator`; that compatibility identity is preserved until a separate rename decision.
+**Product name:** MovieNator is the current display name and `movieinator` is the machine-safe identifier for new product-owned keys. Legacy `movie-inator-*`, `gemini-agents-*`, and `local://movie-inator/mock` values remain compatibility aliases where the current implementation supports them; existing run IDs, API routes, workflow IDs, and durable records remain valid.
 **Primary product direction:** `Producer Intake Decision Packet`
 **Compatibility surfaces:** single-document `Script Brief` and `Audience Data Readiness`
 **Research basis:** desk research report at `/Users/jacksonloh/firstmate-clean/data/movieinator-producer-market-research-s1/report.md`, read as evidence only, plus the official Google NotebookLM/Gemini Notebook product pages cited in section 1. It is not customer validation.
