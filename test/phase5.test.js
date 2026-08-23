@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuditEvent, AuditRecorder } from "../src/audit.js";
 import { MockSecretProvider, parseSecretReference, SecretManagerProvider } from "../src/secrets.js";
+import { createGeminiReadiness, readGeminiConfig } from "../src/gemini-rest.js";
 import { GEMINI_SAFETY_POLICY, GEMINI_SAFETY_SETTINGS, RateLimiter, redactForAudit } from "../src/safety.js";
 import { RuntimeConfigError, readRuntimeConfig } from "../src/runtime-config.js";
 
@@ -19,10 +20,10 @@ const live = {
 
 const secretRef = "projects/demo-project/secrets/example/versions/latest";
 
-test("runtime configuration keeps mock, ADC local, and deployed identity explicit", () => {
+test("runtime configuration keeps mock, ADC local, and deployed identity explicit", async () => {
   assert.equal(readRuntimeConfig({}).mode, "mock");
   assert.equal(readRuntimeConfig({ RUNTIME_MODE: "mock", NODE_ENV: "production" }).mode, "mock");
-  assert.equal(readRuntimeConfig({
+  const local = {
     RUNTIME_MODE: "adc_local",
     DEPLOYMENT_TARGET: "local",
     MODEL_BACKEND: "google_rest",
@@ -32,13 +33,20 @@ test("runtime configuration keeps mock, ADC local, and deployed identity explici
     GOOGLE_LOCATION: "us-central1",
     GOOGLE_MODEL_ID: "gemini-test",
     GOOGLE_AUTH_MODE: "adc",
-  }).mode, "adc_local");
-  assert.equal(readRuntimeConfig(live).mode, "deployed_identity");
-  assert.equal(readRuntimeConfig({ ...live, MOVIEINATOR_SECRET_REF: secretRef }).secretReferenceCount, 1);
-  assert.equal(readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: secretRef }).secretReferenceCount, 1);
+  };
+  assert.throws(() => readRuntimeConfig(local), /active operator check/);
+  assert.throws(() => readRuntimeConfig(live), /active operator readiness check/);
+  const localReadiness = createGeminiReadiness({ config: readGeminiConfig(local), tokenProvider: async () => "test-token", transport: async () => ({ status: 200 }) });
+  const liveReadiness = createGeminiReadiness({ config: readGeminiConfig(live), tokenProvider: async () => "test-token", transport: async () => ({ status: 200 }) });
+  assert.equal((await localReadiness.check()).state, "passed");
+  assert.equal((await liveReadiness.check()).state, "passed");
+  assert.equal(readRuntimeConfig(local, { googleReadiness: localReadiness }).mode, "adc_local");
+  assert.equal(readRuntimeConfig(live, { googleReadiness: liveReadiness }).mode, "deployed_identity");
+  assert.equal(readRuntimeConfig({ ...live, MOVIEINATOR_SECRET_REF: secretRef }, { googleReadiness: liveReadiness }).secretReferenceCount, 1);
+  assert.equal(readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: secretRef }, { googleReadiness: liveReadiness }).secretReferenceCount, 1);
   assert.throws(() => readRuntimeConfig({ ...live, GOOGLE_MODEL_ID: "" }), RuntimeConfigError);
   assert.throws(() => readRuntimeConfig({ NODE_ENV: "production" }), /explicit/);
-  assert.throws(() => readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: "not-a-value" }), /Secret Manager/);
+  assert.throws(() => readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: "not-a-value" }, { googleReadiness: liveReadiness }), /Secret Manager/);
 });
 
 test("secret references are runtime-only and providers are injectable", async () => {
