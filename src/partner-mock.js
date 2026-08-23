@@ -4,6 +4,7 @@ import {
   partnerProvenance,
   safePartnerHash,
 } from "./partner-contracts.js";
+import { LOCAL_MOCK_ENDPOINT, PRODUCT_DISPLAY_NAME, PRODUCT_IDENTIFIER } from "./product-identity.js";
 
 export const LOCAL_MOCK_PROVIDER_ID = "mock-provider";
 export const LOCAL_MOCK_OBSERVED_AT = "2026-08-14T14:00:00.000Z";
@@ -54,9 +55,9 @@ export class LocalMockPartnerAdapter {
     this.freshUntil = freshUntil;
     this.calls = [];
     this.capability = createPartnerCapability({
-      provider: { provider_id: LOCAL_MOCK_PROVIDER_ID, display_name: "Movie-Inator local synthetic partner", product_ref: "synthetic-fixtures@1", confirmation_state: "confirmed" },
+      provider: { provider_id: LOCAL_MOCK_PROVIDER_ID, display_name: `${PRODUCT_DISPLAY_NAME} local synthetic partner`, product_ref: "synthetic-fixtures@1", confirmation_state: "confirmed" },
       environment: "local",
-      endpointRef: "local://movie-inator/mock",
+      endpointRef: LOCAL_MOCK_ENDPOINT,
       authMode: "none_synthetic",
       scopeRef: "Demo Media Workspace",
       allowedOperations: [
@@ -72,7 +73,7 @@ export class LocalMockPartnerAdapter {
         { operation: "read_telemetry", tool_ref: "local.read_telemetry", data_class: "telemetry" },
       ],
       dataClasses: ["synthetic_asset", "metadata", "quality", "governance", "lineage", "search", "telemetry"],
-      manifestHash: safePartnerHash("movie-inator|local.mock|synthetic-fixtures@1|read-only"),
+      manifestHash: safePartnerHash(`${PRODUCT_IDENTIFIER}|local.mock|synthetic-fixtures@1|read-only`),
       health: { state: "healthy", checked_at: new Date(clock()).toISOString() },
       limits: { timeout_ms: 2_000, max_attempts: 2, max_response_bytes: 64_000, max_items: 100 },
     });
@@ -112,7 +113,7 @@ export class LocalMockPartnerAdapter {
     };
   }
 
-  // These methods make the adapter directly usable by Movie-Inator's
+  // These methods make the adapter directly usable by MovieNator's
   // existing EvidenceProvider interface. They return normalized observations,
   // while invoke() remains the partner-runtime boundary.
   async resolve_asset(context, query) {

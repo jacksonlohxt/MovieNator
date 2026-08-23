@@ -12,12 +12,17 @@ import { PartnerRegistry } from "../src/partner-registry.js";
 import { PartnerOperationRunner } from "../src/partner-runtime.js";
 import { PartnerContractError, assertReadOnlyOperation, createPartnerCapability } from "../src/partner-contracts.js";
 import { createApp } from "../src/server.js";
+import { LEGACY_LOCAL_MOCK_ENDPOINTS, LOCAL_MOCK_ENDPOINT } from "../src/product-identity.js";
 
-function registryFor(adapter, endpoints = ["local://movie-inator/mock"]) {
+function registryFor(adapter, endpoints = [LOCAL_MOCK_ENDPOINT]) {
   const registry = new PartnerRegistry({ endpointAllowlist: endpoints });
   registry.register({ capability: adapter.capabilities(), adapter });
   return registry;
 }
+
+test("legacy local mock endpoint remains an allowlisted compatibility alias", () => {
+  assert.equal(new PartnerRegistry().endpointAllowlist.has(LEGACY_LOCAL_MOCK_ENDPOINTS[0]), true);
+});
 
 function liveOptions(overrides = {}) {
   return {
@@ -48,7 +53,7 @@ test("the capability contract accepts only explicitly registered read-only opera
   assert.throws(() => createPartnerCapability({
     provider: { provider_id: "bad-provider", display_name: "Bad" },
     environment: "local",
-    endpointRef: "local://movie-inator/mock",
+    endpointRef: LOCAL_MOCK_ENDPOINT,
     authMode: "none_synthetic",
     allowedOperations: [{ operation: "write_metadata", tool_ref: "write_metadata", data_class: "metadata" }],
     dataClasses: ["metadata"],
@@ -56,7 +61,7 @@ test("the capability contract accepts only explicitly registered read-only opera
 });
 
 test("local mock partner can be injected into the existing readiness evidence seam", async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-adapter-engine-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movieinator-adapter-engine-"));
   const store = new FileStore(path.join(directory, "runs.json"));
   const provider = new LocalMockPartnerAdapter();
   const engine = new MockEngine({ store, provider });
@@ -113,7 +118,7 @@ test("redacted events and projections never expose raw secrets", async () => {
   assert.equal(serialized.includes("abc123"), false);
   assert.equal(serialized.includes("raw_payload"), false);
   assert.equal(serialized.includes("password"), false);
-  assert.equal(serialized.includes("local://movie-inator/mock"), true);
+  assert.equal(serialized.includes(LOCAL_MOCK_ENDPOINT), true);
 });
 
 test("duplicate delivery is idempotent and does not call the partner twice", async () => {
@@ -150,7 +155,7 @@ test("future IBM-compatible shape stays pending and credential-gated", () => {
 });
 
 test("API exposes safe partner status and evidence provenance without raw payloads", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-partners-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movieinator-partners-"));
   const app = createApp({ dataPath: path.join(directory, "runs.json") });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   t.after(() => app.server.close());

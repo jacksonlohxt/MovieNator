@@ -115,7 +115,7 @@ function setWorkflow(mode) {
   if (mode === "readiness") {
     setText("#hero-eyebrow", "Audience Data Readiness Brief");
     setText("#page-title", "Know what your launch brief can support.");
-    setText("#hero-copy", "Ask one focused question about one audience asset. Movie-Inator gathers bounded demo evidence, applies a deterministic policy, and shows what a person should check next.");
+    setText("#hero-copy", "Ask one focused question about one audience asset. MovieNator gathers bounded demo evidence, applies a deterministic policy, and shows what a person should check next.");
     resetStatePanels();
     show(askSection, true);
     if (currentRun) renderRun(currentRun);
@@ -842,7 +842,7 @@ async function openGroundingCitation(documentId, citationId) {
   const content = $("#evidence-content");
   content.replaceChildren();
   const heading = document.createElement("h3");
-  heading.textContent = "Movie-Inator source excerpt";
+  heading.textContent = "MovieNator source excerpt";
   const table = document.createElement("dl");
   table.className = "evidence-table";
   addField(table, "Citation", citation.citation_id);

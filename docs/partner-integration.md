@@ -1,12 +1,12 @@
 # Partner integration operator guide
 
-Phase 3 adds a provider-neutral, read-only partner boundary. The default runtime registers one local synthetic adapter: `mock-provider` at `local://movie-inator/mock`. No partner product, tenant, endpoint, credential, or network transport is selected by default.
+Phase 3 adds a provider-neutral, read-only partner boundary. The default runtime registers one local synthetic adapter: `mock-provider` at `local://movieinator/mock`. The previously shipped `local://movie-inator/mock` endpoint remains allowlisted as a compatibility alias for existing local configuration. No partner product, tenant, endpoint, credential, or network transport is selected by default.
 
 ## What is automated locally
 
 - `PartnerCapability@1` records provider identity, environment, an opaque endpoint reference, authentication mode, explicit read-only operations, data classes, health, limits, manifest hash, and redacted provenance.
 - `PartnerRegistry` is the only addressable provider catalog. It rejects unknown providers, endpoints, tools, capabilities, and mutating operation names before an adapter or transport is called.
-- `LocalMockPartnerAdapter` returns deterministic synthetic asset, metadata, quality, governance, lineage, search, and telemetry observations. It also implements Movie-Inator's existing semantic EvidenceProvider methods, so a local readiness worker can inject it without changing the workflow contract. It has no URL transport and requires no credentials.
+- `LocalMockPartnerAdapter` returns deterministic synthetic asset, metadata, quality, governance, lineage, search, and telemetry observations. It also implements MovieNator's existing semantic EvidenceProvider methods, so a local readiness worker can inject it without changing the workflow contract. It has no URL transport and requires no credentials.
 - `PartnerOperationRunner` applies a two-attempt maximum, bounded timeouts, retry classification, duplicate-delivery suppression, circuit behavior, stale-readiness reporting, and safe unavailable results.
 - Partner events contain hashes, operation names, attempt counts, status, error class, and bounded redacted metadata. They do not contain credentials, authorization headers, raw request or response payloads, or private rows.
 - Partner observations are evidence input only. They cannot select a model or tool, change the Policy Gate decision, publish, mutate, submit, purchase, deploy, export, or send messages. The existing deterministic Policy Gate remains authoritative.

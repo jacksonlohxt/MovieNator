@@ -1,4 +1,4 @@
-# Movie-Inator product requirements document
+# MovieNator product requirements document
 
 **Status:** Captain-approved Script Brief v1 launch direction
 **Scope:** Product and contract source of truth. This document authorizes no credentials, cloud mutation, publishing, approval action, or external partner side effect.
@@ -7,7 +7,7 @@
 
 ## 1. Product promise
 
-Movie-Inator helps a filmmaker turn one bounded script into a useful first brief. The filmmaker uploads a PDF or plain-text script, says what would be useful, and receives a concise brief grounded in the uploaded source. The default brief is useful without requiring the filmmaker to know anything about models, providers, phases, checkpoints, or run records.
+MovieNator helps a filmmaker turn one bounded script into a useful first brief. The filmmaker uploads a PDF or plain-text script, says what would be useful, and receives a concise brief grounded in the uploaded source. The default brief is useful without requiring the filmmaker to know anything about models, providers, phases, checkpoints, or run records.
 
 The primary customer flow is:
 
@@ -116,7 +116,7 @@ A source excerpt is evidence for what the source says. It is not evidence of rig
 
 ## 5. Prompt and model boundary
 
-The Script Brief prompt is server-owned and versioned as `movie-inator-script-brief@2`. The browser supplies only request intent. The prompt defines:
+The Script Brief prompt is server-owned and versioned as `movieinator-script-brief@2`. The browser supplies only request intent. The prompt defines:
 
 - the filmmaker-facing role and the source-only boundary;
 - the exact `grounded-script-brief@2` output schema;
@@ -132,7 +132,7 @@ If Gemini is unavailable, malformed, unsafe, over budget, or not ready, the work
 
 ## 6. Browser experience
 
-The landing experience is the Script Brief upload flow. It visibly labels local mock mode as **Demo mode** and explains that files remain in the Movie-Inator instance. The first interaction presents:
+The landing experience is the Script Brief upload flow. It visibly labels local mock mode as **Demo mode** and explains that files remain in the MovieNator instance. The first interaction presents:
 
 1. **Upload script** - one PDF or TXT file, with bounded size and safe ingestion feedback.
 2. **Tell us what you want** - an optional plain-language request. Leaving it blank uses the server-owned default.

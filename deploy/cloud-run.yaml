@@ -12,7 +12,7 @@ spec:
       timeoutSeconds: 60
       serviceAccountName: <OPERATOR_SELECTED_RUNTIME_SERVICE_ACCOUNT>
       containers:
-        - name: movie-inator
+        - name: movieinator
           image: <OPERATOR_SELECTED_ARTIFACT_IMAGE>
           ports:
             - name: http1
@@ -42,7 +42,7 @@ spec:
               value: "<OPERATOR_SELECTED_API_VERSION>"
             - name: GOOGLE_AUTH_MODE
               value: "workload_identity"
-            - name: MOVIE_INATOR_SECRET_REF
+            - name: MOVIEINATOR_SECRET_REF
               value: "projects/<OPERATOR_SELECTED_PROJECT_NUMBER>/secrets/<OPERATOR_SELECTED_SECRET_NAME>/versions/latest"
             - name: REQUEST_TIMEOUT_MS
               value: "30000"

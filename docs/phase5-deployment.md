@@ -41,8 +41,8 @@ GOOGLE_AUTH_MODE=adc
 `Dockerfile` uses `node:20-bookworm-slim`, installs production dependencies from `package-lock.json`, copies only runtime files, creates `/data`, and runs as the unprivileged `node` user. The image defaults to explicit mock mode so it is usable without credentials. `PORT=8080` and `DATA_PATH=/data/runs.json` are container defaults. `.dockerignore` excludes `.env*`, ADC files, local data, logs, tests, and git metadata.
 
 ```sh
-docker build --pull -t movie-inator:<OPERATOR_SELECTED_TAG> .
-docker run --rm -p 8080:8080 movie-inator:<OPERATOR_SELECTED_TAG>
+docker build --pull -t movieinator:<OPERATOR_SELECTED_TAG> .
+docker run --rm -p 8080:8080 movieinator:<OPERATOR_SELECTED_TAG>
 SMOKE_BASE_URL=http://127.0.0.1:8080 npm run smoke:deployment
 ```
 
@@ -52,7 +52,7 @@ The server sets bounded request, header, keep-alive, model call, request-size, o
 
 ## Cloud Run shape
 
-`deploy/cloud-run.yaml` is a placeholder-only manifest. It declares port 8080, bounded concurrency and timeout, a non-default runtime service account placeholder, explicit `deployed_identity` mode, and no secret value. The `MOVIE_INATOR_SECRET_REF` value is a resource-name placeholder, not a credential.
+`deploy/cloud-run.yaml` is a placeholder-only manifest. It declares port 8080, bounded concurrency and timeout, a non-default runtime service account placeholder, explicit `deployed_identity` mode, and no secret value. The `MOVIEINATOR_SECRET_REF` value is a resource-name placeholder, not a credential. The previous `MOVIE_INATOR_SECRET_REF` name remains accepted as a compatibility alias.
 
 **Operator action - resource creation or update:** after choosing a project, billing account, region, artifact repository, service name, runtime service account, model, quota, and policy, an authorized operator may build and publish an image and apply the manifest. These commands can create or change paid resources and are intentionally not run here:
 
@@ -109,7 +109,7 @@ Audit records use `audit-event@1` and contain only configuration state, request 
 
 ## Later Agent Builder and Agent Runtime path
 
-Cloud Run is the current hosting shape for this server. A later managed orchestration path may package the bounded Movie-Inator workflow for Agent Builder and deploy the agent to **Agent Runtime**. Google documentation now uses Agent Runtime for the managed runtime previously referred to as Agent Engine. This is a future operator decision, not an enabled repository integration.
+Cloud Run is the current hosting shape for this server. A later managed orchestration path may package the bounded MovieNator workflow for Agent Builder and deploy the agent to **Agent Runtime**. Google documentation now uses Agent Runtime for the managed runtime previously referred to as Agent Engine. This is a future operator decision, not an enabled repository integration.
 
 The later path must preserve the same contracts:
 

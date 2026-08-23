@@ -21,7 +21,7 @@ import {
 import { GroundedBriefEngine } from "../src/grounding-engine.js";
 import { FakeModel } from "../src/engine.js";
 
-function tempPath(prefix = "movie-inator-grounding") {
+function tempPath(prefix = "movieinator-grounding") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
   return path.join(directory, "runs.json");
 }
@@ -120,7 +120,7 @@ test("whole-document Script Brief condensation covers long sources and validates
   assert.ok(proposal.synopsis.citation_ids.length > 0);
 });
 
-test("Movie-Inator API uses the default Script Brief request and returns structured cited sections", async (t) => {
+test("MovieNator API uses the default Script Brief request and returns structured cited sections", async (t) => {
   const { app, base } = await startApp(t);
   const uploaded = await upload(base, "script.txt", "text/plain", Buffer.from("OPENING\nMARA enters the observatory.\n\nEXT. SHORE - DAY\nThe family faces loss and chooses hope."));
   const document = await uploaded.json();
@@ -135,16 +135,16 @@ test("Movie-Inator API uses the default Script Brief request and returns structu
   assert.ok(Array.isArray(completed.result.main_characters));
   assert.ok(Array.isArray(completed.result.open_questions));
   assert.equal(completed.result.grounding.strategy, "whole_document_condensation");
-  assert.equal(completed.result.provenance.provider, "Movie-Inator uploaded script source");
+  assert.equal(completed.result.provenance.provider, "MovieNator uploaded script source");
 });
 
-test("Movie-Inator API uploads duplicate sources and runs a cited grounded brief without approval", async (t) => {
+test("MovieNator API uploads duplicate sources and runs a cited grounded brief without approval", async (t) => {
   const { app, base } = await startApp(t);
   const bytes = Buffer.from("OPENING\nMara enters the observatory and watches the signal.");
   const first = await upload(base, "opening.txt", "text/plain", bytes);
   assert.equal(first.status, 201);
   const firstDocument = await first.json();
-  assert.equal(firstDocument.source_label, "Movie-Inator uploaded script source");
+  assert.equal(firstDocument.source_label, "MovieNator uploaded script source");
   assert.equal(firstDocument.ingestion.state, "ready");
   const duplicate = await upload(base, "renamed.txt", "text/plain", bytes);
   assert.equal(duplicate.status, 200);

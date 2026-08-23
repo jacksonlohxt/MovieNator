@@ -4,15 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f5f8f5">
-    <title>Movie-Inator - Evidence-backed filmmaker workflows</title>
+    <title>MovieNator - Evidence-backed filmmaker workflows</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <div class="brand-lockup" aria-label="Movie-Inator home">
+      <div class="brand-lockup" aria-label="MovieNator home">
         <span class="brand-mark" aria-hidden="true">✦</span>
-        <span>Movie-Inator</span>
+        <span>MovieNator</span>
       </div>
       <div class="header-meta">
         <span class="mode-dot" aria-hidden="true"></span>
@@ -34,7 +34,7 @@
 
       <details class="developer-details">
         <summary><span>Developer details</span><span class="summary-hint">Audience readiness and technical evidence</span></summary>
-        <div class="workflow-switch" role="group" aria-label="Choose a Movie-Inator workflow">
+        <div class="workflow-switch" role="group" aria-label="Choose a MovieNator workflow">
           <button class="workflow-switch-button" type="button" data-workflow="readiness" aria-pressed="false">Audience Data Readiness</button>
           <button class="workflow-switch-button is-selected" type="button" data-workflow="grounding" aria-pressed="true">Script Brief</button>
         </div>
@@ -155,8 +155,8 @@
       </section>
       <section id="grounding-section" class="panel grounding-panel" data-workflow-surface="grounding" aria-labelledby="grounding-title" hidden>
         <div class="section-heading"><div><p class="section-kicker">Start here</p><h2 id="grounding-title">Create your Script Brief.</h2></div><span class="step-badge">1 · Upload</span></div>
-        <p class="state-copy">Upload one PDF or plain-text script. Movie-Inator reads the bounded source as a whole, keeps page or section locations, and links material statements to the source.</p>
-        <div class="grounding-trust" role="note"><strong>Demo mode</strong><span>Your file stays in this Movie-Inator instance. No credentials or external calls are needed.</span></div>
+        <p class="state-copy">Upload one PDF or plain-text script. MovieNator reads the bounded source as a whole, keeps page or section locations, and links material statements to the source.</p>
+        <div class="grounding-trust" role="note"><strong>Demo mode</strong><span>Your file stays in this MovieNator instance. No credentials or external calls are needed.</span></div>
         <form id="document-form" class="document-form" novalidate>
           <div class="field-group"><label for="script-file">Script or document <span class="required">PDF or TXT</span></label><input id="script-file" name="file" type="file" accept="application/pdf,text/plain,.pdf,.txt" required aria-describedby="document-help document-error"><span id="document-help" class="field-help">Maximum 5 MiB. Source text is safely bounded before the brief is created.</span><p id="document-error" class="field-error" role="alert" hidden></p></div>
           <button id="upload-document" class="button button-primary" type="submit"><span>Upload script</span><span aria-hidden="true">↑</span></button>
@@ -190,7 +190,7 @@
         <div id="evidence-content" class="evidence-content"></div>
       </section>
     </div>
-    <footer class="site-footer"><span>Movie-Inator filmmaker workflows</span><span>Read-only MVP · No publishing or approval action</span></footer>
+    <footer class="site-footer"><span>MovieNator filmmaker workflows</span><span>Read-only MVP · No publishing or approval action</span></footer>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

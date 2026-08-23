@@ -11,6 +11,7 @@ import {
 } from "./grounding.js";
 import { SCRIPT_BRIEF_RESULT_SCHEMA } from "./grounding-contracts.js";
 import { combineProvenance, hashValue } from "./contracts.js";
+import { PRODUCT_DISPLAY_NAME, PRODUCT_IDENTIFIER } from "./product-identity.js";
 
 const TERMINAL_SCRIPT_STATES = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
 
@@ -24,7 +25,7 @@ function sourceProvenance(source, operation = "condense_whole_document") {
 }
 
 function modelProvenance(model) {
-  return typeof model?.provenance === "function" ? model.provenance("grounded_brief") : { backend: "fake", prompt_id: "movie-inator-script-brief@2" };
+  return typeof model?.provenance === "function" ? model.provenance("grounded_brief") : { backend: "fake", prompt_id: `${PRODUCT_IDENTIFIER}-script-brief@2` };
 }
 
 function resultProvenance(model, source, operation = "condense_whole_document") {
@@ -33,8 +34,8 @@ function resultProvenance(model, source, operation = "condense_whole_document") 
   const modelName = modelBackend.backend === "google_rest" ? "Gemini-backed" : "Deterministic mock";
   return {
     ...combineProvenance({ modelBackend, providerBackend: groundingBackend }),
-    provider: "Movie-Inator uploaded script source",
-    label: `${modelName} / Movie-Inator uploaded script source`,
+    provider: `${PRODUCT_DISPLAY_NAME} uploaded script source`,
+    label: `${modelName} / ${PRODUCT_DISPLAY_NAME} uploaded script source`,
     grounding_source: groundingBackend,
   };
 }
@@ -68,7 +69,7 @@ function gapResult(run, reason, source) {
     brief_run_id: run.run_id,
     document_id: run.document_id,
     title: "No grounded excerpts found",
-    summary: "Movie-Inator could not find a bounded source excerpt matching this question. The brief does not infer an answer from the full document.",
+    summary: `${PRODUCT_DISPLAY_NAME} could not find a bounded source excerpt matching this question. The brief does not infer an answer from the full document.`,
     key_points: [],
     cited_citation_ids: [],
     citations: [],
@@ -183,7 +184,7 @@ export class GroundedBriefEngine {
     const citations = proposal.cited_citation_ids.map((citationId) => {
       const excerpt = citationById.get(citationId);
       if (!excerpt) throw new Error("Unknown grounded citation");
-      return { citation_id: citationId, document_id: run.document_id, chunk_id: excerpt.chunk_id, source_locations: excerpt.source_locations, source_label: "Movie-Inator uploaded script source" };
+      return { citation_id: citationId, document_id: run.document_id, chunk_id: excerpt.chunk_id, source_locations: excerpt.source_locations, source_label: `${PRODUCT_DISPLAY_NAME} uploaded script source` };
     });
     const result = wholeDocument
       ? {

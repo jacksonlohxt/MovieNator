@@ -1,5 +1,6 @@
 import { TextDecoder } from "node:util";
 import { ContractError, hashValue, redactText, stableStringify } from "./contracts.js";
+import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
 export const DOCUMENT_SCHEMA = "grounding-document@1";
 export const GROUNDING_REQUEST_SCHEMA = "grounded-brief-request@1";
@@ -243,7 +244,7 @@ export function parseGroundingDocument({ filename, contentType, bytes }) {
     byte_size: bytes.length,
     text_char_count: canonicalText.length,
     truncated: bounded.truncated,
-    source_label: "Movie-Inator uploaded script source",
+    source_label: `${PRODUCT_DISPLAY_NAME} uploaded script source`,
     chunks,
     chunk_count: chunks.length,
     ingestion: { state: "ready", extracted_chars: canonicalText.length, chunk_count: chunks.length, truncated: bounded.truncated },
@@ -300,6 +301,6 @@ export function safeCitationProjection(citation) {
     chunk_id: citation.chunk_id,
     source_locations: citation.source_locations,
     excerpt: citation.excerpt.slice(0, MAX_CHUNK_CHARS),
-    source_label: "Movie-Inator uploaded script source",
+    source_label: `${PRODUCT_DISPLAY_NAME} uploaded script source`,
   };
 }

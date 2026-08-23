@@ -1,15 +1,15 @@
 export const SESSION_KEYS = Object.freeze({
-  readinessRun: "movie-inator-readiness-run-id",
-  groundingDocument: "movie-inator-grounding-document-id",
-  groundingRun: "movie-inator-grounding-run-id",
+  readinessRun: "movieinator-readiness-run-id",
+  groundingDocument: "movieinator-grounding-document-id",
+  groundingRun: "movieinator-grounding-run-id",
 });
 
-// The readiness key is the only legacy browser key from the pre-rename app.
-// Keep this one bounded alias until old sessions have naturally expired.
+// Keep both previously shipped key families readable while old sessions expire.
+// New writes use only the MovieNator keys above and never delete legacy values.
 export const LEGACY_SESSION_KEYS = Object.freeze({
-  readinessRun: Object.freeze(["gemini-agents-run-id"]),
-  groundingDocument: Object.freeze([]),
-  groundingRun: Object.freeze([]),
+  readinessRun: Object.freeze(["movie-inator-readiness-run-id", "gemini-agents-run-id"]),
+  groundingDocument: Object.freeze(["movie-inator-grounding-document-id", "gemini-agents-grounding-document-id"]),
+  groundingRun: Object.freeze(["movie-inator-grounding-run-id", "gemini-agents-grounding-run-id"]),
 });
 
 export function readMigratedSessionValue(storage, key, legacyKeys = []) {

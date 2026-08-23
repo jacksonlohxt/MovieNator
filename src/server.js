@@ -32,6 +32,7 @@ import { PartnerOperationRunner } from "./partner-runtime.js";
 import { PartnerContractError } from "./partner-contracts.js";
 import { createLocalMcpDatabase } from "./mcp-database.js";
 import { createDefaultToolRegistry } from "./orchestrator.js";
+import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
@@ -168,7 +169,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
       const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
       const safeContractError = error instanceof ContractError || error instanceof DocumentContractError || error instanceof PartnerContractError;
       const status = notFound ? 404 : conflict ? 409 : safeContractError ? 400 : 500;
-      if (!res.headersSent) sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : "The Movie-Inator server could not complete the request", error.field);
+      if (!res.headersSent) sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : `The ${PRODUCT_DISPLAY_NAME} server could not complete the request`, error.field);
       if (!safeContractError) audit.record({ type: "operator_failure", outcome: "failed", mode: runtimeConfig.mode, code: error.code || "internal_error", attributes: { route: req.url?.split("?")[0] } });
     }
   });
@@ -484,7 +485,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
     const address = app.server.address();
     const host = typeof address === "object" && address ? address.address : app.runtimeConfig.host;
     const port = typeof address === "object" && address ? address.port : app.runtimeConfig.port;
-    console.log(`Movie-Inator server listening on http://${host}:${port}`);
+    console.log(`${PRODUCT_DISPLAY_NAME} server listening on http://${host}:${port}`);
   }).catch((error) => {
     console.error(JSON.stringify({ event: "startup_failed", code: error.code || "startup_failed" }));
     process.exitCode = 1;
