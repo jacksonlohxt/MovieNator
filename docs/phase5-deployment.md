@@ -52,7 +52,7 @@ The server sets bounded request, header, keep-alive, model call, request-size, o
 
 ## Cloud Run shape
 
-`deploy/cloud-run.yaml` is a placeholder-only manifest. It declares port 8080, bounded concurrency and timeout, a non-default runtime service account placeholder, explicit `deployed_identity` mode, and no secret value. The `MOVIEINATOR_SECRET_REF` value is a resource-name placeholder, not a credential. The previous `MOVIE_INATOR_SECRET_REF` name remains accepted as a compatibility alias.
+`deploy/cloud-run.yaml` is a placeholder-only manifest. It declares port 8080, bounded concurrency and timeout, a non-default runtime service account placeholder, explicit `deployed_identity` and future `managed_interactions` modes, an operator-selected managed agent ID placeholder, and no secret value. The `MOVIEINATOR_SECRET_REF` value is a resource-name placeholder, not a credential. The previous `MOVIE_INATOR_SECRET_REF` name remains accepted as a compatibility alias. Managed mode still fails closed until the server-owned Google readiness check passes.
 
 **Operator action - resource creation or update:** after choosing a project, billing account, region, artifact repository, service name, runtime service account, model, quota, and policy, an authorized operator may build and publish an image and apply the manifest. These commands can create or change paid resources and are intentionally not run here:
 
@@ -107,16 +107,16 @@ Do not put secret values in shell history, manifests, fixtures, test snapshots, 
 
 Audit records use `audit-event@1` and contain only configuration state, request outcome, model/provider provenance, safety blocks, and operator failure classes. Prompt text, provider responses, credentials, hidden reasoning, raw source, and secret values are omitted or replaced with bounded markers. The local store retains only bounded audit events for local inspection. Public API events remain safe projections.
 
-## Later Agent Builder and Agent Runtime path
+## Google managed-agent and Interactions API path
 
-Cloud Run is the current hosting shape for this server. A later managed orchestration path may package the bounded MovieNator workflow for Agent Builder and deploy the agent to **Agent Runtime**. Google documentation now uses Agent Runtime for the managed runtime previously referred to as Agent Engine. This is a future operator decision, not an enabled repository integration.
+Cloud Run is the current hosting shape for this server. The smallest future managed-agent adapter is the Node `@google/genai` package calling one operator-selected managed Agent Platform agent through `client.interactions.create`. The credential-free boundary, exact package pin, request shape, readiness gate, and safe event projection are documented in `docs/google-agent-runtime.md` and implemented in `src/producer-agent-boundary.js`.
 
-The later path must preserve the same contracts:
+The future path must preserve the same contracts:
 
-1. Agent Builder is a design, grounding, evaluation, and configuration surface, not a permission to expose arbitrary tools or model-selected providers.
-2. Agent Runtime receives one versioned workflow package, fixed semantic operations, server-owned safety settings, an attached identity, bounded deadlines, and a redacted event sink.
-3. Cloud Run remains a possible API and browser facade. Agent Runtime must not bypass the existing Policy Gate, Verifier, safe projections, or operator approval boundary.
-4. Grounding sources, model IDs, region, retention, quotas, and IAM remain operator-selected. Secret values remain in Secret Manager and are referenced by name only.
-5. Agent Builder/Agent Runtime rollout requires contract tests, synthetic fixtures, evaluation results, readiness evidence, rollback, and an explicit cost/quota review.
+1. Agent Builder or managed-agent configuration is an operator-controlled design and deployment surface, not a permission to expose arbitrary tools or model-selected providers.
+2. The managed agent receives one bounded packet reference through the fixed `producer_packet.read / inspect_packet` contract. The adapter sends no dynamic tools, MCP URLs, arbitrary URLs, raw source, or credentials.
+3. Cloud Run remains the API and browser facade. The managed agent must not bypass application-owned state, Policy Gate, Verifier, safe projections, or operator approval boundaries.
+4. Project, agent ID, model, global location, identity, retention, quotas, and IAM remain operator-selected. Secret values remain in Secret Manager and are referenced by name only.
+5. Managed-agent rollout requires contract tests, synthetic fixtures, evaluation results, passed readiness evidence, rollback, and an explicit cost/quota review.
 
-**Operator action - future Agent Builder/Agent Runtime resource or IAM change:** any Agent Builder configuration, Agent Runtime deployment, API enablement, service account binding, networking, quota, or billing change is owned by an authorized operator. No command is supplied as an automatic worker step, and no live Agent Runtime deployment is performed by this repository.
+**Operator action - future Agent Platform resource or IAM change:** any managed-agent creation, Agent Runtime deployment, API enablement, service account binding, networking, quota, or billing change is owned by an authorized operator. No command is supplied as an automatic worker step, and no live Agent Platform deployment is performed by this repository.

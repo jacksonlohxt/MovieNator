@@ -12,12 +12,13 @@
     "smoke": "node scripts/deployment-smoke.js",
     "test": "node --test",
     "check:docs": "node src/check-docs.js",
-    "check": "node --check src/product-identity.js && node --check src/contracts.js && node --check src/model-gateway.js && node --check src/documents.js && node --check src/grounding-contracts.js && node --check src/grounding.js && node --check src/grounding-engine.js && node --check src/gemini-rest.js && node --check src/safety.js && node --check src/runtime-config.js && node --check src/secrets.js && node --check src/audit.js && node --check src/partner-contracts.js && node --check src/partner-registry.js && node --check src/partner-mock.js && node --check src/partner-adapter.js && node --check src/partner-runtime.js && node --check src/partner-defaults.js && node --check src/logic-contracts.js && node --check src/tool-registry.js && node --check src/mcp-database.js && node --check src/orchestrator.js && node --check src/workflow-state.js && node --check src/agent-runtime-boundary.js && node --check src/logic-host.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node --check scripts/deployment-smoke.js && node --check web/app.js && node --check web/session-state.js && node src/check-schemas.js && node src/check-docs.js"
+    "check": "node --check src/product-identity.js && node --check src/contracts.js && node --check src/model-gateway.js && node --check src/documents.js && node --check src/grounding-contracts.js && node --check src/grounding.js && node --check src/grounding-engine.js && node --check src/gemini-rest.js && node --check src/safety.js && node --check src/runtime-config.js && node --check src/secrets.js && node --check src/audit.js && node --check src/partner-contracts.js && node --check src/partner-registry.js && node --check src/partner-mock.js && node --check src/partner-adapter.js && node --check src/partner-runtime.js && node --check src/partner-defaults.js && node --check src/logic-contracts.js && node --check src/tool-registry.js && node --check src/mcp-database.js && node --check src/orchestrator.js && node --check src/workflow-state.js && node --check src/agent-runtime-boundary.js && node --check src/producer-agent-boundary.js && node --check src/logic-host.js && node --check src/engine.js && node --check src/store.js && node --check src/server.js && node --check scripts/deployment-smoke.js && node --check web/app.js && node --check web/session-state.js && node src/check-schemas.js && node src/check-docs.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@google/genai": "2.18.0",
     "google-auth-library": "^11.0.2"
   }
 }
