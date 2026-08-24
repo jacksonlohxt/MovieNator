@@ -261,3 +261,22 @@ test("grounding source failure is recoverable and retry preserves the original",
   assert.equal(store.getScriptRun(child.run_id).state, "succeeded");
   assert.equal(store.getScriptRun(run.run_id).state, "failed");
 });
+
+test("terminal Script Brief retry is a bounded client error and preserves the terminal run", async (t) => {
+  const { app, base } = await startApp(t);
+  const documentResponse = await upload(base, "terminal-retry.txt", "text/plain", Buffer.from("# OPENING\nMara enters the observatory."));
+  assert.equal(documentResponse.status, 201);
+  const document = await documentResponse.json();
+  const acceptedResponse = await fetch(`${base}/v1/documents/${document.document_id}/briefs`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "terminal-retry" }, body: JSON.stringify({ schema_version: "grounded-brief-request@2", request: "Create a concise brief" }) });
+  assert.equal(acceptedResponse.status, 202);
+  const accepted = await acceptedResponse.json();
+  await app.groundedEngine.waitForIdle(accepted.run_id);
+  const before = await fetch(`${base}/v1/script-briefs/${accepted.run_id}`).then((response) => response.json());
+  assert.equal(before.state, "succeeded");
+  const retry = await fetch(`${base}/v1/script-briefs/${accepted.run_id}/retry`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  assert.equal(retry.status, 409);
+  assert.equal((await retry.json()).error.code, "SCRIPT_RUN_NOT_RETRYABLE");
+  const after = await fetch(`${base}/v1/script-briefs/${accepted.run_id}`).then((response) => response.json());
+  assert.equal(after.run_id, before.run_id);
+  assert.equal(after.state, "succeeded");
+});

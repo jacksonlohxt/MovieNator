@@ -11,7 +11,7 @@ import {
   validateScriptBriefProposal,
 } from "./grounding.js";
 import { PRODUCER_INTELLIGENCE_SCHEMA, SCRIPT_BRIEF_PROMPT_ID, SCRIPT_BRIEF_RESULT_SCHEMA } from "./grounding-contracts.js";
-import { combineProvenance, hashValue } from "./contracts.js";
+import { combineProvenance, ContractError, hashValue } from "./contracts.js";
 import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
 const TERMINAL_SCRIPT_STATES = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
@@ -147,8 +147,8 @@ export class GroundedBriefEngine {
 
   async retry(runId, { idempotencyHash } = {}) {
     const run = this.store.getScriptRun(runId);
-    if (!run) throw new Error("Grounded brief run not found");
-    if (!['failed'].includes(run.state)) throw new Error("Only a failed grounded brief can be retried");
+    if (!run) throw new ContractError("SCRIPT_RUN_NOT_FOUND", "Grounded brief run not found");
+    if (run.state !== "failed") throw new ContractError("SCRIPT_RUN_NOT_RETRYABLE", "Only a failed grounded brief can be retried; this run is already terminal", "run_id");
     const child = this.store.createScriptRun({ documentId: run.document_id, question: run.question, requestIntent: run.request_intent || run.question, briefVersion: run.brief_version || 1, idempotencyHash: idempotencyHash || hashValue(`${runId}|retry|${Date.now()}`), parentRunId: runId, retryCount: run.retry_count + 1, provenance: this.provenance() }).run;
     this.enqueue(child.run_id);
     return child;

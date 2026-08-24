@@ -1,10 +1,12 @@
 import http from "node:http";
+import { TextDecoder } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ContractError,
   hashValue,
+  stableStringify,
   isPlainObject,
   parseIdempotencyKey,
   parseRunRequest,
@@ -37,9 +39,14 @@ import { createProducerAgentBoundary } from "./producer-agent-boundary.js";
 import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 import {
   MAX_PRODUCER_BUNDLE_BYTES,
+  MAX_PRODUCER_MANIFEST_BYTES,
+  MAX_PRODUCER_REVISIONS,
   MAX_PRODUCER_SOURCES,
+  CANONICAL_PRODUCER_SOURCE_KINDS,
+  PRODUCER_BUNDLE_SCHEMA,
   buildProducerDecisionPacket,
   parseProducerSource,
+  producerBundleId,
   producerCitation,
   safeProducerPacketProjection,
   validateProducerBundleSchema,
@@ -134,14 +141,85 @@ function parseProducerMultipart(body, contentType) {
   return files.map((file, index) => ({ ...file, source_kind: kindParts[index].content.toString("utf8").trim() }));
 }
 
+function safeManifestValue(value, field, max) {
+  if (typeof value !== "string") throw new DocumentContractError("INVALID_MANIFEST", `${field} must be a string`, field);
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized || normalized.length > max || /[\u0000-\u001F\u007F]/.test(normalized)) throw new DocumentContractError("INVALID_MANIFEST", `${field} must be a bounded safe string`, field);
+  return normalized;
+}
+
+function parseCanonicalManifest(parts) {
+  if (parts.some((part) => !["manifest", "file"].includes(part.name))) throw new DocumentContractError("UNKNOWN_FIELD", "Producer source bundle contains an unknown multipart field", "bundle");
+  const manifestParts = parts.filter((part) => part.name === "manifest" && part.filename === undefined);
+  const files = parts.filter((part) => part.name === "file" && part.filename !== undefined);
+  if (manifestParts.length !== 1 || files.length < 1 || files.length > MAX_PRODUCER_SOURCES) throw new DocumentContractError("INVALID_BUNDLE", `Provide one manifest and 1 to ${MAX_PRODUCER_SOURCES} files`, "manifest");
+  if (manifestParts[0].content.length > MAX_PRODUCER_MANIFEST_BYTES) throw new DocumentContractError("MANIFEST_TOO_LARGE", "The source manifest must be at most 32 KiB", "manifest");
+  let manifest;
+  try {
+    const manifestText = new TextDecoder("utf-8", { fatal: true }).decode(manifestParts[0].content);
+    manifest = JSON.parse(manifestText);
+  } catch {
+    throw new DocumentContractError("INVALID_MANIFEST", "The source manifest must be valid UTF-8 JSON", "manifest");
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new DocumentContractError("INVALID_MANIFEST", "The source manifest must be an object", "manifest");
+  const allowedManifest = new Set(["schema_version", "sources"]);
+  for (const key of Object.keys(manifest)) if (!allowedManifest.has(key)) throw new DocumentContractError("UNKNOWN_FIELD", `The source manifest contains an unknown field: ${key}`, key);
+  if (manifest.schema_version !== PRODUCER_BUNDLE_SCHEMA || !Array.isArray(manifest.sources) || manifest.sources.length !== files.length) throw new DocumentContractError("INVALID_MANIFEST", "The manifest must contain one source entry for each uploaded file", "sources");
+  const allowedEntry = new Set(["input_ref", "filename", "source_kind", "department", "version_label", "status_label", "relationships", "source_note"]);
+  const refs = new Set();
+  const entries = manifest.sources.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new DocumentContractError("INVALID_MANIFEST", "Each source manifest entry must be an object", `sources[${index}]`);
+    for (const key of Object.keys(entry)) if (!allowedEntry.has(key)) throw new DocumentContractError("UNKNOWN_FIELD", `The source manifest contains an unknown source field: ${key}`, `sources[${index}].${key}`);
+    const inputRef = safeManifestValue(entry.input_ref, `sources[${index}].input_ref`, 120);
+    if (refs.has(inputRef)) throw new DocumentContractError("INVALID_MANIFEST", "Source input_ref values must be unique", "input_ref");
+    refs.add(inputRef);
+    if (!CANONICAL_PRODUCER_SOURCE_KINDS.includes(entry.source_kind)) throw new DocumentContractError("INVALID_SOURCE_KIND", "source_kind must use the Producer Intake allowlist", `sources[${index}].source_kind`);
+    const result = { input_ref: inputRef, source_kind: entry.source_kind };
+    for (const key of ["department", "version_label", "status_label", "source_note"]) if (entry[key] !== undefined) result[key] = safeManifestValue(entry[key], `sources[${index}].${key}`, key === "source_note" ? 240 : key === "department" ? 80 : 120);
+    if (entry.filename !== undefined) result.filename = safeManifestValue(entry.filename, `sources[${index}].filename`, 120);
+    if (entry.relationships !== undefined) {
+      if (!Array.isArray(entry.relationships) || entry.relationships.length > 4) throw new DocumentContractError("INVALID_SOURCE_RELATIONSHIP", "Each source may have at most four relationships", `sources[${index}].relationships`);
+      result.relationships = entry.relationships.map((relationship, relationshipIndex) => {
+        if (!relationship || typeof relationship !== "object" || Array.isArray(relationship)) throw new DocumentContractError("INVALID_SOURCE_RELATIONSHIP", "A source relationship must be an object", `sources[${index}].relationships[${relationshipIndex}]`);
+        const keys = Object.keys(relationship);
+        if (keys.some((key) => !["type", "target_input_ref"].includes(key))) throw new DocumentContractError("UNKNOWN_FIELD", "A source relationship contains an unknown field", `sources[${index}].relationships[${relationshipIndex}]`);
+        const type = safeManifestValue(relationship.type, "relationship.type", 30);
+        if (!["revises", "supports", "derived_from", "references", "conflicts_with", "unknown"].includes(type)) throw new DocumentContractError("INVALID_SOURCE_RELATIONSHIP", "Source relationship type is not supported", "relationship.type");
+        return { type, target_input_ref: safeManifestValue(relationship.target_input_ref, "relationship.target_input_ref", 120) };
+      });
+    } else result.relationships = [];
+    return result;
+  });
+  const primaryCount = entries.filter((entry) => entry.source_kind === "primary_screenplay").length;
+  if (primaryCount !== 1) throw new DocumentContractError("PRIMARY_SOURCE_REQUIRED", "Exactly one primary_screenplay source is required", "sources");
+  if (entries.filter((entry) => entry.source_kind === "screenplay_revision").length > MAX_PRODUCER_REVISIONS) throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `At most ${MAX_PRODUCER_REVISIONS} screenplay_revision sources are accepted`, "sources");
+  const byRef = new Set(entries.map((entry) => entry.input_ref));
+  for (const entry of entries) for (const relationship of entry.relationships) {
+    if (relationship.target_input_ref === entry.input_ref || !byRef.has(relationship.target_input_ref)) throw new DocumentContractError("INVALID_SOURCE_RELATIONSHIP", "Source relationships must target another manifest entry", "relationships");
+  }
+  const sourceParts = entries.map((entry, index) => {
+    const file = entry.filename ? files.find((item) => item.filename === entry.filename) : files[index];
+    if (!file) throw new DocumentContractError("INVALID_MANIFEST", `No uploaded file matches ${entry.filename}`, `sources[${index}].filename`);
+    const source = parseProducerSource({ filename: entry.filename || file.filename, contentType: file.contentType, bytes: file.content, ...entry });
+    return source;
+  });
+  return { manifest, sources: sourceParts };
+}
+
 async function readUpload(req) {
   const part = parseMultipart(await readRawBody(req, MAX_UPLOAD_BODY_BYTES), req.headers["content-type"]);
   return parseGroundingDocument({ filename: part.filename, contentType: part.contentType, bytes: part.content });
 }
 
+async function readProducerUpload(req) {
+  const raw = await readRawBody(req, MAX_PRODUCER_UPLOAD_BODY_BYTES);
+  const parts = parseMultipartParts(raw, req.headers["content-type"]);
+  if (parts.some((part) => part.name === "manifest")) return { ...parseCanonicalManifest(parts), canonical: true };
+  return { sources: parseProducerMultipart(raw, req.headers["content-type"]).map((part) => parseProducerSource({ filename: part.filename, contentType: part.contentType, bytes: part.content, source_kind: part.source_kind })), canonical: false };
+}
+
 async function readProducerBundle(req) {
-  const parts = parseProducerMultipart(await readRawBody(req, MAX_PRODUCER_UPLOAD_BODY_BYTES), req.headers["content-type"]);
-  return parts.map((part) => parseProducerSource({ filename: part.filename, contentType: part.contentType, bytes: part.content, source_kind: part.source_kind }));
+  return (await readProducerUpload(req)).sources;
 }
 
 async function readBody(req, maxBytes = MAX_BODY_BYTES) {
@@ -212,8 +290,8 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
     try {
       await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary });
     } catch (error) {
-      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", "PRODUCER_PACKET_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
-      const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE"].includes(error.code);
+      const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", "PRODUCER_PACKET_NOT_FOUND", "PRODUCER_BUNDLE_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
+      const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE", "SCRIPT_RUN_NOT_RETRYABLE"].includes(error.code);
       const safeContractError = error instanceof ContractError || error instanceof DocumentContractError || error instanceof PartnerContractError || error instanceof LogicContractError;
       const status = notFound ? 404 : conflict ? 409 : safeContractError ? 400 : 500;
       if (!res.headersSent) sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : `The ${PRODUCT_DISPLAY_NAME} server could not complete the request`, error.field);
@@ -253,9 +331,13 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   if (req.method === "POST" && url.pathname === "/v1/agent/producer-intake") return invokeProducerAgent(req, res, agentBoundary, runtimeConfig.maxBodyBytes);
   if (req.method === "GET" && url.pathname === "/v1/logic/state") return sendJson(res, 200, { schema_version: "logic-host-state@1", mode: "local-mock", no_side_effect_mode: true, tool_readiness: toolRegistry.readiness(), database: { server_id: database.capabilities().server_id, read_only: true, operations: database.listOperations(), private_rows: false, arbitrary_sql: false } });
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "documents") return createDocument(req, res, store);
+  if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "producer-source-bundles") return createProducerSourceBundle(req, res, store);
+  if (req.method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "producer-source-bundles") return getProducerSourceBundle(res, store, parts[2]);
+  if (req.method === "POST" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-source-bundles" && parts[3] === "packets") return createProducerPacketFromBundle(req, res, store, parts[2]);
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "producer-packets") return createProducerPacket(req, res, store);
   if (req.method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "producer-packets") return getProducerPacket(res, store, parts[2]);
   if (req.method === "GET" && parts.length === 5 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "citations") return getProducerCitation(res, store, parts[2], parts[4]);
+  if (req.method === "GET" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "handoff") return getProducerHandoff(req, res, store, parts[2]);
   if (parts[0] === "v1" && parts[1] === "documents" && parts.length >= 3) {
     if (req.method === "GET" && parts.length === 3) return getDocument(res, store, parts[2]);
     if (req.method === "POST" && parts.length === 4 && parts[3] === "briefs") return createGroundedBrief(req, res, store, groundedEngine, parts[2]);
@@ -305,9 +387,68 @@ async function invokeProducerAgent(req, res, agentBoundary, maxBodyBytes) {
   return sendJson(res, 200, result);
 }
 
+function safeProducerBundleProjection(bundle) {
+  return {
+    schema_version: PRODUCER_BUNDLE_SCHEMA,
+    bundle_id: bundle.bundle_id,
+    source_count: bundle.sources.length,
+    source_ids: bundle.sources.map((source) => source.source_id),
+    total_bytes: bundle.sources.reduce((total, source) => total + source.byte_size, 0),
+    total_extracted_chars: bundle.sources.reduce((total, source) => total + source.text_char_count, 0),
+    manifest_hash: bundle.manifest_hash,
+    source_manifest: bundle.sources.map((source) => ({
+      source_id: source.source_id,
+      input_ref: source.input_ref || null,
+      filename: source.filename,
+      media_type: source.media_type,
+      byte_size: source.byte_size,
+      content_hash: source.content_hash,
+      source_kind: source.source_kind,
+      department: source.department || null,
+      version_label: source.version_label || null,
+      status_label: source.status_label || null,
+      relationships: source.relationships || [],
+      ingestion_state: source.ingestion?.state || "ready",
+      truncated: Boolean(source.truncated),
+    })),
+    provenance: { mode: "demo", network: false, credentials: false, retention_state: "local" },
+  };
+}
+
+async function createProducerSourceBundle(req, res, store) {
+  const upload = await readProducerUpload(req);
+  if (!upload.canonical) throw new DocumentContractError("MANIFEST_REQUIRED", "Producer Intake source bundles require a bounded manifest", "manifest");
+  const bundleId = producerBundleId(upload.sources);
+  const manifestHash = `sha256:${hashValue(stableStringify(upload.manifest))}`;
+  const result = store.createProducerBundle({ schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: bundleId, manifest_hash: manifestHash, sources: upload.sources, created_at: new Date().toISOString(), retention_state: "local" });
+  return sendJson(res, result.created ? 201 : 200, safeProducerBundleProjection(result.bundle), { location: `/v1/producer-source-bundles/${bundleId}` });
+}
+
+function getProducerSourceBundle(res, store, bundleId) {
+  const bundle = store.getProducerBundle(bundleId);
+  if (!bundle) throw new ContractError("PRODUCER_BUNDLE_NOT_FOUND", "Producer source bundle not found");
+  return sendJson(res, 200, safeProducerBundleProjection(bundle));
+}
+
+async function createProducerPacketFromBundle(req, res, store, bundleId) {
+  const bundle = store.getProducerBundle(bundleId);
+  if (!bundle) throw new ContractError("PRODUCER_BUNDLE_NOT_FOUND", "Producer source bundle not found");
+  const body = await readBody(req);
+  const allowed = new Set(["schema_version", "bundle_id", "decision_context"]);
+  for (const key of Object.keys(body)) if (!allowed.has(key)) throw new ContractError("UNKNOWN_FIELD", `Producer Intake request contains unknown field: ${key}`, key);
+  if (body.schema_version !== "producer-intake-request@1" || body.bundle_id !== bundleId) throw new ContractError("INVALID_SCHEMA_VERSION", "schema_version and bundle_id must identify a producer-intake-request@1 for this bundle");
+  const decisionContext = body.decision_context === undefined ? "" : String(body.decision_context).normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  if (decisionContext.length > 1_000) throw new ContractError("INVALID_REQUEST", "decision_context must be at most 1,000 characters", "decision_context");
+  const packet = buildProducerDecisionPacket(bundle.sources, { bundleId, decisionContext });
+  const result = store.createProducerPacket(packet);
+  return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
+}
+
 async function createProducerPacket(req, res, store) {
-  const sources = await readProducerBundle(req);
-  const packet = buildProducerDecisionPacket(sources);
+  const upload = await readProducerUpload(req);
+  const bundleId = upload.canonical ? producerBundleId(upload.sources) : undefined;
+  if (upload.canonical) store.createProducerBundle({ schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: bundleId, manifest_hash: `sha256:${hashValue(stableStringify(upload.manifest))}`, sources: upload.sources, created_at: new Date().toISOString(), retention_state: "local" });
+  const packet = buildProducerDecisionPacket(upload.sources, { bundleId });
   const result = store.createProducerPacket(packet);
   return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
 }
@@ -324,6 +465,70 @@ function getProducerCitation(res, store, packetId, citationId) {
   const citation = producerCitation(packet, citationId);
   if (!citation) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer citation not found");
   return sendJson(res, 200, { ...citation, excerpt: citation.excerpt.slice(0, 900) });
+}
+
+function producerHandoffJson(packet) {
+  return {
+    schema_version: "producer-read-only-handoff@1",
+    packet_id: packet.packet_id,
+    bundle_id: packet.bundle_id || packet.bundle?.bundle_id || null,
+    status: packet.handoff?.status || "review_required",
+    source_manifest: (packet.source_manifest || packet.source_inventory || []).map((source) => ({ ...source })),
+    exact_facts: (packet.exact_facts || []).slice(0, 24),
+    scene_index: (packet.scene_index || []).slice(0, 24),
+    budget_inputs: (packet.budget_inputs || []).slice(0, 24),
+    rights_access_logistics: (packet.rights_access_logistics || []).slice(0, 24),
+    conflicts: (packet.conflicts || []).slice(0, 24),
+    decision_question_register: (packet.decision_question_register || []).slice(0, 120),
+    gaps_and_next_steps: (packet.gaps_and_next_steps || []).slice(0, 120),
+    handoff: packet.handoff,
+    provenance: packet.provenance,
+    limitations: packet.limitations.slice(0, 8),
+  };
+}
+
+function markdownHandoff(packet) {
+  const handoff = producerHandoffJson(packet);
+  const lines = [
+    "# MovieNator Producer Intake Decision Packet",
+    "",
+    `Packet: ${handoff.packet_id}`,
+    `Bundle: ${handoff.bundle_id || "not supplied"}`,
+    "",
+    "## Source inventory",
+    ...handoff.source_manifest.map((source) => `- ${source.source_id} | ${source.filename} | ${source.source_kind} | ${source.content_hash || "hash unavailable"}${source.version_label ? ` | version ${source.version_label}` : ""}`),
+    "",
+    "## Exact facts",
+    ...handoff.exact_facts.map((fact) => `- [${fact.classification}] [${fact.evidence_state}] ${fact.value || fact.text} (citations: ${(fact.citation_ids || []).join(", ") || "none"})`),
+    "",
+    "## Scene index",
+    ...handoff.scene_index.map((scene) => `- ${scene.scene_heading || scene.scene_reference} [${scene.classification}; ${scene.evidence_state}] (citations: ${(scene.citation_ids || []).join(", ") || "none"})`),
+    "",
+    "## Budget inputs",
+    ...handoff.budget_inputs.map((input) => `- ${input.value || input.original_wording} | ${input.currency || "currency unset"} | ${input.unit || "unit unset"} | ${input.evidence_state} | no total calculated`),
+    "",
+    "## Conflicts",
+    ...handoff.conflicts.flatMap((conflict) => [`- ${conflict.title || conflict.kind}: ${conflict.question || conflict.impact || "human resolution required"}`, ...(conflict.assertions || []).map((assertion) => `  - ${assertion.text} (${(assertion.citation_ids || []).join(", ")})`)]),
+    "",
+    "## Questions and next steps",
+    ...handoff.gaps_and_next_steps.map((gap) => `- ${gap.question} | owner: ${gap.owner || "unset"} | priority: ${gap.priority || "unset"} | next action: ${gap.next_action}`),
+    "",
+    `Handoff: ${handoff.handoff?.next_action || "Human review required."}`,
+    "",
+    "Read-only local/demo handoff. It does not book, approve, publish, send, or modify a downstream system.",
+  ];
+  return lines.join("\\n").slice(0, 90_000);
+}
+
+function getProducerHandoff(req, res, store, packetId) {
+  const packet = store.getProducerPacket(packetId);
+  if (!packet) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet not found");
+  const format = new URL(req.url, "http://localhost").searchParams.get("format") || "markdown";
+  if (!["markdown", "json"].includes(format)) throw new ContractError("UNSUPPORTED_EXPORT_FORMAT", "Only Markdown and JSON handoff exports are supported", "format");
+  if (format === "json") return sendJson(res, 200, producerHandoffJson(packet), { "content-disposition": `attachment; filename="${packet.packet_id}-handoff.json"` });
+  const body = markdownHandoff(packet);
+  res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/markdown; charset=utf-8", "content-disposition": `attachment; filename="${packet.packet_id}-handoff.md"`, "cache-control": "no-store" });
+  res.end(body);
 }
 
 function getDocument(res, store, documentId) {

@@ -15,23 +15,50 @@ export const PRODUCER_RECONCILIATION_SCHEMA = "producer-reconciliation@1";
 export const PRODUCER_REGISTER_SCHEMA = "producer-register-entry@1";
 export const PRODUCER_HANDOFF_SCHEMA = "producer-handoff@1";
 export const PRODUCER_VERSION_PROVENANCE_SCHEMA = "producer-version-provenance@1";
-export const MAX_PRODUCER_SOURCES = 8;
-export const MAX_PRODUCER_BUNDLE_BYTES = MAX_DOCUMENT_BYTES * MAX_PRODUCER_SOURCES + 128 * 1024;
-export const MAX_PACKET_CITATIONS = 128;
+export const MAX_PRODUCER_SOURCES = 12;
+export const MAX_PRODUCER_REVISIONS = 2;
+export const MAX_PRODUCER_MANIFEST_BYTES = 32 * 1024;
+export const MAX_PRODUCER_BUNDLE_BYTES = 25 * 1024 * 1024;
+export const MAX_PACKET_CITATIONS = 24;
 export const MAX_PACKET_ITEMS = 24;
 
 export const PRODUCER_SOURCE_LABELS = Object.freeze({
-  script: "Script",
+  primary_screenplay: "Primary screenplay",
+  screenplay_revision: "Screenplay revision",
   director_notes: "Director notes",
+  cast_notes: "Cast notes",
+  location_access: "Location and access",
+  schedule_assumptions: "Schedule assumptions",
+  budget_assumptions: "Budget assumptions",
+  rights_clearance: "Rights and clearance",
+  department_input: "Department input",
+  breakdown: "Breakdown",
+  handoff: "Handoff",
+  other: "Other production source",
+  // These labels remain accepted for the already-shipped producer route.
+  script: "Script",
   cast_actor_notes: "Cast or actor notes",
   location_production_notes: "Location or production notes",
   schedule: "Schedule",
   budget: "Budget",
   department_notes: "Department notes",
-  other: "Other production source",
 });
 
 export const PRODUCER_SOURCE_KINDS = Object.freeze(Object.keys(PRODUCER_SOURCE_LABELS));
+export const CANONICAL_PRODUCER_SOURCE_KINDS = Object.freeze([
+  "primary_screenplay",
+  "screenplay_revision",
+  "director_notes",
+  "cast_notes",
+  "location_access",
+  "schedule_assumptions",
+  "budget_assumptions",
+  "rights_clearance",
+  "department_input",
+  "breakdown",
+  "handoff",
+  "other",
+]);
 
 function boundedText(value, max = 600) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -54,21 +81,33 @@ function sourceLocations(source) {
   });
 }
 
-function sourceId(document, kind) {
-  return `source_${hashValue(stableStringify({ document_id: document.document_id, source_kind: kind })).slice(0, 32)}`;
+function sourceId(document, kind, metadata = {}) {
+  const canonical = Boolean(metadata.input_ref) || (CANONICAL_PRODUCER_SOURCE_KINDS.includes(kind) && kind !== "director_notes");
+  return `${canonical ? "src" : "source"}_${hashValue(stableStringify({ document_id: document.document_id, content_hash: metadata.contentHash || null, source_kind: kind, department: metadata.department || null })).slice(0, 32)}`;
 }
 
-export function parseProducerSource({ filename, contentType, bytes, source_kind }) {
+export function parseProducerSource({ filename, contentType, bytes, source_kind, input_ref, department, version_label, status_label, relationships, source_note }) {
   const kind = sourceKind(source_kind);
   const document = parseGroundingDocument({ filename, contentType, bytes });
-  const id = sourceId(document, kind);
+  const extractedText = document.chunks.map((chunk) => chunk.excerpt).join("\n\n").slice(0, MAX_EXTRACTED_CHARS);
+  const contentHash = `sha256:${hashValue(stableStringify({ media_type: document.media_type, text: extractedText, locations: document.chunks.flatMap((chunk) => chunk.source_locations) }))}`;
+  const id = sourceId(document, kind, { department, input_ref, contentHash });
+  const detectedSourceVersion = document.chunks.flatMap((chunk) => chunk.source_locations).map((location) => location.section).find((section) => /^(?:shooting\s+)?draft\s+[a-z0-9._ -]+$/i.test(section || ""));
+  const detectedStatusLabel = document.chunks.flatMap((chunk) => chunk.excerpt.split("\n")).map((line) => line.trim().match(/^(?:permission\s+)?status\s*[:=-]\s*(.+)$/i)?.[1]).find(Boolean);
   return {
     ...document,
     schema_version: PRODUCER_SOURCE_SCHEMA,
     source_id: id,
+    content_hash: contentHash,
+    input_ref: input_ref ? boundedText(input_ref, 120) : undefined,
     source_kind: kind,
     source_label: PRODUCER_SOURCE_LABELS[kind],
-    extracted_text: document.chunks.map((chunk) => chunk.excerpt).join("\n\n").slice(0, MAX_EXTRACTED_CHARS),
+    department: department ? boundedText(department, 80) : undefined,
+    version_label: version_label ? boundedText(version_label, 120) : detectedSourceVersion ? boundedText(detectedSourceVersion.toLocaleLowerCase(), 120) : undefined,
+    status_label: status_label ? boundedText(status_label, 120) : detectedStatusLabel ? boundedText(detectedStatusLabel, 120) : undefined,
+    relationships: Array.isArray(relationships) ? relationships.slice(0, 4) : [],
+    source_note: source_note ? boundedText(source_note, 240) : undefined,
+    extracted_text: extractedText,
     locations: sourceLocations(document),
     chunks: document.chunks.map((chunk) => ({ ...chunk, source_id: id })),
   };
@@ -260,7 +299,7 @@ function duplicateGroups(sources) {
   }));
 }
 
-export function buildProducerDecisionPacket(sources, { createdAt = new Date().toISOString() } = {}) {
+function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toISOString() } = {}) {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
     throw new DocumentContractError("INVALID_SOURCE_COUNT", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
   }
@@ -395,6 +434,7 @@ export function buildProducerDecisionPacket(sources, { createdAt = new Date().to
     media_type: source.media_type,
     source_kind: source.source_kind,
     source_label: source.source_label,
+    content_hash: source.content_hash,
     byte_size: source.byte_size,
     text_char_count: source.text_char_count,
     truncated: Boolean(source.truncated),
@@ -495,22 +535,312 @@ export function buildProducerDecisionPacket(sources, { createdAt = new Date().to
   };
 }
 
+function canonicalLineEntries(source) {
+  const entries = linesForSource(source);
+  const locationEntries = source.locations.map((location) => ({
+    text: location.section || "",
+    citation_id: source.chunks.find((chunk) => chunk.source_locations.some((item) => stableStringify(item) === stableStringify(location))) ? citationForChunk(source, source.chunks.find((chunk) => chunk.source_locations.some((item) => stableStringify(item) === stableStringify(location))))?.citation_id : undefined,
+    source,
+    location,
+  })).filter((entry) => entry.text && entry.citation_id);
+  return [...locationEntries, ...entries];
+}
+
+function canonicalCitations(sources) {
+  const map = new Map();
+  for (const source of sources) {
+    for (const chunk of source.chunks) {
+      const citation = citationForChunk(source, chunk);
+      const headings = chunk.source_locations.map((location) => location.section).filter(Boolean).filter((heading) => !citation.excerpt.includes(heading));
+      if (headings.length) citation.excerpt = `${headings[0]}\n${citation.excerpt}`.slice(0, MAX_CHUNK_CHARS);
+      map.set(citation.citation_id, citation);
+    }
+  }
+  return map;
+}
+
+function canonicalCitationIds(items) {
+  return [...new Set(items.flatMap((item) => item.citation_ids || []))].slice(0, MAX_PACKET_CITATIONS);
+}
+
+function canonicalFact({ value, classification, evidenceState, source, citationId, field, limitations = [], inferenceBasis }) {
+  const text = boundedText(value, 700);
+  return {
+    fact_id: `fact_${hashValue(stableStringify({ value: text, classification, source_id: source.source_id, citation_id: citationId })).slice(0, 32)}`,
+    value: text,
+    text,
+    field,
+    classification,
+    evidence_state: evidenceState,
+    source_ids: [source.source_id],
+    citation_ids: citationId ? [citationId] : [],
+    provenance: { source_kind: source.source_kind, filename: source.filename, supplied: classification === "externally_supplied_fact" },
+    ...(inferenceBasis ? { inference_basis: inferenceBasis } : {}),
+    limitations,
+  };
+}
+
+function canonicalSourceManifest(sources) {
+  return sources.map((source) => ({
+    source_id: source.source_id,
+    document_id: source.document_id,
+    input_ref: source.input_ref || null,
+    filename: source.filename,
+    media_type: source.media_type,
+    byte_size: source.byte_size,
+    content_hash: source.content_hash,
+    source_kind: source.source_kind,
+    department: source.department || null,
+    version_label: source.version_label || null,
+    status_label: source.status_label || null,
+    relationships: source.relationships || [],
+    source_note: source.source_note || null,
+    ingestion_state: source.ingestion?.state || "ready",
+    truncated: Boolean(source.truncated),
+    provenance: "uploaded source manifest and normalized content",
+    limitations: source.truncated ? ["Source text was bounded before extraction."] : [],
+  }));
+}
+
+function canonicalAssertion(value, source, citationId, classification, evidenceState, field) {
+  return canonicalFact({ value, classification, evidenceState, source, citationId, field });
+}
+
+function firstCanonicalLine(source, matcher) {
+  return canonicalLineEntries(source).find((line) => matcher.test(line.text));
+}
+
+function canonicalRegister({ entryType, title, related, owner, priority, priorityBasis, action, sourceIds, citationIds, evidenceState = "not_established" }) {
+  const normalizedPriority = ["high", "medium", "low", "unset"].includes(priority) ? priority : "unset";
+  return {
+    entry_id: `entry_${hashValue(stableStringify({ entryType, title, action, sourceIds, citationIds })).slice(0, 32)}`,
+    entry_type: entryType,
+    title: boundedText(title, 180),
+    related_to: related || null,
+    owner: owner || null,
+    priority: normalizedPriority,
+    priority_basis: boundedText(priorityBasis || (normalizedPriority === "unset" ? "Priority was not supplied in the bundle." : "Supplied in the source bundle."), 180),
+    evidence_state: evidenceState,
+    classification: entryType === "decision" ? "decision" : "open_question",
+    source_ids: [...new Set(sourceIds)].slice(0, 4),
+    citation_ids: [...new Set(citationIds)].slice(0, 8),
+    next_action: boundedText(action, 700),
+    limitations: ["This is a read-only handoff instruction, not a task sent to a person or downstream system."],
+  };
+}
+
+export function producerBundleId(sources) {
+  const manifest = sources.map((source) => ({ source_id: source.source_id, source_kind: source.source_kind, input_ref: source.input_ref || null, filename: source.filename, version_label: source.version_label || null, status_label: source.status_label || null, relationships: source.relationships || [] }));
+  return `bdl_${hashValue(stableStringify({ manifest, content_hashes: sources.map((source) => source.content_hash) })).slice(0, 32)}`;
+}
+
+function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "" } = {}) {
+  if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
+    throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
+  }
+  const primary = sources.filter((source) => source.source_kind === "primary_screenplay");
+  const revisions = sources.filter((source) => source.source_kind === "screenplay_revision");
+  if (primary.length !== 1) throw new DocumentContractError("PRIMARY_SOURCE_REQUIRED", "Exactly one primary_screenplay source is required", "source_kind");
+  if (revisions.length > MAX_PRODUCER_REVISIONS) throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `At most ${MAX_PRODUCER_REVISIONS} screenplay_revision sources are accepted`, "source_kind");
+  const orderedSources = sources.map((source) => ({ ...source, chunks: source.chunks.slice(0, 240) }));
+  const citationsById = canonicalCitations(orderedSources);
+  const script = primary[0];
+  const scene = firstCanonicalLine(script, /^SCENE\s+7\s*-\s*INT\.\s*MILL\s*-\s*NIGHT$/i) || firstCanonicalLine(script, /^SCENE\s+\d+\s*-/i);
+  const sceneHeading = scene?.text || "Scene heading is not established in the primary screenplay.";
+  const sceneCitationId = scene?.citation_id;
+  const sceneRow = {
+    scene_id: `scene_${hashValue(stableStringify({ sceneHeading, source_id: script.source_id })).slice(0, 32)}`,
+    scene_reference: sceneHeading,
+    scene_heading: sceneHeading,
+    setting: sceneHeading.match(/-\s*(?:INT\.|EXT\.|I\/E\.)\s*([^ -].*?)\s*-\s*(?:DAY|NIGHT)\s*$/i)?.[1]?.trim() || null,
+    int_ext: sceneHeading.match(/\b(INT\.|EXT\.|I\/E\.)/i)?.[1]?.toUpperCase() || null,
+    time_of_day: sceneHeading.match(/-\s*(DAY|NIGHT)\s*$/i)?.[1]?.toUpperCase() || null,
+    location: scene?.location || script.locations.find((location) => location.section === sceneHeading) || null,
+    classification: scene ? "source_fact" : "open_question",
+    evidence_state: scene ? "established" : "not_established",
+    source_ids: [script.source_id],
+    citation_ids: sceneCitationId ? [sceneCitationId] : [],
+  };
+
+  const locationSource = orderedSources.find((source) => source.source_kind === "location_access");
+  const scheduleSource = orderedSources.find((source) => source.source_kind === "schedule_assumptions");
+  const budgetSource = orderedSources.find((source) => source.source_kind === "budget_assumptions");
+  const permission = locationSource && firstCanonicalLine(locationSource, /permission|access\s+status|hold|confirmed/i);
+  const noHold = locationSource && firstCanonicalLine(locationSource, /no\s+(?:location\s+)?hold|hold[^\n]*not\s+confirmed|not\s+confirmed/i);
+  const owner = locationSource && firstCanonicalLine(locationSource, /^(?:supplied\s+)?owner\s*[:=-]/i);
+  const ownerValue = owner?.text.match(/^(?:supplied\s+)?owner\s*[:=-]\s*(.+)$/i)?.[1]?.trim() || undefined;
+  const scheduleAssumption = scheduleSource && firstCanonicalLine(scheduleSource, /assumption|scene\s*7|mill\s+hold/i);
+  const budget = budgetSource && firstCanonicalLine(budgetSource, /\$\s?[\d,.]+|\b(?:rate|cost|access)\b/i);
+  const budgetMatch = budget?.text.match(/(\$\s?[\d,.]+)\s*(?:per|\/)\s*([^,.;]+)|([\$€£])\s?([\d,.]+)\s*(?:per|\/)\s*([^,.;]+)/i);
+  const budgetAmount = budgetMatch ? (budgetMatch[1] || `${budgetMatch[3]}${budgetMatch[4]}`) : undefined;
+  const budgetUnit = budgetMatch ? (budgetMatch[2] || budgetMatch[5]).trim() : "access day";
+
+  const exactFacts = [];
+  if (scene) exactFacts.push(canonicalAssertion(sceneHeading, script, sceneCitationId, "source_fact", "established", "scene_heading"));
+  if (permission) exactFacts.push(canonicalAssertion(permission.text, locationSource, permission.citation_id, "externally_supplied_fact", "supplied_not_verified", "location_access_status"));
+  if (noHold) exactFacts.push(canonicalAssertion(noHold.text, locationSource, noHold.citation_id, "source_fact", "established", "location_hold"));
+  if (ownerValue) exactFacts.push(canonicalAssertion(ownerValue, locationSource, owner.citation_id, "externally_supplied_fact", "supplied_not_verified", "owner"));
+  if (scheduleAssumption) exactFacts.push(canonicalAssertion(scheduleAssumption.text, scheduleSource, scheduleAssumption.citation_id, "human_assumption", "assumed", "schedule_assumption"));
+  if (budget && budgetAmount) {
+    const fact = canonicalAssertion(budget.text, budgetSource, budget.citation_id, "externally_supplied_fact", "supplied_not_verified", "access_rate");
+    fact.amount = budgetAmount;
+    fact.currency = "USD";
+    fact.unit = budgetUnit;
+    fact.normalization_basis = "The source supplied a dollar-denominated amount; no total was calculated.";
+    exactFacts.push(fact);
+  }
+
+  const accessRow = permission ? canonicalAssertion(permission.text, locationSource, permission.citation_id, "externally_supplied_fact", "supplied_not_verified", "permission") : canonicalFact({ value: "Location permission or hold is not established in the supplied bundle.", classification: "open_question", evidenceState: "not_established", source: locationSource || script, citationId: permission?.citation_id, field: "permission" });
+  accessRow.owner = ownerValue || null;
+  accessRow.priority = "unset";
+  accessRow.priority_basis = "Priority was not supplied in the bundle.";
+  const rightsAccessLogistics = [{ ...accessRow, category: "location_access", next_action: "obtain or record the access evidence" }];
+  if (noHold) rightsAccessLogistics.push({ ...canonicalAssertion(noHold.text, locationSource, noHold.citation_id, "source_fact", "established", "location_hold"), category: "location_access", owner: ownerValue || null, priority: "unset", priority_basis: "Priority was not supplied in the bundle." });
+
+  const budgetInputs = budget && budgetAmount ? [{
+    input_id: `budget_${hashValue(stableStringify({ source_id: budgetSource.source_id, citation_id: budget.citation_id })).slice(0, 32)}`,
+    value: budgetAmount,
+    amount: budgetAmount,
+    currency: "USD",
+    unit: budgetUnit,
+    original_wording: budget.text,
+    classification: "externally_supplied_fact",
+    evidence_state: "supplied_not_verified",
+    source_ids: [budgetSource.source_id],
+    citation_ids: [budget.citation_id],
+    limitations: ["Externally supplied and not independently verified.", "No total, forecast, or contingency amount was calculated."],
+  }] : [];
+
+  const scheduleInputs = scheduleAssumption ? [{
+    input_id: `schedule_${hashValue(stableStringify({ source_id: scheduleSource.source_id, citation_id: scheduleAssumption.citation_id })).slice(0, 32)}`,
+    value: scheduleAssumption.text,
+    classification: "human_assumption",
+    evidence_state: "assumed",
+    source_ids: [scheduleSource.source_id],
+    citation_ids: [scheduleAssumption.citation_id],
+  }] : [];
+  const locationsAndTiming = [sceneRow, ...rightsAccessLogistics.map((row) => ({ ...row, category: "location_access" })), ...scheduleInputs];
+  const conflict = scheduleAssumption && noHold ? {
+    conflict_id: `conflict_${hashValue(stableStringify({ schedule: scheduleAssumption.citation_id, access: noHold.citation_id })).slice(0, 32)}`,
+    kind: "schedule_location_access",
+    title: "Schedule assumption conflicts with location access evidence",
+    assertions: [
+      { text: scheduleAssumption.text, classification: "human_assumption", evidence_state: "assumed", source_ids: [scheduleSource.source_id], citation_ids: [scheduleAssumption.citation_id] },
+      { text: noHold.text, classification: "source_fact", evidence_state: "established", source_ids: [locationSource.source_id], citation_ids: [noHold.citation_id] },
+    ],
+    impact: "A Mill hold or access date must not be treated as confirmed until the access evidence is recorded.",
+    question: "Which access evidence governs Scene 7 before schedule or location commitment?",
+    classification: "conflict",
+    evidence_state: "conflict",
+    source_ids: [scheduleSource.source_id, locationSource.source_id],
+    citation_ids: [scheduleAssumption.citation_id, noHold.citation_id],
+  } : null;
+  const conflicts = conflict ? [conflict] : [];
+  const openQuestion = canonicalRegister({
+    entryType: "open_question",
+    title: "Confirm Scene 7 mill access evidence",
+    related: sceneHeading,
+    owner: ownerValue || null,
+    priority: "unset",
+    priorityBasis: "Priority was not supplied in the bundle.",
+    action: "obtain or record the access evidence",
+    sourceIds: [locationSource?.source_id, scheduleSource?.source_id].filter(Boolean),
+    citationIds: [permission?.citation_id, noHold?.citation_id, scheduleAssumption?.citation_id].filter(Boolean),
+    evidenceState: "not_established",
+  });
+  const gapsAndNextSteps = [{
+    gap_id: `gap_${hashValue(openQuestion.entry_id).slice(0, 32)}`,
+    question: "Is access permission or a Mill hold confirmed for Scene 7?",
+    why_it_matters: "The schedule assumption and location access record are not the same operational status.",
+    owner: ownerValue || null,
+    priority: "unset",
+    priority_basis: "Priority was not supplied in the bundle.",
+    classification: "open_question",
+    evidence_state: "not_established",
+    source_ids: openQuestion.source_ids,
+    citation_ids: openQuestion.citation_ids,
+    next_action: "obtain or record the access evidence",
+    evidence_needed: "A supplied permission, hold, or access record linked to the Mill.",
+  }];
+  const decisionQuestionRegister = [openQuestion];
+  const allItems = [...exactFacts, sceneRow, ...locationsAndTiming, ...budgetInputs, ...scheduleInputs, ...conflicts, ...decisionQuestionRegister, ...gapsAndNextSteps];
+  const citedIds = canonicalCitationIds(allItems);
+  const sourceManifest = canonicalSourceManifest(orderedSources);
+  const sourceManifestHash = `sha256:${hashValue(stableStringify(sourceManifest))}`;
+  const normalizedBundleId = bundleId || producerBundleId(orderedSources);
+  const packetId = `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA, bundle_id: normalizedBundleId })).slice(0, 32)}`;
+  const summaryText = `The supplied bundle contains ${orderedSources.length} labelled sources. ${scene ? `The primary screenplay establishes ${sceneHeading}.` : "The primary screenplay does not establish the requested scene heading."} ${conflict ? "Schedule and location access records remain in conflict." : "No seeded schedule and location access conflict was established."} ${budgetInputs.length ? "The access rate is supplied but not independently verified; no total is calculated." : "No access rate is established."}`;
+  return {
+    schema_version: PRODUCER_PACKET_SCHEMA,
+    workflow: PRODUCER_WORKFLOW,
+    status: "succeeded",
+    packet_id: packetId,
+    bundle_id: normalizedBundleId,
+    created_at: createdAt,
+    bundle: { schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: normalizedBundleId, source_count: orderedSources.length, source_ids: orderedSources.map((source) => source.source_id), total_bytes: orderedSources.reduce((total, source) => total + source.byte_size, 0), total_extracted_chars: orderedSources.reduce((total, source) => total + source.text_char_count, 0), manifest_hash: sourceManifestHash },
+    executive_summary: { text: summaryText, classification: "source_fact", evidence_state: "established", citation_ids: citedIds.slice(0, 8), source_ids: [script.source_id] },
+    source_manifest: sourceManifest,
+    source_inventory: sourceManifest,
+    exact_facts: exactFacts,
+    scene_index: [sceneRow],
+    production_elements: [],
+    locations_and_timing: locationsAndTiming,
+    cast_role_demands: [],
+    department_requirements: [],
+    schedule_inputs: scheduleInputs,
+    budget_inputs: budgetInputs,
+    rights_access_logistics: rightsAccessLogistics,
+    conflicts,
+    decision_question_register: decisionQuestionRegister,
+    gaps_and_next_steps: gapsAndNextSteps,
+    // Compatibility projections retain the previously shipped packet sections.
+    version_provenance: { schema_version: PRODUCER_VERSION_PROVENANCE_SCHEMA, packet_schema_version: PRODUCER_PACKET_SCHEMA, source_schema_version: PRODUCER_SOURCE_SCHEMA, sources: sourceManifest.map((source) => ({ source_id: source.source_id, source_kind: source.source_kind, document_id: orderedSources.find((item) => item.source_id === source.source_id)?.document_id, source_schema_version: PRODUCER_SOURCE_SCHEMA, source_version: source.version_label, source_version_status: source.version_label ? "stated_in_uploaded_source" : "not_stated_in_uploaded_source" })) },
+    reconciliation: { schema_version: PRODUCER_RECONCILIATION_SCHEMA, method: "bounded deterministic source and manifest reconciliation", source_ids: orderedSources.map((source) => source.source_id), duplicate_groups: [], topics: [{ topic: "schedule_location_access", status: conflict ? "conflict" : "unknown", source_ids: [scheduleSource?.source_id, locationSource?.source_id].filter(Boolean), source_kinds: [scheduleSource?.source_kind, locationSource?.source_kind].filter(Boolean), fact_count: conflict ? 2 : 0, citation_ids: conflict?.citation_ids || [] }], cross_document_conflicts: conflicts.map((item) => ({ ...item, claim_type: "fact", text: item.title })) },
+    production_decisions: [],
+    decision_register: [],
+    risks_or_conflicts: conflicts.map((item) => ({ text: item.title, claim_type: "fact", kind: "conflict", topic: item.kind, citation_ids: item.citation_ids, source_ids: item.source_ids })),
+    cross_document_conflicts: conflicts.map((item) => ({ text: item.title, claim_type: "fact", kind: "conflict", topic: item.kind, citation_ids: item.citation_ids, source_ids: item.source_ids })),
+    gaps_or_questions: gapsAndNextSteps.map((item) => ({ text: `${item.question} Next action: ${item.next_action}`, claim_type: "unknown", kind: "gap", citation_ids: item.citation_ids, source_ids: item.source_ids })),
+    handoff: { schema_version: PRODUCER_HANDOFF_SCHEMA, audience: ["producer"], status: "review_required", next_owner: ownerValue || null, source_ids: orderedSources.map((source) => source.source_id), open_register_ids: [openQuestion.entry_id], prioritized_register_ids: [], next_action: "obtain or record the access evidence", claim_type: "inference", citation_ids: openQuestion.citation_ids },
+    cited_citation_ids: citedIds,
+    citations: citedIds.map((citationId) => citationsById.get(citationId)).filter(Boolean).slice(0, MAX_PACKET_CITATIONS),
+    provenance: { schema_version: "producer-provenance@1", mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieNator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
+    limitations: ["This packet only reports what the bounded uploaded bundle establishes.", "Externally supplied rates and statuses are not independently verified.", "Conflicts and open questions remain for human resolution; no booking, approval, permission, safety clearance, rights conclusion, or budget total was created.", ...(decisionContext ? [`Decision context supplied by the producer: ${boundedText(decisionContext, 1_000)}`] : [])],
+  };
+}
+
+export function buildProducerDecisionPacket(sources, options = {}) {
+  const canonicalIntent = sources.some((source) => ["primary_screenplay", "screenplay_revision", "cast_notes", "location_access", "schedule_assumptions", "budget_assumptions", "rights_clearance", "department_input", "breakdown", "handoff"].includes(source.source_kind));
+  if (canonicalIntent) return buildCanonicalProducerDecisionPacket(sources, options);
+  return buildLegacyProducerDecisionPacket(sources, options);
+}
+
 function safeSource(source) {
   return {
     schema_version: PRODUCER_SOURCE_SCHEMA,
     source_id: source.source_id,
     document_id: source.document_id,
+    input_ref: source.input_ref,
     filename: source.filename,
     media_type: source.media_type,
     source_kind: source.source_kind,
-    source_label: source.source_label,
+    source_label: source.source_label || PRODUCER_SOURCE_LABELS[source.source_kind],
+    department: source.department,
     byte_size: source.byte_size,
+    content_hash: source.content_hash,
     text_char_count: source.text_char_count,
     truncated: Boolean(source.truncated),
     chunk_count: source.chunk_count,
-    locations: source.locations,
+    locations: source.locations || [],
+    version_label: source.version_label,
+    status_label: source.status_label,
+    relationships: source.relationships || [],
+    source_note: source.source_note,
+    ingestion_state: source.ingestion_state,
     version_provenance: source.version_provenance,
     ingestion: source.ingestion,
+    provenance: source.provenance,
+    limitations: source.limitations || [],
   };
 }
 
@@ -532,16 +862,35 @@ function safeRegisterEntry(entry) {
 
 function safeStatement(item) {
   return {
-    text: boundedText(item.text, 700),
+    text: boundedText(item.text || item.value || item.question || item.title, 700),
     citation_ids: Array.isArray(item.citation_ids) ? item.citation_ids.slice(0, 8) : [],
-    claim_type: ["fact", "inference", "unknown"].includes(item.claim_type) ? item.claim_type : "unknown",
+    claim_type: ["fact", "inference", "unknown"].includes(item.claim_type) ? item.claim_type : item.classification === "source_fact" || item.classification === "externally_supplied_fact" ? "fact" : "unknown",
+    ...(item.classification ? { classification: item.classification } : {}),
+    ...(item.evidence_state ? { evidence_state: item.evidence_state } : {}),
     ...(item.kind ? { kind: item.kind } : {}),
     ...(item.topic ? { topic: item.topic } : {}),
     ...(item.category ? { category: item.category } : {}),
     ...(item.source_id ? { source_id: item.source_id } : {}),
     ...(item.source_kind ? { source_kind: item.source_kind } : {}),
     ...(item.source_ids ? { source_ids: item.source_ids.slice(0, 4) } : {}),
+    ...(item.owner !== undefined ? { owner: item.owner } : {}),
+    ...(item.priority ? { priority: item.priority } : {}),
+    ...(item.next_action ? { next_action: boundedText(item.next_action, 700) } : {}),
   };
+}
+
+function safeEvidenceItem(item) {
+  if (!item || typeof item !== "object") return item;
+  const result = { ...item };
+  for (const key of ["text", "value", "question", "title", "original_wording", "impact", "why_it_matters", "next_action", "evidence_needed", "priority_basis", "normalization_basis"]) {
+    if (result[key] !== undefined) result[key] = boundedText(result[key], 700);
+  }
+  for (const key of ["source_ids", "citation_ids"]) if (Array.isArray(result[key])) result[key] = result[key].slice(0, 8);
+  if (Array.isArray(result.assertions)) result.assertions = result.assertions.slice(0, 4).map(safeEvidenceItem);
+  if (Array.isArray(result.limitations)) result.limitations = result.limitations.slice(0, 3).map((value) => boundedText(value, 240));
+  delete result.excerpt;
+  delete result.chunks;
+  return result;
 }
 
 export function safeProducerPacketProjection(packet) {
@@ -554,9 +903,19 @@ export function safeProducerPacketProjection(packet) {
     created_at: packet.created_at,
     bundle: packet.bundle,
     executive_summary: safeStatement(packet.executive_summary),
+    source_manifest: packet.source_manifest?.map(safeSource),
     source_inventory: packet.source_inventory.map(safeSource),
     version_provenance: packet.version_provenance,
     reconciliation: packet.reconciliation,
+    exact_facts: packet.exact_facts?.map(safeEvidenceItem),
+    scene_index: packet.scene_index?.map(safeEvidenceItem),
+    production_elements: packet.production_elements?.map(safeEvidenceItem),
+    schedule_inputs: packet.schedule_inputs?.map(safeEvidenceItem),
+    budget_inputs: packet.budget_inputs?.map(safeEvidenceItem),
+    rights_access_logistics: packet.rights_access_logistics?.map(safeEvidenceItem),
+    conflicts: packet.conflicts?.map(safeEvidenceItem),
+    decision_question_register: packet.decision_question_register?.map(safeEvidenceItem),
+    gaps_and_next_steps: packet.gaps_and_next_steps?.map(safeEvidenceItem),
     production_decisions: packet.production_decisions.map(safeStatement),
     decision_register: packet.decision_register.map(safeRegisterEntry),
     locations_and_timing: packet.locations_and_timing.map(safeStatement),
@@ -566,6 +925,7 @@ export function safeProducerPacketProjection(packet) {
     cross_document_conflicts: packet.cross_document_conflicts.map(safeStatement),
     gaps_or_questions: packet.gaps_or_questions.map(safeStatement),
     handoff: packet.handoff,
+    decision_context: packet.decision_context || null,
     cited_citation_ids: packet.cited_citation_ids.slice(0, MAX_PACKET_CITATIONS),
     citations: packet.citations.slice(0, MAX_PACKET_CITATIONS).map((citation) => ({
       schema_version: "producer-citation@1",
