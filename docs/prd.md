@@ -423,6 +423,39 @@ The current local architecture is documented in `docs/implementation.md`, `docs/
 
 **Still open:** There is no Cloud Run deployment, no live MovieInator packet tool or MCP connection, no end-to-end hosted request, no IBM runtime integration, IBM Bob evidence is still pending, and there is no contest-compliance claim.
 
+### Automated versus operator-only execution boundary
+
+Use this durable checklist to separate work the project team can execute from actions that require an authorized operator. Routine code PRs may be reviewed and merged under the standing MVP posture when checks pass; that posture never delegates paid, public, destructive, security-sensitive, or irreversible actions.
+
+**Project-owned and autonomous - no cloud mutation**
+
+- [ ] Run local unit, integration, and deterministic regression tests.
+- [ ] Run schema validation plus `npm run check` and `npm run check:docs`.
+- [ ] Run deterministic mock and synthetic browser/API E2E, including the four-file producer packet fixture.
+- [ ] Implement and refine the read-only Producer Intake Decision Packet, its schemas, citations, provenance, readiness code, and safe failure behavior.
+- [ ] Prepare the safe read-only packet-tool/MCP bridge seam, contracts, mocks, redaction, budgets, and evidence without connecting to a live tool or choosing new partner semantics.
+- [ ] Prepare Cloud Run manifests, container checks, and preflight/smoke commands that inspect configuration only and make no cloud mutation.
+
+**Operator-only - explicit authorization required**
+
+- [ ] Choose or change billing, budgets, the Google project, enabled APIs, accounts, quotas, or regions.
+- [ ] Perform ADC or identity login, IAM changes, service-account creation or role changes, or managed-agent creation/update.
+- [ ] Decide durable hosting, source retention, deletion, data residency, privacy, or public/private access, then deploy Cloud Run or another managed runtime.
+- [ ] Make real Google calls or approve live model/runtime configuration.
+- [ ] Provide partner credentials and select the exact IBM or other partner runtime/API/MCP surface, terms, scopes, and data handling.
+- [ ] Log into IBM Bob and capture admissible development evidence.
+- [ ] Publish a license, public repository/video, Devpost submission, or other contest artifact.
+- [ ] Approve VAPT/security assessment scope, findings, exceptions, and sign-off.
+- [ ] Resolve product, safety, security, legal, privacy, or other decisions that remain unresolved.
+
+**Current checkpoint**
+
+- [x] Operator-reported Google project, billing/budget/API/ADC setup, runtime identity, and managed-agent creation are complete as reported, but not independently verified.
+- [x] Repository scaffold and documentation checkpoint are landed.
+- [ ] Live packet-tool connection, Cloud Run deployment, hosted request, IBM runtime and IBM Bob evidence, contest artifacts, and VAPT findings remain open.
+
+The open operator list is not completed by a local mock, a code PR, a manifest, a readiness placeholder, or a screenshot. No credentials, tokens, private email addresses, fabricated live evidence, or claim that the MVP is live-connected belong in this repository.
+
 The official Agentic Cinema overview says: **"Build a functional agent - powered by Gemini and Google Cloud Agent Builder - that integrates a Partner Entity's product or MCP to power a real media & entertainment workflow."** The official rules describe the required project as a **"functional, production-ready AI agent or multi-agent network"** powered by Gemini and Google Cloud Agent Builder that integrates a Partner Entity product or MCP server. The official page also requires a hosted project URL, a public demonstration video of no more than three minutes on YouTube or Vimeo in English or with English subtitles, a public source repository with run instructions and a complete open-source license, a selected partner track, and a completed Devpost submission. The rules say the repository must demonstrate actual runtime use of Google Cloud and the chosen Partner service in code, not merely name them in the README.
 
 For the contest path, the rules restrict AI and agent tooling to Google Cloud AI tools and the built-in AI features of the selected Partner product. That requirement applies to a future submission path, not to a claim that this repository already has a live integration. The official resources recommend Google Cloud agent tooling such as Agent Builder, the Google Gen AI or Vertex AI SDKs, ADK, and managed runtime or hosting paths. Those recommendations are not evidence that this repository currently has Google Cloud connectivity. The repository remains offline and mock-safe until operator prerequisites are completed.

@@ -18,6 +18,29 @@
 
 **Next boundary and open work:** The managed agent must receive a secure, server-owned, read-only MovieInator packet tool before it can produce a packet-grounded result. The fixed allowlisted operation is `producer_packet.read / inspect_packet`; no dynamic tool, arbitrary network access, or unreviewed MCP connection is permitted. Agent creation alone does not complete the MVP. There is no Cloud Run deployment, no live MovieInator packet tool or MCP connection, no end-to-end hosted request, no IBM runtime integration, IBM Bob evidence is still pending, and there is no contest-compliance claim.
 
+## Automated versus operator-only execution boundary
+
+The canonical checklist is in [`docs/prd.md`](prd.md). This guide mirrors the same split. Routine code PRs may be reviewed and merged under the standing MVP posture when checks pass, but paid, public, destructive, security-sensitive, and irreversible actions remain operator-controlled.
+
+### Project-owned and autonomous - no cloud mutation
+
+- Run local tests, schema validation, `npm run check`, and `npm run check:docs`.
+- Run deterministic mock and synthetic browser/API E2E, including the producer packet fixture.
+- Implement the read-only Producer Intake Decision Packet plus its schemas, citations, provenance, readiness, and safe failure behavior.
+- Prepare the safe read-only packet-tool/MCP bridge seam with mocks and contract evidence, without live connection or new partner semantics.
+- Prepare Cloud Run manifests and preflight/smoke checks that inspect configuration only and make no cloud mutation.
+
+### Operator-only - explicit authorization required
+
+- Change billing, budgets, project/API/account setup, ADC or identity login, IAM/service accounts, or managed-agent creation/update.
+- Decide hosting, retention, deletion, residency, privacy, and public/private access, then deploy Cloud Run or another managed runtime.
+- Make real Google calls; provide partner credentials; select the exact IBM or other partner runtime/API/MCP surface; or decide its terms and scopes.
+- Log into IBM Bob and capture evidence; approve VAPT scope, findings, exceptions, or sign-off.
+- Publish a license, public repository/video, Devpost submission, or other contest artifact.
+- Resolve unresolved product, safety, security, legal, or privacy decisions.
+
+**Checkpoint:** The operator reports the Google project, billing/budget/API/ADC setup, runtime identity, and managed-agent creation complete, but these are not independently verified. The repository scaffold and documentation checkpoint are landed. Live packet-tool connection, Cloud Run deployment, hosted request, IBM runtime/Bob evidence, contest artifacts, and VAPT findings remain open. No credential, token, private email address, fabricated live evidence, or MVP-live-connected claim is added here.
+
 ## Final runtime decision
 
 MovieNator is already a Node web application and Cloud Run is its existing deployment shape. The smallest maintainable adapter is therefore a Node-only `@google/genai` seam, not a Python sidecar:
