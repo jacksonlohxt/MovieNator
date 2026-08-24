@@ -1,0 +1,107 @@
+# MovieNator Google Agent Platform runtime scaffold
+
+**Status:** infrastructure preparation only. No hosted agent, cloud resource, project, model, credential, IBM integration, or contest compliance claim is enabled.
+
+## Final runtime decision
+
+MovieNator is already a Node web application and Cloud Run is its existing deployment shape. The smallest maintainable adapter is therefore a Node-only `@google/genai` seam, not a Python sidecar:
+
+```text
+Browser/API -> MovieNator Node server on Cloud Run -> @google/genai -> one operator-selected managed Agent Platform agent -> Interactions API
+```
+
+The Node server remains the browser and API surface, state authority, policy authority, provider-neutral boundary, and safe projection owner. The adapter is implemented in [`src/producer-agent-boundary.js`](../src/producer-agent-boundary.js) and is disabled by default. It preserves the existing server-owned Gemini REST seam for the Script Brief and Audience Data Readiness compatibility paths; Interactions API is a separate, future managed-agent adapter and does not replace that REST path.
+
+A Python ADK sidecar is not required by the acceptance criteria or the official package mapping once the Node SDK path is available. Removing it avoids a second runtime, second container, second readiness surface, and an unnecessary cross-language state boundary.
+
+## Product-owned agent boundary
+
+The boundary is one narrow local HTTP contract:
+
+```text
+POST /v1/agent/producer-intake
+{"schema_version":"producer-intake-agent@1","packet_id":"packet_..."}
+```
+
+Its sole allowlisted call is `producer_packet.read / inspect_packet`. In default `local_mock` mode, the Node application reads one existing packet and returns the existing safe packet projection without network, credentials, model calls, or mutations. In future `managed_interactions` mode, the adapter sends only a bounded packet reference and fixed instruction to one server-configured managed agent through the Interactions API. The managed agent must have the read-only packet tool preconfigured; the adapter sends no dynamic tools, MCP URLs, arbitrary URLs, raw source, or credentials.
+
+The agent cannot create or alter packets, publish, book, approve, spend, browse arbitrary URLs, expose secrets, or mutate production records. Node owns packet persistence, citations, policy, retention, and all side-effect decisions.
+
+## Package and API choice
+
+The official Agentic Cinema rules list `google-adk`, `google-genai`, `google-generativeai`, and `google-cloud-aiplatform` as accepted Google Cloud packages. For this Node application, the JavaScript mapping is the official npm package:
+
+```text
+@google/genai==2.18.0
+```
+
+`@google/genai` is the Google Gen AI SDK for JavaScript and is imported by the adapter. The package version is pinned in `package.json` and `package-lock.json` for reproducibility; see the [official npm package](https://www.npmjs.com/package/@google/genai). No OpenAI, Anthropic, LangChain, or other AI or agent framework is used.
+
+The official Google Cloud managed-agents guide shows the JavaScript shape:
+
+```js
+import { GoogleGenAI } from "@google/genai";
+
+const client = new GoogleGenAI({ vertexai: true, project: "PROJECT_ID", location: "global" });
+const stream = await client.interactions.create({
+  agent: "AGENT_ID",
+  input: "...",
+  stream: true,
+  background: false,
+  store: false,
+});
+```
+
+The scaffold follows that client and `client.interactions.create` shape. It uses the documented `v1beta1` Interactions API metadata and `global` location requirement. It consumes only bounded event count, service status, interaction ID hash, and timestamp. Raw provider events are never returned or persisted.
+
+References:
+
+- [Agentic Cinema overview](https://agentic-cinema.devpost.com/) - frames the build around Gemini Enterprise Agent Platform and says to build on Google Cloud using Gemini Enterprise Agent Platform.
+- [Official resources](https://agentic-cinema.devpost.com/resources) - describes Agent Builder, Agent Engine, and native ADK resources.
+- [Official rules](https://agentic-cinema.devpost.com/rules) - lists accepted Google Cloud packages and requires runtime use for a future contest submission.
+- [Google managed agents: Interact with agents](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/managed-agents/interact-with-agents) - documents the JavaScript `@google/genai` client and `client.interactions.create` Interactions API shape.
+- [IBM track resources](https://agentic-cinema.devpost.com/details/ibm-resources) - is intentionally not selected or represented here. No IBM product, Bob, Confluent integration, or IBM runtime proof is added.
+
+## Readiness and truthfulness
+
+`GET /v1/agent/readiness` and `/readyz` expose `configured`, `checked`, `passed`, `failed`, `stale`, `not_run`, package identity, agent and flow identity, tool identity, and safe model/project/region placeholders.
+
+- `local_mock` reports a local no-network boundary check as passed. This is not Google model or hosted-agent readiness.
+- `managed_interactions` is accepted only with `RUNTIME_MODE=deployed_identity`, `DEPLOYMENT_TARGET=cloud_run`, complete server-owned Google configuration, an operator-selected `AGENT_RUNTIME_AGENT_ID`, `GOOGLE_LOCATION=global`, and an actual passed `GeminiReadiness` check.
+- An environment flag alone cannot select managed mode. Missing or incomplete configuration, failed readiness, or stale readiness fails closed before an Interactions API call.
+- Tests inject the readiness object, transport, and SDK-shaped client. They make no cloud call. Default `npm test`, `npm run check`, and deployment smoke remain credential-free and network-free.
+
+Safe provenance records only:
+
+- accepted Google package name and exact version;
+- product-owned agent and flow identity;
+- model, project, and region placeholders, never secrets;
+- allowlisted tool call name and operation;
+- request and result hashes; and
+- an observed timestamp.
+
+It does not store tokens, raw private source, hidden reasoning, or raw provider payloads. The local packet result remains the existing safe application projection; managed interaction evidence contains metadata and hashes rather than provider content.
+
+## Local and container invocation
+
+The default local path remains the existing Node app:
+
+```sh
+npm ci
+npm test
+npm run check
+npm start
+curl -s http://127.0.0.1:4173/healthz
+curl -s http://127.0.0.1:4173/readyz
+curl -s http://127.0.0.1:4173/v1/agent/readiness
+```
+
+The read-only boundary can be exercised after a packet exists:
+
+```sh
+curl -s -X POST http://127.0.0.1:4173/v1/agent/producer-intake \
+  -H 'content-type: application/json' \
+  -d '{"schema_version":"producer-intake-agent@1","packet_id":"packet_..."}'
+```
+
+The existing `Dockerfile` remains the Cloud Run-shaped Node container and defaults to mock mode. No second container is needed. A future operator may deploy that Node image to Cloud Run with the server-owned `@google/genai` adapter enabled after selecting a project, identity, agent ID, quota, retention, and policy. This repository creates no Cloud Run or Agent Platform resource, enables no API, chooses no project or hosted agent, adds no credential, and does not claim a hosted URL or live contest compliance.

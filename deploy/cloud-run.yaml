@@ -24,6 +24,10 @@ spec:
               value: "cloud_run"
             - name: RUNTIME_MODE
               value: "deployed_identity"
+            - name: AGENT_RUNTIME_MODE
+              value: "managed_interactions"
+            - name: AGENT_RUNTIME_AGENT_ID
+              value: "<OPERATOR_SELECTED_MANAGED_AGENT_ID>"
             - name: MODEL_BACKEND
               value: "google_rest"
             - name: GOOGLE_GEMINI_ENABLED

@@ -38,9 +38,9 @@ A run has an immutable request and idempotency hash. Its workflow state records:
 
 Cancellation is intent first and terminal confirmation second. A late operation checks cancellation before publication and cannot overwrite a canceled run. Retry creates a linked child run and leaves the original unchanged. Lease expiry is recovered on the next host startup. No silent provider fallback is performed.
 
-## Future Python ADK or managed Agent Runtime host
+## Future managed Agent Platform host
 
-A later host may implement `AGENT_HOST_CONTRACT` from `src/agent-runtime-boundary.js` using a Python ADK runner or a managed Agent Runtime worker. The host must be an execution adapter only:
+The current managed-agent adapter uses Node `@google/genai` and the Interactions API; it does not add a Python sidecar. A later host may implement `AGENT_HOST_CONTRACT` from `src/agent-runtime-boundary.js` using the same managed Agent Platform worker. The host must be an execution adapter only:
 
 1. receive one bounded role invocation;
 2. receive only the application-owned contract and allowlisted tool manifests;
