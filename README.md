@@ -462,6 +462,22 @@ The current local architecture is documented in `docs/implementation.md`, `docs/
 
 ## 11. Partner, Google, and contest readiness boundary
 
+### Infrastructure checkpoint - operator-reported setup, not live integration
+
+**Evidence status:** The following Google Cloud state was reported by the operator from Cloud Shell screenshots. It is recorded without secrets and is not independently verified infrastructure proof.
+
+**Completed operator setup:**
+
+- The current product name is **MovieInator**. Lowercase `movieinator` remains the machine-safe identifier for product-owned keys.
+- Google Cloud project ID `gemini-agents-505711` is selected; billing and budget are configured; required APIs are enabled.
+- Local ADC authentication is complete.
+- Runtime service account `movieinator-runtime` was created with `roles/aiplatform.user`.
+- The operator reports that managed agent resource `projects/208910370294/locations/global/agents/movieinator-producer-intake` was created in `global` with no tools and no network allowlist.
+
+**Repository preparation already landed:** The Node `@google/genai` 2.18.0 managed-interactions scaffold, read-only MovieInator producer-agent boundary, readiness and provenance evidence, and Cloud Run placeholders are present. This is preparation, not proof of live Google connectivity. Creating the managed agent alone does not complete the MVP.
+
+**Still open:** There is no Cloud Run deployment, no live MovieInator packet tool or MCP connection, no end-to-end hosted request, no IBM runtime integration, IBM Bob evidence is still pending, and there is no contest-compliance claim.
+
 The official Agentic Cinema overview says: **"Build a functional agent - powered by Gemini and Google Cloud Agent Builder - that integrates a Partner Entity's product or MCP to power a real media & entertainment workflow."** The official rules describe the required project as a **"functional, production-ready AI agent or multi-agent network"** powered by Gemini and Google Cloud Agent Builder that integrates a Partner Entity product or MCP server. The official page also requires a hosted project URL, a public demonstration video of no more than three minutes on YouTube or Vimeo in English or with English subtitles, a public source repository with run instructions and a complete open-source license, a selected partner track, and a completed Devpost submission. The rules say the repository must demonstrate actual runtime use of Google Cloud and the chosen Partner service in code, not merely name them in the README.
 
 For the contest path, the rules restrict AI and agent tooling to Google Cloud AI tools and the built-in AI features of the selected Partner product. That requirement applies to a future submission path, not to a claim that this repository already has a live integration. The official resources recommend Google Cloud agent tooling such as Agent Builder, the Google Gen AI or Vertex AI SDKs, ADK, and managed runtime or hosting paths. Those recommendations are not evidence that this repository currently has Google Cloud connectivity. The repository remains offline and mock-safe until operator prerequisites are completed.

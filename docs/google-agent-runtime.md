@@ -1,6 +1,22 @@
 # MovieNator Google Agent Platform runtime scaffold
 
-**Status:** infrastructure preparation only. No hosted agent, cloud resource, project, model, credential, IBM integration, or contest compliance claim is enabled.
+**Status:** infrastructure preparation only. No hosted deployment, live packet tool, model call, IBM integration, or contest compliance claim is enabled.
+
+## Current Google Cloud checkpoint
+
+**Evidence status:** The following Google Cloud state was reported by the operator from Cloud Shell screenshots. It is recorded without secrets and is not independently verified infrastructure proof.
+
+**Completed operator setup:**
+
+- The current product name is **MovieInator**. Lowercase `movieinator` remains the machine-safe identifier for product-owned keys.
+- Google Cloud project ID `gemini-agents-505711` is selected; billing and budget are configured; required APIs are enabled.
+- Local ADC authentication is complete.
+- Runtime service account `movieinator-runtime` was created with `roles/aiplatform.user`.
+- The operator reports that managed agent resource `projects/208910370294/locations/global/agents/movieinator-producer-intake` was created in `global` with no tools and no network allowlist.
+
+**Repository preparation already landed:** The Node `@google/genai` 2.18.0 managed-interactions scaffold, read-only MovieInator producer-agent boundary, readiness and provenance evidence, and Cloud Run placeholders are present. This is preparation, not proof of live Google connectivity.
+
+**Next boundary and open work:** The managed agent must receive a secure, server-owned, read-only MovieInator packet tool before it can produce a packet-grounded result. The fixed allowlisted operation is `producer_packet.read / inspect_packet`; no dynamic tool, arbitrary network access, or unreviewed MCP connection is permitted. Agent creation alone does not complete the MVP. There is no Cloud Run deployment, no live MovieInator packet tool or MCP connection, no end-to-end hosted request, no IBM runtime integration, IBM Bob evidence is still pending, and there is no contest-compliance claim.
 
 ## Final runtime decision
 
