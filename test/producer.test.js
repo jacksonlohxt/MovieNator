@@ -33,6 +33,22 @@ function bundleForm(entries, { schema = "producer-source-bundle@1", extra = unde
   return form;
 }
 
+function northlineEntries() {
+  return [
+    { filename: "northline-shooting-script.txt", source_kind: "primary_screenplay", text: "SHOOTING DRAFT 3\nSCENE 7 - INT. MILL - NIGHT\nMara enters the mill." , version_label: "shooting draft 3" },
+    { filename: "northline-location-access.txt", source_kind: "location_access", text: "Permission status: permission pending\nOwner: Jo - Locations\nNo location hold is confirmed." },
+    { filename: "northline-schedule-assumption.txt", source_kind: "schedule_assumptions", text: "Assumption: Scene 7 is on a Mill hold for 12 June" },
+    { filename: "northline-budget-input.txt", source_kind: "budget_assumptions", text: "Access rate: $1,200 per access day" },
+  ];
+}
+
+function canonicalBundleForm(entries = northlineEntries()) {
+  const form = new FormData();
+  form.append("manifest", JSON.stringify({ schema_version: "producer-source-bundle@1", sources: entries.map((entry, index) => ({ input_ref: `northline_${index + 1}`, filename: entry.filename, source_kind: entry.source_kind, ...(entry.version_label ? { version_label: entry.version_label } : {}) })) }));
+  for (const entry of entries) form.append("file", new Blob([entry.text], { type: "text/plain" }), entry.filename);
+  return form;
+}
+
 async function startApp(t) {
   const app = createApp({ dataPath: tempPath() });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
@@ -166,4 +182,81 @@ test("safe producer projection is bounded and strips internal source chunks", ()
   assert.equal(JSON.stringify(safe).includes("do-not-leak"), false);
   assert.equal(safe.source_inventory[0].source_kind, "other");
   assert.equal(safe.citations.every((citation) => citation.excerpt.length <= 900), true);
+});
+
+test("Northline Producer Intake proof preserves classifications, hashes, both conflict sides, and exact next action", () => {
+  const entries = northlineEntries();
+  const sources = entries.map((entry, index) => parseProducerSource({ ...entry, contentType: "text/plain", bytes: Buffer.from(entry.text), input_ref: `northline_${index + 1}` }));
+  const packet = buildProducerDecisionPacket(sources, { createdAt: "2026-08-23T00:00:00.000Z" });
+  assert.equal(packet.source_manifest.length, 4);
+  assert.equal(packet.source_manifest.find((item) => item.source_kind === "primary_screenplay").version_label, "shooting draft 3");
+  assert.equal(packet.source_manifest.find((item) => item.source_kind === "location_access").status_label, "permission pending");
+  assert.equal(packet.source_manifest.every((item) => /^src_[a-z0-9]+$/.test(item.source_id) && /^sha256:[a-f0-9]+$/.test(item.content_hash)), true);
+  assert.equal(packet.exact_facts.some((item) => item.value === "SCENE 7 - INT. MILL - NIGHT" && item.classification === "source_fact" && item.evidence_state === "established"), true);
+  assert.equal(packet.scene_index[0].citation_ids.length, 1);
+  assert.equal(packet.citations.find((item) => item.citation_id === packet.scene_index[0].citation_ids[0]).excerpt.includes("SCENE 7 - INT. MILL - NIGHT"), true);
+  assert.equal(packet.budget_inputs[0].value, "$1,200");
+  assert.equal(packet.budget_inputs[0].unit, "access day");
+  assert.equal(packet.budget_inputs[0].currency, "USD");
+  assert.equal(packet.budget_inputs[0].classification, "externally_supplied_fact");
+  assert.equal(packet.budget_inputs[0].evidence_state, "supplied_not_verified");
+  assert.equal(Object.hasOwn(packet.budget_inputs[0], "total"), false);
+  assert.equal(packet.rights_access_logistics.some((item) => item.owner === "Jo - Locations" && item.priority === "unset"), true);
+  assert.equal(packet.conflicts.length, 1);
+  assert.equal(packet.conflicts[0].assertions.length, 2);
+  assert.match(packet.conflicts[0].assertions[0].text, /Mill hold/);
+  assert.match(packet.conflicts[0].assertions[1].text, /No location hold is confirmed/);
+  assert.equal(packet.decision_question_register[0].priority, "unset");
+  assert.equal(packet.decision_question_register[0].next_action, "obtain or record the access evidence");
+  assert.equal(packet.gaps_and_next_steps[0].next_action, "obtain or record the access evidence");
+  assert.equal(packet.provenance.mode, "demo");
+  assert.equal(packet.provenance.retention_state, "local");
+});
+
+test("strict Producer Intake bundle and handoff routes provide safe failures, citations, copy/export projections", async (t) => {
+  const { app, base } = await startApp(t);
+  const accepted = await fetch(`${base}/v1/producer-source-bundles`, { method: "POST", body: canonicalBundleForm() });
+  assert.equal(accepted.status, 201);
+  const bundle = await accepted.json();
+  assert.equal(bundle.source_count, 4);
+  assert.equal(bundle.source_manifest.every((source) => source.content_hash.startsWith("sha256:")), true);
+  const retrievedBundle = await fetch(`${base}/v1/producer-source-bundles/${bundle.bundle_id}`);
+  assert.equal(retrievedBundle.status, 200);
+  const packetResponse = await fetch(`${base}/v1/producer-source-bundles/${bundle.bundle_id}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schema_version: "producer-intake-request@1", bundle_id: bundle.bundle_id }) });
+  assert.equal(packetResponse.status, 201);
+  const packet = await packetResponse.json();
+  assert.equal(packet.scene_index[0].scene_heading, "SCENE 7 - INT. MILL - NIGHT");
+  const citation = packet.citations.find((item) => item.excerpt.includes("SCENE 7 - INT. MILL - NIGHT"));
+  assert.ok(citation);
+  assert.equal((await fetch(`${base}/v1/producer-packets/${packet.packet_id}/citations/${citation.citation_id}`)).status, 200);
+  const markdown = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=markdown`);
+  assert.equal(markdown.status, 200);
+  assert.match(await markdown.text(), /obtain or record the access evidence/);
+  const jsonHandoff = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=json`);
+  assert.equal(jsonHandoff.status, 200);
+  const handoff = await jsonHandoff.json();
+  assert.equal(handoff.schema_version, "producer-read-only-handoff@1");
+  assert.equal(JSON.stringify(handoff).includes("Mara enters"), false);
+  const badFormat = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=csv`);
+  assert.equal(badFormat.status, 400);
+  assert.equal((await badFormat.json()).error.code, "UNSUPPORTED_EXPORT_FORMAT");
+
+  const noPrimaryEntries = northlineEntries().map((entry) => ({ ...entry }));
+  noPrimaryEntries[0].source_kind = "other";
+  const noPrimary = await fetch(`${base}/v1/producer-source-bundles`, { method: "POST", body: canonicalBundleForm(noPrimaryEntries) });
+  assert.equal(noPrimary.status, 400);
+  assert.equal((await noPrimary.json()).error.code, "PRIMARY_SOURCE_REQUIRED");
+  assert.equal(app.store.getProducerPacket(packet.packet_id).provenance.external, false);
+});
+
+test("producer browser DOM contract exposes proof sections, citation focus hooks, safe copy, and exports", () => {
+  const html = fs.readFileSync(path.join(process.cwd(), "web/index.html"), "utf8");
+  const app = fs.readFileSync(path.join(process.cwd(), "web/app.js"), "utf8");
+  for (const id of ["producer-source-inventory", "producer-facts", "producer-scenes", "producer-budget-inputs", "producer-access", "producer-conflicts", "producer-questions", "producer-next-steps", "copy-producer-handoff", "export-producer-markdown", "export-producer-json", "evidence-drawer"]) assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(app, /openProducerCitation/);
+  assert.match(app, /lastFocused = document\.activeElement/);
+  assert.match(app, /copyProducerHandoff/);
+  assert.match(app, /handoff\?format=markdown/);
+  assert.match(app, /handoff\?format=json/);
+  assert.match(app, /textContent = citation\.excerpt/);
 });

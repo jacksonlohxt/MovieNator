@@ -32,7 +32,7 @@ function clone(value) {
 }
 
 function defaultState() {
-  return { version: 4, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, producerPackets: {}, auditEvents: [] };
+  return { version: 4, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, producerBundles: {}, producerPackets: {}, auditEvents: [] };
 }
 
 function ensureWorkflowFields(run, clock = Date) {
@@ -58,7 +58,7 @@ export class FileStore {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
       if (!parsed || ![1, 2, 3, 4].includes(parsed.version)) return defaultState();
-      return { ...defaultState(), ...parsed, version: 4, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, producerPackets: parsed.producerPackets || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
+      return { ...defaultState(), ...parsed, version: 4, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, producerBundles: parsed.producerBundles || {}, producerPackets: parsed.producerPackets || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
     } catch {
       return defaultState();
     }
@@ -435,6 +435,18 @@ export class FileStore {
 
   getDocument(documentId) {
     return clone(this.state.documents[documentId]);
+  }
+
+  createProducerBundle(bundle) {
+    const existing = this.state.producerBundles[bundle.bundle_id];
+    if (existing) return { bundle: clone(existing), created: false };
+    this.state.producerBundles[bundle.bundle_id] = clone(bundle);
+    this.#persist();
+    return { bundle: clone(bundle), created: true };
+  }
+
+  getProducerBundle(bundleId) {
+    return clone(this.state.producerBundles[bundleId]);
   }
 
   createProducerPacket(packet) {

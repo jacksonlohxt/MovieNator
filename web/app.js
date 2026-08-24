@@ -73,13 +73,17 @@ const producerFileLabels = $("#producer-file-labels");
 const producerError = $("#producer-error");
 const producerResult = $("#producer-result");
 const producerSourceKinds = [
-  ["script", "Script"],
+  ["primary_screenplay", "Primary screenplay"],
+  ["screenplay_revision", "Screenplay revision"],
   ["director_notes", "Director notes"],
-  ["cast_actor_notes", "Cast or actor notes"],
-  ["location_production_notes", "Location or production notes"],
-  ["schedule", "Schedule"],
-  ["budget", "Budget"],
-  ["department_notes", "Department notes"],
+  ["cast_notes", "Cast notes"],
+  ["location_access", "Location and access"],
+  ["schedule_assumptions", "Schedule assumptions"],
+  ["budget_assumptions", "Budget assumptions"],
+  ["rights_clearance", "Rights and clearance"],
+  ["department_input", "Department input"],
+  ["breakdown", "Breakdown"],
+  ["handoff", "Handoff"],
   ["other", "Other production source"],
 ];
 const groundingEventNames = ["script.accepted", "script.queued", "script.grounding_started", "script.grounding_gap", "script.composing", "script.writer_fallback", "script.verifying", "script.succeeded", "script.failed"];
@@ -95,6 +99,7 @@ let lastEventSeq = 0;
 let lastFocused = null;
 let currentDocument = null;
 let currentGroundingRun = null;
+let currentProducerPacket = null;
 let groundingEventSource = null;
 let groundingPollTimer = null;
 let groundingReconnectTimer = null;
@@ -944,7 +949,7 @@ function renderProducerFileLabels() {
       option.textContent = text;
       select.append(option);
     }
-    select.value = index === 0 ? "script" : "other";
+    select.value = ["primary_screenplay", "location_access", "schedule_assumptions", "budget_assumptions"][index] || "other";
     row.append(name, label, select);
     producerFileLabels.append(row);
   });
@@ -963,11 +968,14 @@ function renderProducerStatements(selector, items, emptyText, packetId) {
   for (const item of items) {
     const card = document.createElement("div");
     card.className = "brief-card";
+    const classification = item.classification || item.claim_type || "open_question";
     const claim = document.createElement("span");
-    claim.className = `producer-claim producer-claim-${item.claim_type || "unknown"}`;
-    claim.textContent = item.claim_type || "unknown";
+    claim.className = `producer-claim producer-claim-${item.claim_type || (classification === "source_fact" || classification === "externally_supplied_fact" ? "fact" : classification === "human_assumption" ? "inference" : "unknown")}`;
+    claim.textContent = `${classification}${item.evidence_state ? ` · ${item.evidence_state}` : ""}`;
     const text = document.createElement("p");
-    text.textContent = item.text;
+    const assertions = item.assertions?.map((assertion) => assertion.text).filter(Boolean).join(" | ");
+    const baseText = item.text || item.value || item.question || item.title || item.scene_heading || item.scene_reference;
+    text.textContent = [baseText || "Not established in the supplied sources.", assertions ? `Both source sides: ${assertions}` : ""].filter(Boolean).join(" | ");
     card.append(claim, text);
     if (item.citation_ids?.length) {
       const links = document.createElement("div");
@@ -1054,6 +1062,7 @@ function renderProducerReconciliation(packet) {
 }
 
 function renderProducerPacket(packet) {
+  currentProducerPacket = packet;
   show(producerResult, true);
   setText("#producer-result-summary", packet.executive_summary?.text || "No source-grounded executive summary was established.");
   const handoff = $("#producer-handoff");
@@ -1064,15 +1073,23 @@ function renderProducerPacket(packet) {
     const item = document.createElement("span");
     item.className = "producer-source-pill";
     const version = source.version_provenance?.source_version || "not stated";
-    item.textContent = `${source.source_label}: ${source.filename} · version ${version} · ${source.locations?.length || 0} locations`;
+    const supplied = [source.version_label ? `version ${source.version_label}` : "version not supplied", source.status_label ? `status ${source.status_label}` : "status not supplied", source.content_hash ? source.content_hash.slice(0, 20) : "hash unavailable"];
+    item.textContent = `${source.source_label || source.source_kind}: ${source.filename} · ${supplied.join(" · ")}`;
     inventory.append(item);
   }
   renderProducerReconciliation(packet);
   renderProducerRegister(packet);
+  renderProducerStatements("#producer-facts", packet.exact_facts, "No exact source facts were established in the bundle.", packet.packet_id);
+  renderProducerStatements("#producer-scenes", packet.scene_index, "No scene heading is established in the primary screenplay.", packet.packet_id);
+  renderProducerStatements("#producer-budget-inputs", packet.budget_inputs, "No supplied budget input is established.", packet.packet_id);
+  renderProducerStatements("#producer-access", packet.rights_access_logistics, "No access evidence is established.", packet.packet_id);
+  renderProducerStatements("#producer-questions", packet.decision_question_register, "No open questions were recorded.", packet.packet_id);
+  renderProducerStatements("#producer-next-steps", packet.gaps_and_next_steps, "No gap was recorded.", packet.packet_id);
   renderProducerStatements("#producer-decisions", packet.production_decisions, "No actionable source notes were established.", packet.packet_id);
   renderProducerStatements("#producer-locations", packet.locations_and_timing, "No location or timing is established in the bundle.", packet.packet_id);
   renderProducerStatements("#producer-cast", packet.cast_role_demands, "No cast or role demand is established in the bundle.", packet.packet_id);
   renderProducerStatements("#producer-departments", packet.department_requirements, "No department requirement is established in the bundle.", packet.packet_id);
+  renderProducerStatements("#producer-conflicts", packet.conflicts, "No conflict was found.", packet.packet_id);
   renderProducerStatements("#producer-risks", packet.risks_or_conflicts, "No explicit risk or cross-source conflict was found.", packet.packet_id);
   renderProducerStatements("#producer-gaps", packet.gaps_or_questions, "No explicit gaps were flagged.", packet.packet_id);
   const citations = $("#producer-citations");
@@ -1087,6 +1104,9 @@ function renderProducerPacket(packet) {
     citations.append(button);
   }
   setText("#producer-limitations", (packet.limitations || []).join(" "));
+  $("#copy-producer-handoff").dataset.packetId = packet.packet_id;
+  $("#export-producer-markdown").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=markdown`;
+  $("#export-producer-json").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=json`;
 }
 
 async function openProducerCitation(packetId, citationId) {
@@ -1116,12 +1136,30 @@ async function openProducerCitation(packetId, citationId) {
   $(".evidence-drawer").focus();
 }
 
+async function copyProducerHandoff() {
+  if (!currentProducerPacket) return;
+  const response = await fetch(`/v1/producer-packets/${encodeURIComponent(currentProducerPacket.packet_id)}/handoff?format=markdown`);
+  if (!response.ok) return;
+  const value = await response.text();
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const fallback = document.createElement("textarea");
+    fallback.value = value;
+    document.body.append(fallback);
+    fallback.select();
+    document.execCommand("copy");
+    fallback.remove();
+  }
+  setText("#producer-copy-status", "Read-only handoff copied");
+}
+
 async function uploadProducerBundle(event) {
   event.preventDefault();
   producerError.hidden = true;
   const files = [...(producerFiles.files || [])];
-  if (!files.length || files.length > 8) {
-    setText(producerError, "Choose between 1 and 8 PDF or plain-text sources.");
+  if (!files.length || files.length > 12) {
+    setText(producerError, "Choose between 1 and 12 PDF or plain-text sources.");
     producerError.hidden = false;
     producerFiles.focus();
     return;
@@ -1138,17 +1176,25 @@ async function uploadProducerBundle(event) {
     producerError.hidden = false;
     return;
   }
+  if (kinds[0] !== "primary_screenplay") {
+    setText(producerError, "Label exactly one source as the primary screenplay before preparing the packet.");
+    producerError.hidden = false;
+    producerFileLabels.querySelector("select")?.focus();
+    return;
+  }
+  const manifest = { schema_version: "producer-source-bundle@1", sources: files.map((file, index) => ({ input_ref: `upload_${index + 1}`, filename: file.name, source_kind: kinds[index] })) };
   const formData = new FormData();
-  formData.append("schema_version", "producer-source-bundle@1");
-  files.forEach((file, index) => {
-    formData.append("source_kind", kinds[index]);
-    formData.append("file", file, file.name);
-  });
+  formData.append("manifest", JSON.stringify(manifest));
+  files.forEach((file) => formData.append("file", file, file.name));
   $("#submit-producer").disabled = true;
   try {
-    const response = await fetch("/v1/producer-packets", { method: "POST", body: formData });
+    const bundleResponse = await fetch("/v1/producer-source-bundles", { method: "POST", body: formData });
+    const bundle = await bundleResponse.json();
+    if (!bundleResponse.ok) throw new Error(bundle.error?.message || "The source bundle could not be accepted");
+    const response = await fetch(`/v1/producer-source-bundles/${encodeURIComponent(bundle.bundle_id)}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schema_version: "producer-intake-request@1", bundle_id: bundle.bundle_id }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "The producer bundle could not be consolidated");
+    if (!response.ok) throw new Error(data.error?.message || "The producer packet could not be consolidated");
+    currentProducerPacket = data;
     renderProducerPacket(data);
     producerResult.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
@@ -1263,6 +1309,7 @@ $("#cancel-run").addEventListener("click", cancelRun);
 $("#retry-run").addEventListener("click", retryRun);
 $("#close-evidence").addEventListener("click", closeEvidence);
 $("#copy-brief").addEventListener("click", copyBrief);
+$("#copy-producer-handoff").addEventListener("click", copyProducerHandoff);
 $("#evidence-drawer").addEventListener("click", (event) => { if (event.target === $("#evidence-drawer")) closeEvidence(); });
 document.addEventListener("keydown", (event) => {
   const drawer = $("#evidence-drawer");
