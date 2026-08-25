@@ -1,26 +1,72 @@
 # MovieNator product requirements document
 
-**Status:** Captain-authorized Producer Intake Decision Packet v1 direction
+**Status:** Captain-authorized Producer Intake Decision Packet v1 product hypothesis
 **Authority:** This file is the authoritative product, safety, and implementation contract. It authorizes no credentials, cloud mutation, publishing, approval action, or external partner side effect.
 **Product name:** MovieNator is the current display name and `movieinator` is the machine-safe identifier for new product-owned keys. Legacy `movie-inator-*`, `gemini-agents-*`, and `local://movie-inator/mock` values remain compatibility aliases where the current implementation supports them; existing run IDs, API routes, workflow IDs, and durable records remain valid.
-**Primary product direction:** `Producer Intake Decision Packet`
+**Primary product hypothesis:** `Producer Intake Decision Packet`
 **Compatibility surfaces:** single-document `Script Brief` and `Audience Data Readiness`
-**Research basis:** desk research report at `/Users/jacksonloh/firstmate-clean/data/movieinator-producer-market-research-s1/report.md`, read as evidence only, plus the official Google NotebookLM/Gemini Notebook product pages cited in section 1. It is not customer validation.
+**Research basis:** current evidence is limited to the desk research report at `/Users/jacksonloh/firstmate-clean/data/movieinator-producer-market-research-s1/report.md`, read as evidence only, plus the official Google NotebookLM/Gemini Notebook product pages cited in section 1. It is evidence for plausible workflow context and product overlap, not customer validation, market demand, or proof that the proposed packet is the right solution.
 
 ## 1. Product promise
 
-MovieNator is for producers and production-adjacent teams who receive a screenplay plus scattered companion material and need one trusted, source-linked view before the next production decision.
+MovieNator is exploring whether producers and production-adjacent teams who receive a screenplay plus scattered companion material need a trusted, source-linked view before the next production decision.
 
-The core problem is the translation and reconciliation gap between a versioned screenplay, director or cast notes, location and access information, schedule assumptions, budget assumptions, rights and clearance records, department inputs, and the producer's next human decision. MovieNator is not generic prose summarization and is not a replacement for a production system of record.
+### Evidence posture and discovery stance
 
-The product turns a bounded, explicitly labelled source bundle into a read-only **Producer Intake Decision Packet**. The packet makes the source record, the source-implied interpretation, externally supplied material, assumptions, conflicts, unknowns, and recorded decisions visible in one place. Every material claim is linked to a source location or is explicitly marked as not established.
+Current evidence in this PRD comes from desk research and official product documentation, not from customer interviews, workflow observation, permissioned source-bundle evaluation, or a head-to-head workplace comparison.
 
-MovieNator replaces or reduces:
+Desk research can identify plausible workflow conditions, role responsibilities, existing substitutes, and safety boundaries.
+
+It cannot establish that a problem recurs for a particular persona, has enough value to change behavior, is suitable for software, or has customer demand.
+
+The unvalidated customer hypotheses are that fragmented production material may create costly reconciliation or handoff work, that some of that work may be software-suitable, and that a bounded cited packet may improve the current workflow.
+
+The `Producer Intake Decision Packet` is therefore the present product hypothesis and implementation scaffold, not a proven solution.
+
+### Neutral observed workflow problem and candidate explanations
+
+**Neutral observed workflow problem:** Desk research describes scripted production work in which information can arrive across screenplay versions, companion notes, and operational records before a decision or handoff.
+
+The discovery question is whether the current workflow makes it difficult to establish what is stated, supplied, changed, conflicting, missing, and ready to hand off, and whether that difficulty recurs and matters in recent real producer work.
+
+This is a workflow condition to investigate, not a diagnosis, customer claim, or commitment to a packet.
+
+Candidate explanations include document reconciliation, version control, production-element extraction, handoff preparation, scheduling, budgeting, access, rights, and change communication.
+
+These are separate explanations to test for different personas and incidents, not established pain points or a feature roadmap.
+
+### Software and human authority boundary
+
+Software may support bounded, reversible information work such as preserving source relationships, extracting and classifying supplied material, comparing versions, linking claims to evidence, detecting conflicts and unknowns, routing questions, presenting role-aware views, and preparing structured read-only handoffs.
+
+Problems that depend on human authority remain outside the product, including negotiation, legal review, financing, relationship management, bookings, permissions, safety judgement, and decisions about what is true, approved, affordable, feasible, or acceptable.
+
+MovieNator may surface evidence, uncertainty, and a question for a responsible person, but it cannot grant authority or turn a workflow aid into an operational commitment.
+
+### Responsible AI opportunity and non-claims
+
+AI can responsibly provide bounded document ingestion, source classification, production-element extraction, version comparison, claim and evidence linking, conflict detection, unknown detection, question routing, role-aware views, and structured handoffs when outputs remain within the source bundle, carry citations and evidence states, and pass deterministic validation.
+
+AI must not claim that it inherently understands producers, choose the true pain point without research, approve budgets, certify access or rights, make safety conclusions, book resources, or replace producer judgement.
+
+These are the discovery-level opportunity and safety boundaries; the detailed evidence taxonomy, source limits, model boundary, compatibility contracts, and failure behavior remain authoritative in sections 4 through 10.
+
+The current product hypothesis is not generic prose summarization and is not a replacement for a production system of record.
+
+If validated, a bounded implementation would turn an explicitly labelled source bundle into a read-only **Producer Intake Decision Packet**.
+
+The packet hypothesis is to make the source record, the source-implied interpretation, externally supplied material, assumptions, conflicts, unknowns, and recorded decisions visible in one place.
+
+Every material claim must be linked to a source location or explicitly marked as not established.
+
+The current software hypothesis is that this could reduce:
 
 - repeated first-pass reading of the same package by different people;
 - manual extraction of scenes, roles, locations, timing, departments, and production drivers;
 - re-entry of the same source detail into early handoff documents; and
 - lost source context when a detail is copied into a spreadsheet, meeting note, or downstream tool.
+
+These benefits are unvalidated and must be measured against the current workflow and existing alternatives.
 
 MovieNator does not replace scheduling, budgeting, document control, legal or business affairs, booking, permitting, safety review, clearance review, production-management software, or human producer approval. It does not make a production decision, book a location, contract a performer, approve a stunt, or create a budget amount.
 
@@ -32,22 +78,28 @@ Upload source bundle -> Label each input -> Generate packet -> Review facts, unk
 
 ### The core job in plain language
 
-A producer receives fragmented information from many departments and many kinds of documents: a screenplay revision, director notes, cast material, location and access notes, breakdowns, schedule assumptions, budget assumptions, rights records, and department handoffs. The producer's business responsibilities require turning that material into an accountable view of what can be acted on, what is in conflict, what is missing, who owns the answer, how urgent it is, and what should happen next.
+The workflow under investigation involves fragmented information from many departments and many kinds of documents, including screenplay revisions, director notes, cast material, location and access notes, breakdowns, schedule assumptions, budget assumptions, rights records, and department handoffs.
 
-MovieNator's single job is to **collect, identify, reconcile, and present** that decision-ready information:
+A producer may need to turn that material into an accountable view of what can be acted on, what is in conflict, what is missing, who owns the answer, how urgent it is, and what should happen next.
+
+The present packet hypothesis is to **collect, identify, reconcile, and present** that information:
 
 1. **Collect** the bounded source bundle without silently merging files or losing the source relationship.
 2. **Identify** exact source facts, supplied external facts, source-implied inferences, human assumptions, prior decisions, and missing inputs.
-3. **Reconcile** versions, departments, statuses, units, and claims. Preserve both sides of a conflict instead of selecting a plausible winner.
-4. **Present** one trusted Producer Intake Decision Packet with source inventory, provenance, exact facts, conflicts, missing inputs, owners, priorities, and next actions.
+3. **Reconcile** versions, departments, statuses, units, and claims while preserving both sides of a conflict instead of selecting a plausible winner.
+4. **Present** one read-only Producer Intake Decision Packet with source inventory, provenance, exact facts, conflicts, missing inputs, owners, priorities, and next actions.
 
-The output is one packet, not a collection of disconnected summaries. Its workplace usefulness is whether a producer can use it to prepare the next budget, scale, rights, location, staffing, or department conversation without re-reading the whole bundle or mistaking a screenplay statement for an operational commitment. A packet that only sounds like a good summary has failed the product job.
+The proposed output is one packet, not a collection of disconnected summaries.
 
-### Why a producer uses MovieNator instead of NotebookLM
+Its value must be tested by whether a producer can use it to prepare the next budget, scale, rights, location, staffing, or department conversation without re-reading the whole bundle or mistaking a screenplay statement for an operational commitment.
 
-The plain-language rule is:
+A packet that only sounds like a good summary has failed the product hypothesis.
 
-> **Use NotebookLM when you want to understand or question a set of sources. Use MovieNator only when you need to reconcile a messy production source bundle and prepare the next producer decision.**
+### Why a producer might use MovieNator instead of NotebookLM
+
+The plain-language comparison rule is:
+
+> **Use NotebookLM when you want to understand or question a set of sources. Evaluate MovieNator only if research shows that reconciling a messy production source bundle and preparing the next producer decision remains a distinct, valuable job.**
 
 Google's current official help pages use the name **Gemini Notebook** for the NotebookLM product surface. This PRD uses **NotebookLM** for that product. Google documents that it can import many source types, including PDFs, text, Google Docs and Slides, Word, web URLs, YouTube URLs, and audio; it supports up to 50 sources for free users and up to 500,000 words or 200 MB per uploaded source [N1]. Google also documents source-grounded chat with inline citations and transformations into briefing and study formats [N2]. Google's product material documents source discovery, Briefing Docs, FAQs, Audio Overviews, and citation and note-taking features [N3, N4]. Those are real areas of overlap.
 
@@ -59,7 +111,7 @@ MovieNator must therefore not sell these as differentiation:
 - selecting sources for a question; or
 - collecting several documents in one workspace.
 
-The differentiation hypothesis is narrower and production-specific. MovieNator earns a place only if it turns the bundle into a trusted decision packet without asking the producer to manually build the production register that sits between a notebook and a production system of record.
+The differentiation hypothesis is narrower and production-specific. MovieNator would earn a place only if research shows that it turns the bundle into a trusted decision packet without asking the producer to manually build the production register that sits between a notebook and a production system of record.
 
 | Capability | What the official NotebookLM evidence supports | MovieNator contract | Status of the differentiation claim |
 |---|---|---|---|
@@ -72,9 +124,13 @@ The differentiation hypothesis is narrower and production-specific. MovieNator e
 
 MovieNator must be compared honestly with NotebookLM and with existing production tools. It must never demo an unanswered NotebookLM question and call that proof that NotebookLM cannot do production work. The test is whether a producer, given the same bundle and five minutes, reaches a more accurate, source-linked production decision surface with less manual reconciliation and re-entry.
 
-### The first-five-minute proof
+### The first-five-minute hypothesis test
 
-The first demo must prove the reconciliation job, not generate a logline and call it value. The deterministic fixture is synthetic and contains four labelled files:
+The first demo should expose the reconciliation job, not generate a logline and call it value.
+
+This deterministic fixture tests the proposed workflow and implementation contract only; it is not customer validation or evidence that the job is valuable.
+
+The fixture is synthetic and contains four labelled files:
 
 - `northline-shooting-script.txt`, labelled `primary_screenplay`, supplied version `shooting draft 3`, with a cited `SCENE 7 - INT. MILL - NIGHT`;
 - `northline-location-access.txt`, labelled `location_access`, with supplied status `permission pending`, a supplied owner `Jo - Locations`, and the statement that no location hold is confirmed;
@@ -91,7 +147,9 @@ The exact five-minute path is:
 | 3:00-4:00 | Open the Scene 7 citation and inspect the exact script location. Open the budget row and see `$1,200/access day` as an externally supplied input, not a calculated budget total. |
 | 4:00-5:00 | Review the missing-input register: confirm permission or hold, owner `Jo - Locations`, priority supplied or explicitly marked unset, and next action `obtain or record the access evidence`. Copy the read-only handoff. |
 
-The five-minute acceptance proof passes only if the packet visibly contains the four-source inventory, exact script fact, two-sided conflict, cited external budget input without a total, owner, priority state, next action, and working citation drawer and copy action. A fluent synopsis without those records is a failed demo.
+The five-minute implementation check passes only if the packet visibly contains the four-source inventory, exact script fact, two-sided conflict, cited external budget input without a total, owner, priority state, next action, and working citation drawer and copy action.
+
+A fluent synopsis without those records is a failed demo, but passing this synthetic check does not establish customer value or market demand.
 
 ### Falsifiable differentiation and kill condition
 
@@ -510,7 +568,7 @@ The MVP is accepted only when all of the following are true:
 
 - A producer can upload and label a bundle, generate a packet, see bounded progress, review classifications and unknowns, open a citation, copy a read-only handoff, and request an allowlisted read-only export.
 - End-to-end browser behavior is safe at narrow widths, keyboard accessible, focus-correct in citation drawers, and honest about Demo mode, source limitations, and failures.
-- The synthetic four-file first-five-minute fixture proves source inventory, exact fact, two-sided conflict, cited external budget input without a total, owner, priority state, next action, citation opening, and read-only copying. A fluent summary without those records fails the demo.
+- The synthetic four-file first-five-minute fixture must demonstrate source inventory, exact fact, two-sided conflict, cited external budget input without a total, owner, priority state, next action, citation opening, and read-only copying. A fluent summary without those records fails the demo, but this fixture is not customer validation.
 - Browser fields cannot choose providers, models, credentials, URLs, tools, thresholds, approvals, publishing, or side effects. Server routes reject unknown or authority fields even if the UI is bypassed.
 
 **Compatibility and readiness truth**
@@ -556,7 +614,30 @@ No stage may skip a failed readiness gate by changing the displayed status or si
 
 ## 14. Research evidence, unknowns, and validation plan
 
-The completed report is desk research dated 2026-08-23 UTC. It supports a workflow hypothesis, not product-market fit, market size, willingness to pay, or customer trust.
+The current report is desk research dated 2026-08-23 UTC.
+
+It supports plausible workflow context and candidate explanations, not product-market fit, market size, willingness to pay, customer trust, customer validation, or market demand.
+
+### Discovery gates and kill criteria
+
+Discovery starts from recent real producer work rather than pitching MovieNator.
+
+Do not lock the `Producer Intake Decision Packet` as the proven solution unless the evidence shows a recurring, valuable, software-suitable problem and a measurable advantage over current alternatives.
+
+Use these gates in order:
+
+1. **Evidence gate:** Keep desk research, direct customer incidents, workflow observations, permissioned source-bundle evaluations, and comparative results in separate evidence records.
+2. **Problem gate:** Show that recent real work contains recurring incidents with a meaningful time, risk, correction, coordination, or handoff consequence for a defined persona.
+3. **Software-suitability gate:** Show that bounded information support can improve the problem without pretending to perform negotiation, legal review, financing, relationship management, bookings, permissions, or safety judgement.
+4. **Alternative gate:** Compare the same work against the current workflow, NotebookLM, and the relevant existing production tools using the same source bundle, task, operator conditions, and scoring rules.
+5. **Outcome gate:** Show a measurable advantage in time to a meeting-ready packet, citation and fact correctness, conflict and unknown recall, correction burden, and handoff acceptance without weakening safety or trust.
+6. **Adoption and authority gate:** Confirm that people can use the result with acceptable access, retention, correction, and review controls while a human owner remains clear for every decision.
+
+Until every gate passes, the packet remains a reversible product hypothesis and research instrument.
+
+Kill or pivot the packet hypothesis if research shows that the problem is not recurring or valuable, is dominated by human authority work, has no material advantage over current alternatives, is not trusted with the required source material, or produces no accepted handoff.
+
+Also kill or pivot it if the only demonstrated value is another screenplay summary, if participants already have an equally useful trusted artifact, if correction burden offsets any time saved, or if the safety boundary cannot be maintained.
 
 ### NotebookLM evidence used for comparison
 
@@ -602,29 +683,48 @@ The product or architecture hypothesis should be reconsidered if observation sho
 - the dominant pain is scheduling, budgeting, legal clearance, booking, permitting, or document control that this read-only packet cannot responsibly address; or
 - NotebookLM plus the current production stack produces an equally accurate source inventory, exact-fact register, conflict and missing-input register, and owner/priority/next-action handoff without material extra time, corrections, or trust loss.
 
-### Interview and observation plan
+### Discovery method: recent work before product
 
-Recruit 12 to 16 people who handled a scripted project in the prior 18 months: development producers or script editors, producers, line producers or 1st ADs, production managers or coordinators, and a small number of creative-operations or department-side participants. Mix project sizes and do not recruit only existing AI or software advocates.
+Recruit 12 to 16 people who handled a scripted project in the prior 18 months, and sample development producers or script editors, producers, line producers or 1st ADs, production managers or coordinators, and creative-operations or department-side participants as separate persona cohorts where their responsibilities differ.
 
-Use an artifact-first 45 to 60 minute interview. Ask what arrived, how version authority was determined, what happened in the first hour, how one complex scene moved from script to breakdown, schedule, budget, locations, cast, and department follow-up, what was re-entered, what changed, what was missed, who owned each question, and what the participant would trust in a cited packet. Ask about sensitive material, retention, approved tools, buyer, and the exact handoff point. Show the packet only after observing the current workflow.
+Mix project sizes and do not recruit only existing AI or software advocates.
 
-Observe or replay 4 to 6 real prep sessions. Collect anonymized folder inventories or screenshots for screenplay revisions, breakdowns, scene lists, cast and location trackers, schedule and budget inputs, rights/access records, call-sheet inputs, and handoff checklists. Measure elapsed time, source switches, duplicate fields, revision propagation steps, unresolved questions, human corrections, and whether the packet is copied into a next tool or meeting.
+Use incident-based, artifact-first interviews lasting 45 to 60 minutes.
 
-Proceed with product investment only when at least two personas independently describe a recurring intake or handoff problem, participants identify a real artifact where source context or version status was lost, a cited packet changes a next action or review step, a consumer handoff point is named, trust requirements are acceptable, and a human owner remains clear for every production decision.
+Start with a recent real incident and ask what arrived, how version authority was determined, what happened in the first hour, how one complex scene moved from script to breakdown, schedule, budget, locations, cast, and department follow-up, what was re-entered, what changed, what was missed, who owned each question, and what was handed to whom.
+
+Ask about sensitive material, retention, approved tools, buyer or authority, the exact handoff point, and what the participant would trust in a cited packet only after understanding the current workflow.
+
+Observe or replay 4 to 6 real prep sessions rather than presenting a MovieNator workflow as the starting point.
+
+With permission, collect anonymized source bundles or bounded folder inventories, screenshots, and checklists for screenplay revisions, breakdowns, scene lists, cast and location trackers, schedule and budget inputs, rights and access records, call-sheet inputs, and handoffs.
+
+Record elapsed time, source switches, duplicate fields, revision propagation steps, unresolved questions, human corrections, and whether the current handoff is accepted by the next person or copied into a next tool or meeting.
+
+For each permissioned anonymized source bundle, pre-register the task, operator, current workflow, NotebookLM procedure, relevant existing production tool procedure, scoring rubric, and safety exclusions.
+
+Compare MovieNator with the current workflow plus NotebookLM and existing production tools, using the same bundle and the minimum manual work required to reach a meeting-ready packet.
+
+Do not show the packet before the baseline workflow and incident have been understood, and do not treat demo interest as problem validation.
+
+The gate decision may support product investment only when at least two persona cohorts independently describe a recurring intake or handoff problem, participants identify a real artifact where source context or version status was lost, a cited packet changes a next action or review step, a consumer handoff point is named, trust requirements are acceptable, and a human owner remains clear for every production decision.
 
 ### Measurable evaluation criteria
 
-Use a small permissioned or anonymized set of representative scripts and companion bundles with an experienced producer or 1st AD reference matrix. Measure:
+Use a small permissioned or anonymized set of representative scripts and companion bundles with an experienced producer or 1st AD reference matrix.
 
-- scene and production-element precision and recall by category;
-- citation correctness, citation completeness, and time from claim to source excerpt;
+Measure outcomes rather than demo reactions, including:
+
+- time to a meeting-ready packet from the same starting bundle and task;
+- citation/fact correctness, citation completeness, and time from claim to source excerpt;
 - classification accuracy for source fact, source-implied inference, external supplied fact, assumption, conflict, open question, and decision;
+- version and conflict detection precision and recall, including recall of seeded conflicts that affect a next decision;
+- unknown or gap detection precision and recall, including recall of seeded unknowns;
+- correction burden, including the number, severity, and time of human corrections before handoff;
+- handoff acceptance, including whether the next person accepts the packet, names the next action, and uses it in the next meeting or tool;
 - false assertion rate for booked, available, contracted, permitted, safe, cleared, approved, and budgeted claims, with a target of zero in the accepted set;
-- version and conflict detection precision and recall;
-- unknown or gap detection precision and recall;
-- question-register usefulness, owner accuracy when supplied, and severity of human corrections;
-- time to first useful producer conversation, source switches, repeated entry points, and handoff adoption;
-- packet latency, deterministic replay rate, model call count, cost, output size, and recovery behavior; and
+- question-register usefulness and owner accuracy when an owner is supplied;
+- source switches, repeated entry points, packet latency, deterministic replay rate, model call count, cost, output size, and recovery behavior; and
 - comparison of the single pipeline with any future specialist design using the same fixtures and budgets.
 
 Do not treat desk research or a favorable demo as willingness to pay, product-market fit, customer validation, or contest readiness.
