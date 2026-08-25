@@ -112,7 +112,7 @@ export function producerAgentReadiness({ mode = "local_mock", runtimeConfig, goo
 }
 
 function interactionInput(packetId) {
-  return `Inspect the existing MovieNator Producer Intake Decision Packet with packet_id=${packetId}. Use only the preconfigured ${PRODUCER_AGENT_TOOL}/${PRODUCER_AGENT_OPERATION} read-only tool. Return the product safe packet projection. Do not publish, book, approve, spend, browse arbitrary URLs, expose secrets, or mutate records.`;
+  return `Inspect the existing MovieInator Producer Intake Decision Packet with packet_id=${packetId}. Use only the preconfigured ${PRODUCER_AGENT_TOOL}/${PRODUCER_AGENT_OPERATION} read-only tool. Return the product safe packet projection. Do not publish, book, approve, spend, browse arbitrary URLs, expose secrets, or mutate records.`;
 }
 
 function interactionIdFromEvent(event) {

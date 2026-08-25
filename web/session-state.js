@@ -5,7 +5,7 @@ export const SESSION_KEYS = Object.freeze({
 });
 
 // Keep both previously shipped key families readable while old sessions expire.
-// New writes use only the MovieNator keys above and never delete legacy values.
+// New writes use only the MovieInator keys above and never delete legacy values.
 export const RUNTIME_STATUS_STATES = Object.freeze(["not-yet-checked", "mock", "live-gemini", "unavailable"]);
 
 const RUNTIME_STATUS_COPY = Object.freeze({

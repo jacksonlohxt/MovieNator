@@ -1,4 +1,4 @@
-# MovieNator Phase 4 state and logic hosting
+# MovieInator Phase 4 state and logic hosting
 
 Phase 4 adds a local, provider-neutral foundation for resumable workflow state, allowlisted tools, bounded function calling, and a future agent-host seam. It is an application contract, not a managed runtime deployment.
 

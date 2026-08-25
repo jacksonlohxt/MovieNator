@@ -523,7 +523,7 @@ function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toI
       schema_version: "producer-provenance@1",
       mode: "demo",
       backend: "local-deterministic-consolidation",
-      provider: "MovieNator uploaded production sources",
+      provider: "MovieInator uploaded production sources",
       external: false,
       read_only: true,
     },
@@ -804,7 +804,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     handoff: { schema_version: PRODUCER_HANDOFF_SCHEMA, audience: ["producer"], status: "review_required", next_owner: ownerValue || null, source_ids: orderedSources.map((source) => source.source_id), open_register_ids: [openQuestion.entry_id], prioritized_register_ids: [], next_action: "obtain or record the access evidence", claim_type: "inference", citation_ids: openQuestion.citation_ids },
     cited_citation_ids: citedIds,
     citations: citedIds.map((citationId) => citationsById.get(citationId)).filter(Boolean).slice(0, MAX_PACKET_CITATIONS),
-    provenance: { schema_version: "producer-provenance@1", mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieNator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
+    provenance: { schema_version: "producer-provenance@1", mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieInator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
     limitations: ["This packet only reports what the bounded uploaded bundle establishes.", "Externally supplied rates and statuses are not independently verified.", "Conflicts and open questions remain for human resolution; no booking, approval, permission, safety clearance, rights conclusion, or budget total was created.", ...(decisionContext ? [`Decision context supplied by the producer: ${boundedText(decisionContext, 1_000)}`] : [])],
   };
 }

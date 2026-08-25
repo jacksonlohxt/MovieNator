@@ -490,7 +490,7 @@ function producerHandoffJson(packet) {
 function markdownHandoff(packet) {
   const handoff = producerHandoffJson(packet);
   const lines = [
-    "# MovieNator Producer Intake Decision Packet",
+    "# MovieInator Producer Intake Decision Packet",
     "",
     `Packet: ${handoff.packet_id}`,
     `Bundle: ${handoff.bundle_id || "not supplied"}`,

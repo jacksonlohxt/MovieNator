@@ -1,4 +1,4 @@
-export const PRODUCT_DISPLAY_NAME = "MovieNator";
+export const PRODUCT_DISPLAY_NAME = "MovieInator";
 export const PRODUCT_IDENTIFIER = "movieinator";
 
 export const LOCAL_MOCK_ENDPOINT = "local://movieinator/mock";

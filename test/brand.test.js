@@ -28,7 +28,7 @@ function memoryStorage(initial = {}) {
   };
 }
 
-test("MovieNator identity uses the display name and machine-safe product identifier", () => {
+test("MovieInator identity uses the display name and machine-safe product identifier", () => {
   const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url)));
   const packageLock = JSON.parse(fs.readFileSync(new URL("../package-lock.json", import.meta.url)));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
@@ -36,15 +36,15 @@ test("MovieNator identity uses the display name and machine-safe product identif
   const deployment = fs.readFileSync(new URL("../deploy/cloud-run.yaml", import.meta.url), "utf8");
   const schemaHost = fs.readFileSync(new URL("../schemas/partner-capability@1.json", import.meta.url), "utf8");
 
-  assert.equal(PRODUCT_DISPLAY_NAME, "MovieNator");
+  assert.equal(PRODUCT_DISPLAY_NAME, "MovieInator");
   assert.equal(PRODUCT_IDENTIFIER, "movieinator");
   assert.equal(LOCAL_MOCK_ENDPOINT, "local://movieinator/mock");
   assert.equal(LOCAL_MOCK_TOOL_ENDPOINT, "local:movieinator-mock");
   assert.equal(packageJson.name, "movieinator");
   assert.equal(packageLock.name, "movieinator");
   assert.equal(packageLock.packages[""].name, "movieinator");
-  assert.match(readme, /^# MovieNator$/m);
-  assert.match(html, /<title>MovieNator - Evidence-backed filmmaker workflows<\/title>/);
+  assert.match(readme, /^# MovieInator$/m);
+  assert.match(html, /<title>MovieInator - Evidence-backed filmmaker workflows<\/title>/);
   assert.match(html, /<h1 id="page-title">Turn your script into a useful brief\.<\/h1>/);
   assert.match(html, /Upload script/);
   assert.match(html, /Tell us what you want/);
@@ -54,7 +54,7 @@ test("MovieNator identity uses the display name and machine-safe product identif
   assert.match(html, /id="producer-file-labels"/);
   assert.match(html, /Create producer packet/);
   assert.match(html, /<summary><span>Developer details<\/span>/);
-  assert.match(html, /aria-label="Choose a MovieNator workflow"/);
+  assert.match(html, /aria-label="Choose a MovieInator workflow"/);
   assert.match(deployment, /- name: movieinator/);
   assert.match(deployment, /- name: MOVIEINATOR_SECRET_REF/);
   assert.match(schemaHost, /https:\/\/movieinator\.local\/schemas/);
@@ -106,7 +106,7 @@ test("legacy readiness session state migrates without losing the old value", () 
   assert.equal(groundingStorage.getItem(SESSION_KEYS.groundingRun), "run_grounding");
 });
 
-test("direct MovieNator routes preserve the mock shell and browser module", async (t) => {
+test("direct MovieInator routes preserve the mock shell and browser module", async (t) => {
   const app = createApp({ dataPath: tempPath() });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   t.after(() => app.server.close());
@@ -115,7 +115,7 @@ test("direct MovieNator routes preserve the mock shell and browser module", asyn
 
   const home = await fetch(`${base}/`);
   assert.equal(home.status, 200);
-  assert.match(await home.text(), /<title>MovieNator/);
+  assert.match(await home.text(), /<title>MovieInator/);
 
   const appScript = await fetch(`${base}/app.js`);
   assert.equal(appScript.status, 200);
