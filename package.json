@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "types": "src/contracts.d.ts",
-  "description": "MovieNator grounded filmmaker workflows and mock-safe audience readiness",
+  "description": "MovieInator grounded filmmaker workflows and mock-safe audience readiness",
   "type": "module",
   "scripts": {
     "start": "node src/server.js",

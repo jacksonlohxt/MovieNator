@@ -1,4 +1,4 @@
-# MovieNator Google Agent Platform runtime scaffold
+# MovieInator Google Agent Platform runtime scaffold
 
 **Status:** infrastructure preparation only. No hosted deployment, live packet tool, model call, IBM integration, or contest compliance claim is enabled.
 
@@ -43,10 +43,10 @@ The canonical checklist is in [`docs/prd.md`](prd.md). This guide mirrors the sa
 
 ## Final runtime decision
 
-MovieNator is already a Node web application and Cloud Run is its existing deployment shape. The smallest maintainable adapter is therefore a Node-only `@google/genai` seam, not a Python sidecar:
+MovieInator is already a Node web application and Cloud Run is its existing deployment shape. The smallest maintainable adapter is therefore a Node-only `@google/genai` seam, not a Python sidecar:
 
 ```text
-Browser/API -> MovieNator Node server on Cloud Run -> @google/genai -> one operator-selected managed Agent Platform agent -> Interactions API
+Browser/API -> MovieInator Node server on Cloud Run -> @google/genai -> one operator-selected managed Agent Platform agent -> Interactions API
 ```
 
 The Node server remains the browser and API surface, state authority, policy authority, provider-neutral boundary, and safe projection owner. The adapter is implemented in [`src/producer-agent-boundary.js`](../src/producer-agent-boundary.js) and is disabled by default. It preserves the existing server-owned Gemini REST seam for the Script Brief and Audience Data Readiness compatibility paths; Interactions API is a separate, future managed-agent adapter and does not replace that REST path.

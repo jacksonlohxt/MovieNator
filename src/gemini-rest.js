@@ -335,7 +335,7 @@ export class GeminiReadiness {
           method: "POST",
           url,
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Movie-Inator Gemini readiness preflight. Reply with OK." }] }], generationConfig: { temperature: 0, maxOutputTokens: 1 } }),
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "MovieInator Gemini readiness preflight. Reply with OK." }] }], generationConfig: { temperature: 0, maxOutputTokens: 1 } }),
           signal: controller.signal,
         });
       } catch (error) {

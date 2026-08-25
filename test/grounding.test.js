@@ -159,7 +159,7 @@ test("producer intelligence asks for an exact location instead of inventing one"
   assert.equal(JSON.stringify(intelligence).includes("Singapore"), false);
 });
 
-test("MovieNator API uses the default Script Brief request and returns structured cited sections", async (t) => {
+test("MovieInator API uses the default Script Brief request and returns structured cited sections", async (t) => {
   const { app, base } = await startApp(t);
   const uploaded = await upload(base, "script.txt", "text/plain", Buffer.from("OPENING\nMARA enters the observatory.\n\nEXT. SHORE - DAY\nThe family faces loss and chooses hope."));
   const document = await uploaded.json();
@@ -176,16 +176,16 @@ test("MovieNator API uses the default Script Brief request and returns structure
   assert.equal(completed.result.producer_intelligence.schema_version, "producer-intelligence@1");
   assert.ok(Array.isArray(completed.result.producer_intelligence.scene_breakdown));
   assert.equal(completed.result.grounding.strategy, "whole_document_condensation");
-  assert.equal(completed.result.provenance.provider, "MovieNator uploaded script source");
+  assert.equal(completed.result.provenance.provider, "MovieInator uploaded script source");
 });
 
-test("MovieNator API uploads duplicate sources and runs a cited grounded brief without approval", async (t) => {
+test("MovieInator API uploads duplicate sources and runs a cited grounded brief without approval", async (t) => {
   const { app, base } = await startApp(t);
   const bytes = Buffer.from("OPENING\nMara enters the observatory and watches the signal.");
   const first = await upload(base, "opening.txt", "text/plain", bytes);
   assert.equal(first.status, 201);
   const firstDocument = await first.json();
-  assert.equal(firstDocument.source_label, "MovieNator uploaded script source");
+  assert.equal(firstDocument.source_label, "MovieInator uploaded script source");
   assert.equal(firstDocument.ingestion.state, "ready");
   const duplicate = await upload(base, "renamed.txt", "text/plain", bytes);
   assert.equal(duplicate.status, 200);

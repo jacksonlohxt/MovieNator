@@ -1,4 +1,4 @@
-# MovieNator Script Brief grounding
+# MovieInator Script Brief grounding
 
 This is the primary filmmaker-facing workflow. Audience Data Readiness remains available from the secondary Developer details surface. The upload and grounding seams are reused, while the Script Brief result and browser flow are now the product default.
 

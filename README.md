@@ -1,10 +1,10 @@
-> **PRD source of truth:** [`docs/prd.md`](docs/prd.md) is canonical for the complete product and contract specification. The README includes the current MovieNator product surface and an exact PRD copy below; maintain `docs/prd.md` and run `npm run check:docs` to detect drift.
+> **PRD source of truth:** [`docs/prd.md`](docs/prd.md) is canonical for the complete product and contract specification. The README includes the current MovieInator product surface and an exact PRD copy below; maintain `docs/prd.md` and run `npm run check:docs` to detect drift.
 
-# MovieNator
+# MovieInator
 
-MovieNator is a web-first producer workspace whose current product hypothesis is the **Producer Intake Decision Packet**.
+MovieInator is a web-first producer workspace whose current product hypothesis is the **Producer Intake Decision Packet**.
 Upload the script and the team's notes.
-MovieNator turns them into one simple producer checklist showing what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.
+MovieInator turns them into one simple producer checklist showing what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.
 This is a product hypothesis, not customer validation or proof that consolidation is a producer pain point.
 The existing single-document Script Brief and Audience Data Readiness workflows remain compatibility surfaces.
 
@@ -14,7 +14,7 @@ The target producer flow is:
 Upload the script and team's notes -> Review what the film needs -> Check what is missing or does not match -> See who needs to do what next -> Copy or export a read-only handoff
 ```
 
-MovieNator is the current display name, with `movieinator` as the machine-safe identifier for new product-owned keys. Existing run IDs, API routes, workflow IDs, document IDs, session keys, and durable records remain compatible. New browser state uses `movieinator-*`; legacy `movie-inator-*` and `gemini-agents-*` values are read and copied without deletion while the packet contract is implemented.
+MovieInator is the current display name, with `movieinator` as the machine-safe identifier for new product-owned keys. Existing run IDs, API routes, workflow IDs, document IDs, session keys, and durable records remain compatible. New browser state uses `movieinator-*`; legacy `movie-inator-*` and `gemini-agents-*` values are read and copied without deletion while the packet contract is implemented.
 
 ## Product boundaries
 
@@ -26,7 +26,7 @@ A screenplay location is not a booked location, a named actor is not an availabl
 The deterministic local path is labelled **Demo mode** and uses no credentials or external calls. Gemini and any partner or managed runtime are optional, server-owned, credential-gated, and not enabled by this documentation ship. There is no silent provider fallback and no live call from validation. Technical evidence, provenance, recovery history, and Audience Data Readiness remain behind Developer details.
 
 NotebookLM already answers questions about documents, creates summaries, and provides citations.
-MovieNator only earns a place if research shows that it turns the script and team's notes into a trusted checklist of what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.
+MovieInator only earns a place if research shows that it turns the script and team's notes into a trusted checklist of what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.
 If it only produces another screenplay summary, the PRD says it should not exist.
 
 ## Current status
@@ -51,8 +51,8 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 
 - [Product requirements document](docs/prd.md) - the authoritative Producer Intake Decision Packet, compatibility, safety, integration, and evaluation contract.
 - [Implementation guide](docs/implementation.md) - current contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
-- [MovieNator Phase 4 state and logic hosting guide](docs/phase4-state-logic-hosting.md) - durable checkpoints, allowlisted local tools, bounded proposals, recovery, and the future runtime boundary.
-- [MovieNator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - current single-document upload bounds, whole-document condensation, citations, operator boundaries, and future provider seams.
+- [MovieInator Phase 4 state and logic hosting guide](docs/phase4-state-logic-hosting.md) - durable checkpoints, allowlisted local tools, bounded proposals, recovery, and the future runtime boundary.
+- [MovieInator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - current single-document upload bounds, whole-document condensation, citations, operator boundaries, and future provider seams.
 - [Phase 5 deployment and safety runbook](docs/phase5-deployment.md) - container, Cloud Run placeholders, runtime modes, Secret Manager seam, safety budgets, audit events, and the future managed Agent Platform path.
 - [Google Agent Platform runtime scaffold](docs/google-agent-runtime.md) - exact accepted package pin, read-only packet boundary, deterministic local mock, readiness evidence, and future deployment boundary.
 - [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the later live-access boundary.
@@ -62,18 +62,18 @@ The PRD remains the source of truth for product detail. Producer Intake Decision
 ---
 
 <!-- PRD:START -->
-# MovieNator product requirements document
+# MovieInator product requirements document
 
 **Status:** Captain-authorized Producer Intake Decision Packet v1 product hypothesis
 **Authority:** This file is the authoritative product, safety, and implementation contract. It authorizes no credentials, cloud mutation, publishing, approval action, or external partner side effect.
-**Product name:** MovieNator is the current display name and `movieinator` is the machine-safe identifier for new product-owned keys. Legacy `movie-inator-*`, `gemini-agents-*`, and `local://movie-inator/mock` values remain compatibility aliases where the current implementation supports them; existing run IDs, API routes, workflow IDs, and durable records remain valid.
+**Product name:** MovieInator is the current display name and `movieinator` is the machine-safe identifier for new product-owned keys. Legacy `movie-inator-*`, `gemini-agents-*`, and `local://movie-inator/mock` values remain compatibility aliases where the current implementation supports them; existing run IDs, API routes, workflow IDs, and durable records remain valid.
 **Primary product hypothesis:** `Producer Intake Decision Packet`
 **Compatibility surfaces:** single-document `Script Brief` and `Audience Data Readiness`
 **Research basis:** current evidence is limited to the desk research report at `/Users/jacksonloh/firstmate-clean/data/movieinator-producer-market-research-s1/report.md`, read as evidence only, plus the official Google NotebookLM/Gemini Notebook product pages cited in section 1. It is evidence for plausible workflow context and product overlap, not customer validation, market demand, or proof that the proposed packet is the right solution.
 
 ## 1. Product promise
 
-MovieNator's plain-language product idea is: **Upload the script and the team's notes. MovieNator turns them into one simple producer checklist showing what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.**
+MovieInator's plain-language product idea is: **Upload the script and the team's notes. MovieInator turns them into one simple producer checklist showing what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.**
 
 This is a product hypothesis, not customer validation or proof that consolidation is a producer pain point.
 
@@ -107,7 +107,7 @@ Software may support bounded, reversible information work such as preserving sou
 
 Problems that depend on human authority remain outside the product, including negotiation, legal review, financing, relationship management, bookings, permissions, safety judgement, and decisions about what is true, approved, affordable, feasible, or acceptable.
 
-MovieNator may surface evidence, uncertainty, and a question for a responsible person, but it cannot grant authority or turn a workflow aid into an operational commitment.
+MovieInator may surface evidence, uncertainty, and a question for a responsible person, but it cannot grant authority or turn a workflow aid into an operational commitment.
 
 ### Responsible AI opportunity and non-claims
 
@@ -134,7 +134,7 @@ The current software hypothesis is that this could reduce:
 
 These benefits are unvalidated and must be measured against the current workflow and existing alternatives.
 
-MovieNator does not replace scheduling, budgeting, document control, legal or business affairs, booking, permitting, safety review, clearance review, production-management software, or human producer approval. It does not make a production decision, book a location, contract a performer, approve a stunt, or create a budget amount.
+MovieInator does not replace scheduling, budgeting, document control, legal or business affairs, booking, permitting, safety review, clearance review, production-management software, or human producer approval. It does not make a production decision, book a location, contract a performer, approve a stunt, or create a budget amount.
 
 The target flow is:
 
@@ -161,15 +161,15 @@ Its value must be tested by whether a producer can use it to prepare the next bu
 
 A packet that only sounds like a good summary has failed the product hypothesis.
 
-### Why a producer might use MovieNator instead of NotebookLM
+### Why a producer might use MovieInator instead of NotebookLM
 
 The plain-language comparison rule is:
 
-> **Use NotebookLM when you want to understand or question a set of sources. Evaluate MovieNator only if research shows that reconciling a messy production source bundle and preparing the next producer decision remains a distinct, valuable job.**
+> **Use NotebookLM when you want to understand or question a set of sources. Evaluate MovieInator only if research shows that reconciling a messy production source bundle and preparing the next producer decision remains a distinct, valuable job.**
 
 Google's current official help pages use the name **Gemini Notebook** for the NotebookLM product surface. This PRD uses **NotebookLM** for that product. Google documents that it can import many source types, including PDFs, text, Google Docs and Slides, Word, web URLs, YouTube URLs, and audio; it supports up to 50 sources for free users and up to 500,000 words or 200 MB per uploaded source [N1]. Google also documents source-grounded chat with inline citations and transformations into briefing and study formats [N2]. Google's product material documents source discovery, Briefing Docs, FAQs, Audio Overviews, and citation and note-taking features [N3, N4]. Those are real areas of overlap.
 
-MovieNator must therefore not sell these as differentiation:
+MovieInator must therefore not sell these as differentiation:
 
 - uploading documents;
 - asking questions over sources;
@@ -177,18 +177,18 @@ MovieNator must therefore not sell these as differentiation:
 - selecting sources for a question; or
 - collecting several documents in one workspace.
 
-The differentiation hypothesis is narrower and production-specific. MovieNator would earn a place only if research shows that it turns the script and team's notes into a trusted checklist of what the film needs, what still needs checking, where the notes do not match, and who needs to do what next, without asking the producer to build the production register by hand.
+The differentiation hypothesis is narrower and production-specific. MovieInator would earn a place only if research shows that it turns the script and team's notes into a trusted checklist of what the film needs, what still needs checking, where the notes do not match, and who needs to do what next, without asking the producer to build the production register by hand.
 
-| Capability | What the official NotebookLM evidence supports | MovieNator contract | Status of the differentiation claim |
+| Capability | What the official NotebookLM evidence supports | MovieInator contract | Status of the differentiation claim |
 |---|---|---|---|
 | Source grounding and citations | Source-grounded answers, summaries, and inline citations [N1, N2, N4] | Every packet claim has a classification, evidence state, source ID, and resolvable page or section/line citation | Overlap, not differentiation |
 | Broad source collection | Many source types, web and Drive import, source selection, and source limits [N1, N3] | A smaller bounded bundle with required production source kinds, department labels, safe relationships, stable IDs, and retention state | Deliberate production boundary, not a claim that NotebookLM is inadequate |
-| General understanding and generated artifacts | Chat, briefing formats, Audio Overviews, and other generated views [N2, N3, N4] | One fixed packet containing inventory, exact facts, production elements, conflicts, missing inputs, owners, priorities, and next actions | MovieNator hypothesis to test; not a claim that NotebookLM cannot produce any of these views |
+| General understanding and generated artifacts | Chat, briefing formats, Audio Overviews, and other generated views [N2, N3, N4] | One fixed packet containing inventory, exact facts, production elements, conflicts, missing inputs, owners, priorities, and next actions | MovieInator hypothesis to test; not a claim that NotebookLM cannot produce any of these views |
 | Version and department reconciliation | The cited official pages do not establish a production-specific version authority, breakdown taxonomy, or conflict register | Preserve source relationships, compare supplied versions, label each assertion, and show unresolved conflicts without silent precedence | Product-specific contract; competitor absence is unproven |
-| Operational status safety | The cited official pages establish source-grounded assistance, not a production status authority | Never turn a screenplay location into a booking, a named actor into availability, a stunt into approval, or a cost driver into a budget amount | MovieNator safety requirement, not a claim about NotebookLM behavior |
+| Operational status safety | The cited official pages establish source-grounded assistance, not a production status authority | Never turn a screenplay location into a booking, a named actor into availability, a stunt into approval, or a cost driver into a budget amount | MovieInator safety requirement, not a claim about NotebookLM behavior |
 | Handoff usefulness | NotebookLM supports notebook interaction and generated formats [N2, N3] | Export one read-only producer packet whose open questions have supplied owners, priorities, evidence, and next actions | Hypothesis measured by workplace handoff, not by prose preference |
 
-MovieNator must be compared honestly with NotebookLM and with existing production tools. It must never demo an unanswered NotebookLM question and call that proof that NotebookLM cannot do production work. The test is whether a producer, given the same bundle and five minutes, reaches a more accurate, source-linked checklist showing what needs checking and what happens next, with less manual reconciliation and re-entry.
+MovieInator must be compared honestly with NotebookLM and with existing production tools. It must never demo an unanswered NotebookLM question and call that proof that NotebookLM cannot do production work. The test is whether a producer, given the same bundle and five minutes, reaches a more accurate, source-linked checklist showing what needs checking and what happens next, with less manual reconciliation and re-entry.
 
 ### The first-five-minute hypothesis test
 
@@ -209,7 +209,7 @@ The exact five-minute path is:
 |---|---|
 | 0:00-1:00 | Select the four files, choose their source kinds, and see the source inventory, supplied version/status labels, content hashes, relationships, and ingestion state. |
 | 1:00-2:00 | Generate the packet in Demo mode. The browser shows source mapping and reconciliation, not a generic summary spinner. |
-| 2:00-3:00 | Open the conflict card: the schedule assumption references a Mill hold while the location source says no hold or permission is confirmed. Both sources and both citations remain visible. MovieNator does not decide which is true. |
+| 2:00-3:00 | Open the conflict card: the schedule assumption references a Mill hold while the location source says no hold or permission is confirmed. Both sources and both citations remain visible. MovieInator does not decide which is true. |
 | 3:00-4:00 | Open the Scene 7 citation and inspect the exact script location. Open the budget row and see `$1,200/access day` as an externally supplied input, not a calculated budget total. |
 | 4:00-5:00 | Review the missing-input register: confirm permission or hold, owner `Jo - Locations`, priority supplied or explicitly marked unset, and next action `obtain or record the access evidence`. Copy the read-only handoff. |
 
@@ -219,11 +219,11 @@ A fluent synopsis without those records is a failed demo, but passing this synth
 
 ### Falsifiable differentiation and kill condition
 
-The following are initial test gates, not customer-validated results. Run the same permissioned bundle through MovieNator, NotebookLM plus the minimum manual register needed to reach a producer handoff, and the team's current production workflow. Pre-register the bundle, prompt, operator, and scoring rubric before comparing results.
+The following are initial test gates, not customer-validated results. Run the same permissioned bundle through MovieInator, NotebookLM plus the minimum manual register needed to reach a producer handoff, and the team's current production workflow. Pre-register the bundle, prompt, operator, and scoring rubric before comparing results.
 
-| Measure | Initial MovieNator target | Product interpretation |
+| Measure | Initial MovieInator target | Product interpretation |
 |---|---|---|
-| Time to a trusted, cited production handoff | At least 30% lower median time than NotebookLM plus manual reconciliation, with no accuracy loss | If the time is not lower, MovieNator must show a material quality or safety advantage or should not proceed |
+| Time to a trusted, cited production handoff | At least 30% lower median time than NotebookLM plus manual reconciliation, with no accuracy loss | If the time is not lower, MovieInator must show a material quality or safety advantage or should not proceed |
 | Exact fact and citation correctness | At least 95% of scored claims correctly state the source and open the right location | A good summary with weak citations is not a win |
 | Conflict recall | At least 90% of seeded version, status, unit, and cross-department conflicts found, with both sides preserved | Missing a conflict that changes a producer decision is a release blocker |
 | Unsupported operational status | Zero accepted false claims of booked, available, contracted, permitted, cleared, safe, approved, or budgeted | Any such false claim is a safety failure regardless of fluency |
@@ -231,13 +231,13 @@ The following are initial test gates, not customer-validated results. Run the sa
 | Re-entry burden | At least 50% fewer repeated fields or manual source switches than the observed baseline for the same handoff | If the packet creates another spreadsheet to re-key, it has not solved the job |
 | Workplace handoff | At least 4 of 5 producer or line-production reviewers can name the next action and would use the packet in the next meeting or handoff | Preference for a summary alone does not count |
 
-**Condition under which MovieNator should not exist:** if a producer using NotebookLM and the existing production stack can create the same source inventory, provenance, exact-fact register, conflict and missing-input register, owner/priority/next-action handoff, and safety distinctions with no material additional time, correction burden, or loss of trust, MovieNator is redundant and should not be built. It should also not exist if interviews show that producers do not make or route decisions from this intake package, or if the product's only demonstrable value is another screenplay summary. The correct outcome is to use NotebookLM or the existing production tools, not to preserve MovieNator for branding.
+**Condition under which MovieInator should not exist:** if a producer using NotebookLM and the existing production stack can create the same source inventory, provenance, exact-fact register, conflict and missing-input register, owner/priority/next-action handoff, and safety distinctions with no material additional time, correction burden, or loss of trust, MovieInator is redundant and should not be built. It should also not exist if interviews show that producers do not make or route decisions from this intake package, or if the product's only demonstrable value is another screenplay summary. The correct outcome is to use NotebookLM or the existing production tools, not to preserve MovieInator for branding.
 
 ## 2. Users, jobs, and decision boundary
 
 The primary user is a producer. The packet must also be useful to the production-adjacent people who prepare or receive the next handoff.
 
-| User hypothesis | Job after receiving the package | MovieNator helps with | Human decision that remains outside MovieNator |
+| User hypothesis | Job after receiving the package | MovieInator helps with | Human decision that remains outside MovieInator |
 |---|---|---|---|
 | Producer | Establish the current source picture before a scale, rights, budget, location, financing, or team conversation | See source facts, supplied constraints, production drivers, gaps, conflicts, owners, and next questions without losing citations | Approve scale, budget, rights strategy, locations, key hires, financing, or production direction |
 | Development producer or script editor | Read a draft quickly and identify story and practical questions | Source-grounded story orientation, role and location signals, revision metadata, questions for writer or director | Develop, commission, request rewrites, pitch, or pass |
@@ -288,7 +288,7 @@ Every claim, row, question, conflict, and decision in a packet uses exactly one 
 | `human_assumption` | A person explicitly labelled a value or constraint as an assumption. Preserve the author or owner when supplied. Never create an assumption merely because a field is missing. |
 | `conflict` | Two or more supplied sources or records make incompatible claims, versions, statuses, or values. Preserve each side and its citations; never silently choose a winner. |
 | `open_question` | The supplied material does not establish the answer, or explicitly leaves it unanswered. A question about absence may have an empty citation list, but it must say what is missing. |
-| `decision` | A human decision is explicitly supplied in the source bundle. MovieNator records the decision and provenance but never makes, approves, or publishes one. A decision still needing a human is an `open_question`, not a generated decision. |
+| `decision` | A human decision is explicitly supplied in the source bundle. MovieInator records the decision and provenance but never makes, approves, or publishes one. A decision still needing a human is an `open_question`, not a generated decision. |
 
 Each typed claim or row has at least:
 
@@ -549,7 +549,7 @@ The current local architecture is documented in `docs/implementation.md`, `docs/
 
 ### Current two-lane execution map
 
-This map reconciles the landed offline MovieNator work with the remaining Captain and authorized-operator gates.
+This map reconciles the landed offline MovieInator work with the remaining Captain and authorized-operator gates.
 Routine green code PRs may be reviewed and merged under the standing MVP posture when checks pass, but that posture never delegates paid, public, destructive, security-sensitive, or irreversible actions.
 
 #### Autonomous project work
@@ -708,7 +708,7 @@ It supports plausible workflow context and candidate explanations, not product-m
 
 ### Discovery gates and kill criteria
 
-Discovery starts from recent real producer work rather than pitching MovieNator.
+Discovery starts from recent real producer work rather than pitching MovieInator.
 
 Do not lock the `Producer Intake Decision Packet` as the proven solution unless the evidence shows a recurring, valuable, software-suitable problem and a measurable advantage over current alternatives.
 
@@ -736,7 +736,7 @@ These are official Google product sources, not customer validation and not evide
 - **N3, Google blog, New in NotebookLM: Discover sources from around the web:** https://blog.google/innovation-and-ai/models-and-research/google-labs/notebooklm-discover-sources/ - describes Discover Sources, annotated source recommendations, Briefing Docs, FAQs, Audio Overviews, citation, and note-taking features.
 - **N4, Google blog, NotebookLM adds audio and YouTube support:** https://blog.google/innovation-and-ai/products/notebooklm-audio-video-sources/ - describes source-grounded responses with citations and relevant quotes, public YouTube and audio sources, and generated Audio Overviews.
 
-The PRD makes no unsupported claim that NotebookLM lacks version comparison, production taxonomies, conflict detection, ownership, or handoff outputs. Those are MovieNator's differentiation hypotheses and must be tested head-to-head. If a current NotebookLM capability changes, update this evidence table and the comparison without turning a feature assumption into a product fact.
+The PRD makes no unsupported claim that NotebookLM lacks version comparison, production taxonomies, conflict detection, ownership, or handoff outputs. Those are MovieInator's differentiation hypotheses and must be tested head-to-head. If a current NotebookLM capability changes, update this evidence table and the comparison without turning a feature assumption into a product fact.
 
 ### Evidence carried into the PRD
 
@@ -745,7 +745,7 @@ The PRD makes no unsupported claim that NotebookLM lacks version comparison, pro
 - **E3, ScreenSkills line producer, production manager, and coordinator guidance:** production work joins money, crew, safety, logistics, documentation, script changes, rights, clearances, and communication. This supports the multi-document intake problem.
 - **E4, ScreenSkills location guidance and Film London permission guidance:** location use, releases, insurance, permissions, and access are separate records. A screenplay location cannot prove permission or availability.
 - **E5, LibreTexts, Into Film, and FSUFILM paperwork guidance:** breakdowns, schedules, call sheets, permits, releases, cast and location records, safety documents, correspondence, and delivery materials form a broad handoff chain.
-- **E6, StudioBinder, Celtx, Movie Magic, Yamdu, and Scenechronize product materials:** existing substitutes provide breakdown, revision propagation, scheduling, budgeting, and document control. Vendor feature claims are not independent evidence that MovieNator is needed.
+- **E6, StudioBinder, Celtx, Movie Magic, Yamdu, and Scenechronize product materials:** existing substitutes provide breakdown, revision propagation, scheduling, budgeting, and document control. Vendor feature claims are not independent evidence that MovieInator is needed.
 
 The canonical evidence URLs and passages remain in the report. The report must not be modified as part of this PRD task.
 
@@ -758,7 +758,7 @@ The canonical evidence URLs and passages remain in the report. The report must n
 5. Sensitive scripts and rights materials can be used only with acceptable access, retention, redaction, and deployment controls.
 6. A single deterministic pipeline is sufficient for the first product and may outperform a multi-agent design on trust, correction rate, latency, and cost.
 7. A live partner becomes valuable only if current external costs, access, document control, or downstream re-entry is a dominant observed problem. It is not an MVP dependency.
-8. NotebookLM or an existing production stack may already provide enough source understanding and handoff value; MovieNator must prove a production-specific reconciliation and decision-preparation win rather than assume one.
+8. NotebookLM or an existing production stack may already provide enough source understanding and handoff value; MovieInator must prove a production-specific reconciliation and decision-preparation win rather than assume one.
 
 ### Falsification criteria
 
@@ -783,7 +783,7 @@ Start with a recent real incident and ask what arrived, how version authority wa
 
 Ask about sensitive material, retention, approved tools, buyer or authority, the exact handoff point, and what the participant would trust in a cited packet only after understanding the current workflow.
 
-Observe or replay 4 to 6 real prep sessions rather than presenting a MovieNator workflow as the starting point.
+Observe or replay 4 to 6 real prep sessions rather than presenting a MovieInator workflow as the starting point.
 
 With permission, collect anonymized source bundles or bounded folder inventories, screenshots, and checklists for screenplay revisions, breakdowns, scene lists, cast and location trackers, schedule and budget inputs, rights and access records, call-sheet inputs, and handoffs.
 
@@ -791,7 +791,7 @@ Record elapsed time, source switches, duplicate fields, revision propagation ste
 
 For each permissioned anonymized source bundle, pre-register the task, operator, current workflow, NotebookLM procedure, relevant existing production tool procedure, scoring rubric, and safety exclusions.
 
-Compare MovieNator with the current workflow plus NotebookLM and existing production tools, using the same bundle and the minimum manual work required to reach a meeting-ready packet.
+Compare MovieInator with the current workflow plus NotebookLM and existing production tools, using the same bundle and the minimum manual work required to reach a meeting-ready packet.
 
 Do not show the packet before the baseline workflow and incident have been understood, and do not treat demo interest as problem validation.
 

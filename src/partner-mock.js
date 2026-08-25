@@ -113,7 +113,7 @@ export class LocalMockPartnerAdapter {
     };
   }
 
-  // These methods make the adapter directly usable by MovieNator's
+  // These methods make the adapter directly usable by MovieInator's
   // existing EvidenceProvider interface. They return normalized observations,
   // while invoke() remains the partner-runtime boundary.
   async resolve_asset(context, query) {
