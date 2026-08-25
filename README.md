@@ -2,23 +2,32 @@
 
 # MovieNator
 
-MovieNator is a web-first producer workspace whose current product hypothesis is the **Producer Intake Decision Packet**: upload a bounded screenplay and explicitly labelled companion material, then receive one read-only, source-linked view of what is established, implied, supplied, assumed, conflicting, unknown, or already decided before the next production conversation. The existing single-document Script Brief and Audience Data Readiness workflows remain compatibility surfaces.
+MovieNator is a web-first producer workspace whose current product hypothesis is the **Producer Intake Decision Packet**.
+Upload the script and the team's notes.
+MovieNator turns them into one simple producer checklist showing what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.
+This is a product hypothesis, not customer validation or proof that consolidation is a producer pain point.
+The existing single-document Script Brief and Audience Data Readiness workflows remain compatibility surfaces.
 
 The target producer flow is:
 
 ```text
-Upload source bundle -> Label inputs -> Generate packet -> Review facts, unknowns, and conflicts -> Open citations -> Copy or export a read-only handoff
+Upload the script and team's notes -> Review what the film needs -> Check what is missing or does not match -> See who needs to do what next -> Copy or export a read-only handoff
 ```
 
 MovieNator is the current display name, with `movieinator` as the machine-safe identifier for new product-owned keys. Existing run IDs, API routes, workflow IDs, document IDs, session keys, and durable records remain compatible. New browser state uses `movieinator-*`; legacy `movie-inator-*` and `gemini-agents-*` values are read and copied without deletion while the packet contract is implemented.
 
 ## Product boundaries
 
-The current packet hypothesis is a bounded intake and evidence surface, not a generic summarizer or production system of record. It may reduce repeated first-pass reading, manual extraction, re-entry, and lost source context, but those benefits are unvalidated. It does not replace scheduling, budgeting, document control, legal or business affairs, booking, permitting, safety review, rights clearance, or human producer approval. A screenplay location is not a booked location, a named actor is not an available or contracted actor, a described stunt is not a safety approval, and a cost driver is not a budget amount.
+The current packet hypothesis is a simple, read-only producer checklist, not a generic summarizer or production system of record.
+It may reduce repeated first-pass reading, manual extraction, re-entry, and lost source context, but those benefits are unvalidated.
+It does not replace scheduling, budgeting, document control, legal or business affairs, booking, permitting, safety review, rights clearance, or human producer approval.
+A screenplay location is not a booked location, a named actor is not an available or contracted actor, a described stunt is not a safety approval, and a cost driver is not a budget amount.
 
 The deterministic local path is labelled **Demo mode** and uses no credentials or external calls. Gemini and any partner or managed runtime are optional, server-owned, credential-gated, and not enabled by this documentation ship. There is no silent provider fallback and no live call from validation. Technical evidence, provenance, recovery history, and Audience Data Readiness remain behind Developer details.
 
-NotebookLM already covers source-grounded questions, summaries, and citations. MovieNator only earns a place if research shows that it reconciles a messy production bundle into a trusted source inventory, exact-fact register, conflict and missing-input register, owners, priorities, and next actions for a producer's next business decision. If it only produces another screenplay summary, the PRD says it should not exist.
+NotebookLM already answers questions about documents, creates summaries, and provides citations.
+MovieNator only earns a place if research shows that it turns the script and team's notes into a trusted checklist of what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.
+If it only produces another screenplay summary, the PRD says it should not exist.
 
 ## Current status
 
@@ -64,7 +73,9 @@ The PRD remains the source of truth for product detail. Producer Intake Decision
 
 ## 1. Product promise
 
-MovieNator is exploring whether producers and production-adjacent teams who receive a screenplay plus scattered companion material need a trusted, source-linked view before the next production decision.
+MovieNator's plain-language product idea is: **Upload the script and the team's notes. MovieNator turns them into one simple producer checklist showing what the film needs, what still needs checking, where the notes do not match, and who needs to do what next.**
+
+This is a product hypothesis, not customer validation or proof that consolidation is a producer pain point.
 
 ### Evidence posture and discovery stance
 
@@ -106,7 +117,7 @@ AI must not claim that it inherently understands producers, choose the true pain
 
 These are the discovery-level opportunity and safety boundaries; the detailed evidence taxonomy, source limits, model boundary, compatibility contracts, and failure behavior remain authoritative in sections 4 through 10.
 
-The current product hypothesis is not generic prose summarization and is not a replacement for a production system of record.
+The current product hypothesis is a simple, read-only producer checklist, not a generic summarizer or production system of record.
 
 If validated, a bounded implementation would turn an explicitly labelled source bundle into a read-only **Producer Intake Decision Packet**.
 
@@ -128,7 +139,7 @@ MovieNator does not replace scheduling, budgeting, document control, legal or bu
 The target flow is:
 
 ```text
-Upload source bundle -> Label each input -> Generate packet -> Review facts, unknowns, and conflicts -> Open citations -> Copy or export a read-only handoff
+Upload the script and team's notes -> Review what the film needs -> Check what is missing or does not match -> See who needs to do what next -> Copy or export a read-only handoff
 ```
 
 ### The core job in plain language
@@ -166,7 +177,7 @@ MovieNator must therefore not sell these as differentiation:
 - selecting sources for a question; or
 - collecting several documents in one workspace.
 
-The differentiation hypothesis is narrower and production-specific. MovieNator would earn a place only if research shows that it turns the bundle into a trusted decision packet without asking the producer to manually build the production register that sits between a notebook and a production system of record.
+The differentiation hypothesis is narrower and production-specific. MovieNator would earn a place only if research shows that it turns the script and team's notes into a trusted checklist of what the film needs, what still needs checking, where the notes do not match, and who needs to do what next, without asking the producer to build the production register by hand.
 
 | Capability | What the official NotebookLM evidence supports | MovieNator contract | Status of the differentiation claim |
 |---|---|---|---|
@@ -177,7 +188,7 @@ The differentiation hypothesis is narrower and production-specific. MovieNator w
 | Operational status safety | The cited official pages establish source-grounded assistance, not a production status authority | Never turn a screenplay location into a booking, a named actor into availability, a stunt into approval, or a cost driver into a budget amount | MovieNator safety requirement, not a claim about NotebookLM behavior |
 | Handoff usefulness | NotebookLM supports notebook interaction and generated formats [N2, N3] | Export one read-only producer packet whose open questions have supplied owners, priorities, evidence, and next actions | Hypothesis measured by workplace handoff, not by prose preference |
 
-MovieNator must be compared honestly with NotebookLM and with existing production tools. It must never demo an unanswered NotebookLM question and call that proof that NotebookLM cannot do production work. The test is whether a producer, given the same bundle and five minutes, reaches a more accurate, source-linked production decision surface with less manual reconciliation and re-entry.
+MovieNator must be compared honestly with NotebookLM and with existing production tools. It must never demo an unanswered NotebookLM question and call that proof that NotebookLM cannot do production work. The test is whether a producer, given the same bundle and five minutes, reaches a more accurate, source-linked checklist showing what needs checking and what happens next, with less manual reconciliation and re-entry.
 
 ### The first-five-minute hypothesis test
 
@@ -536,36 +547,58 @@ The current local architecture is documented in `docs/implementation.md`, `docs/
 
 **Still open:** There is no Cloud Run deployment, no live MovieInator packet tool or MCP connection, no end-to-end hosted request, no IBM runtime integration, IBM Bob evidence is still pending, and there is no contest-compliance claim.
 
-### Automated versus operator-only execution boundary
+### Current two-lane execution map
 
-Use this durable checklist to separate work the project team can execute from actions that require an authorized operator. Routine code PRs may be reviewed and merged under the standing MVP posture when checks pass; that posture never delegates paid, public, destructive, security-sensitive, or irreversible actions.
+This map reconciles the landed offline MovieNator work with the remaining Captain and authorized-operator gates.
+Routine green code PRs may be reviewed and merged under the standing MVP posture when checks pass, but that posture never delegates paid, public, destructive, security-sensitive, or irreversible actions.
 
-**Project-owned and autonomous - no cloud mutation**
+#### Autonomous project work
 
-- [ ] Run local unit, integration, and deterministic regression tests.
-- [ ] Run schema validation plus `npm run check` and `npm run check:docs`.
-- [ ] Run deterministic mock and synthetic browser/API E2E, including the four-file producer packet fixture.
-- [ ] Implement and refine the read-only Producer Intake Decision Packet, its schemas, citations, provenance, readiness code, and safe failure behavior.
-- [ ] Prepare the safe read-only packet-tool/MCP bridge seam, contracts, mocks, redaction, budgets, and evidence without connecting to a live tool or choosing new partner semantics.
-- [ ] Prepare Cloud Run manifests, container checks, and preflight/smoke commands that inspect configuration only and make no cloud mutation.
+This lane requires no external credentials, cloud mutation, live partner access, or product-authority decision.
 
-**Operator-only - explicit authorization required**
+**Landed and validated offline**
 
-- [ ] Choose or change billing, budgets, the Google project, enabled APIs, accounts, quotas, or regions.
-- [ ] Perform ADC or identity login, IAM changes, service-account creation or role changes, or managed-agent creation/update.
-- [ ] Decide durable hosting, source retention, deletion, data residency, privacy, or public/private access, then deploy Cloud Run or another managed runtime.
-- [ ] Make real Google calls or approve live model/runtime configuration.
-- [ ] Provide partner credentials and select the exact IBM or other partner runtime/API/MCP surface, terms, scopes, and data handling.
+- [x] Local unit, integration, and deterministic regression tests.
+- [x] Schema and documentation checks, including `npm run check` and `npm run check:docs`.
+- [x] Deterministic synthetic producer browser/API proof, including the four-file fixture.
+- [x] The bounded Producer Intake Decision Packet and its schemas, classifications, citations, provenance, and safe failures.
+- [x] The read-only `producer_packet.read` / `inspect_packet` agent boundary with a local mock and injected transport seam.
+- [x] Cloud Run-shaped container and manifests, plus local configuration-only smoke checks.
+
+**Autonomous work that may continue**
+
+- [ ] Desk research and honest competitor comparison against NotebookLM and current production tools.
+- [ ] Synthetic fixtures, an evaluation rubric, and offline comparison harnesses.
+- [ ] Local implementation, tests, and documentation that preserve current contracts.
+- [ ] Safe mock and transport seams without live connections or new partner semantics.
+- [ ] Offline deployment preparation and configuration-only validation.
+- [ ] Routine green code PR delivery that preserves compatibility, safety, and no-side-effect boundaries.
+
+Desk research and competitor comparison are not customer validation.
+Synthetic proof demonstrates implementation shape, not market demand.
+The `Producer Intake Decision Packet` remains a hypothesis, and consolidation is not a confirmed producer pain point.
+
+#### Captain/operator-required work
+
+The following work requires the Captain or another authorized operator and must not be marked complete from local evidence alone.
+
+- [ ] Recruit real producers and conduct interviews or workflow observation.
+- [ ] Obtain permissioned and anonymized source bundles and conduct producer validation.
+- [ ] Choose the initial persona and evidence policy.
+- [ ] Decide privacy, retention, deletion, data residency, hosting access, and other product, safety, security, or legal policy.
+- [ ] Choose or change billing, budgets, the Google project, enabled APIs, accounts, quotas, regions, IAM, identities, or managed-agent configuration.
+- [ ] Make live Google calls, approve live model/runtime configuration, or deploy and host Cloud Run or another managed runtime.
+- [ ] Choose the exact IBM product/API/MCP surface and provide approved credentials, terms, scopes, and data handling decisions.
 - [ ] Log into IBM Bob and capture admissible development evidence.
-- [ ] Publish a license, public repository/video, Devpost submission, or other contest artifact.
-- [ ] Approve VAPT/security assessment scope, findings, exceptions, and sign-off.
-- [ ] Resolve product, safety, security, legal, privacy, or other decisions that remain unresolved.
+- [ ] Publish the public repository, open-source license, demonstration video, selected contest track, or Devpost submission.
+- [ ] Approve VAPT scope, findings, exceptions, and sign-off.
+- [ ] Resolve any remaining product, privacy, security, safety, legal, or other decision above the implementation lane.
 
 **Current checkpoint**
 
 - [x] Operator-reported Google project, billing/budget/API/ADC setup, runtime identity, and managed-agent creation are complete as reported, but not independently verified.
 - [x] Repository scaffold and documentation checkpoint are landed.
-- [ ] Live packet-tool connection, Cloud Run deployment, hosted request, IBM runtime and IBM Bob evidence, contest artifacts, and VAPT findings remain open.
+- [ ] Live packet-tool or MCP connection, Cloud Run deployment, hosted request, IBM runtime and IBM Bob evidence, producer validation, contest artifacts, and VAPT findings remain open.
 
 The open operator list is not completed by a local mock, a code PR, a manifest, a readiness placeholder, or a screenshot. No credentials, tokens, private email addresses, fabricated live evidence, or claim that the MVP is live-connected belong in this repository.
 
