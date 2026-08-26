@@ -43,7 +43,12 @@ npm run smoke:deployment
 
 # Optional explicitly enabled ADC-backed Gemini model path, using ignored .env.local
 npm run start:google
+
+# Operator-only: proves the live Gemini call path with real credentials; not part of check/test
+npm run google:preflight
 ```
+
+See [`docs/operator-runbook.md`](docs/operator-runbook.md) for the exact operator steps to enable a live Gemini call and deploy to Cloud Run.
 
 The local server exposes the existing `/v1/runs` API and evidence paths unchanged, plus the current `/v1/documents` upload, `/v1/documents/{document_id}/briefs` Script Brief requests, producer packet routes, the read-only `/v1/agent/producer-intake` boundary, and citation excerpt routes. Local run and source records are written under `.data/` and are ignored by git. Set Google configuration only on an authorized server operator machine; never commit tokens, ADC files, private source material, or partner credentials.
 
@@ -53,7 +58,8 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 - [Implementation guide](docs/implementation.md) - current contracts, mock fixtures, recovery semantics, browser behavior, and validation commands.
 - [MovieInator Phase 4 state and logic hosting guide](docs/phase4-state-logic-hosting.md) - durable checkpoints, allowlisted local tools, bounded proposals, recovery, and the future runtime boundary.
 - [MovieInator Phase 2 script grounding operator guide](docs/phase2-script-grounding.md) - current single-document upload bounds, whole-document condensation, citations, operator boundaries, and future provider seams.
-- [Phase 5 deployment and safety runbook](docs/phase5-deployment.md) - container, Cloud Run placeholders, runtime modes, Secret Manager seam, safety budgets, audit events, and the future managed Agent Platform path.
+- [Phase 5 deployment and safety runbook](docs/phase5-deployment.md) - container, Cloud Run manifest, runtime modes, Secret Manager seam, safety budgets, audit events, and the future managed Agent Platform path.
+- [Operator runbook: live Gemini and Cloud Run deployment](docs/operator-runbook.md) - the exact operator-only steps and inputs to enable a live Gemini call and deploy to Cloud Run behind a public HTTPS URL, plus the readiness preflight command that proves it before claiming it.
 - [Google Agent Platform runtime scaffold](docs/google-agent-runtime.md) - exact accepted package pin, read-only packet boundary, deterministic local mock, readiness evidence, and future deployment boundary.
 - [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the later live-access boundary.
 

@@ -7,10 +7,12 @@ This repository contains a reproducible container shape and a Cloud Run manifest
 The server has three explicit runtime modes:
 
 - `mock`: the default offline mode. It uses `FakeModel`, `MockProvider`, and synthetic `Demo evidence`.
-- `adc_local`: an explicitly enabled server-only Gemini path using Application Default Credentials. It requires complete server configuration, `GOOGLE_AUTH_MODE=adc`, and `GOOGLE_GEMINI_READINESS=passed`.
-- `deployed_identity`: a future Cloud Run path using an attached workload identity. It requires `DEPLOYMENT_TARGET=cloud_run`, `RUNTIME_MODE=deployed_identity`, `GOOGLE_AUTH_MODE=workload_identity` or `attached_identity`, complete server configuration, and passed operator readiness.
+- `adc_local`: an explicitly enabled server-only Gemini path using Application Default Credentials. It requires complete server configuration and `GOOGLE_AUTH_MODE=adc`.
+- `deployed_identity`: a Cloud Run path using an attached workload identity. It requires `DEPLOYMENT_TARGET=cloud_run`, `RUNTIME_MODE=deployed_identity`, `GOOGLE_AUTH_MODE=workload_identity` or `attached_identity`, and complete server configuration.
 
 A partial live configuration in a declared production or Cloud Run target fails closed at startup. It cannot silently turn into a mock result. An incomplete local Google hint remains disabled and is reported as `not_set`; it never makes a Google request. Safety settings, provider, endpoint, policy, and model identity are server-owned and are not accepted from browser fields or model output.
+
+Both live modes require an actual **passed** Google readiness state, not merely the `GOOGLE_GEMINI_READINESS` env var (which is informational only and never read as authority by `src/gemini-rest.js`). `startServer` in `src/server.js` proves this itself: when Google is enabled and fully configured, it runs one real, awaited readiness preflight before the process accepts traffic, and keeps that evidence fresh with a bounded periodic recheck so it does not silently go stale after the 5-minute readiness window. If that boot-time preflight fails for a declared `adc_local` or `deployed_identity` `RUNTIME_MODE`, the process exits instead of serving mock traffic under a live-looking configuration. See [`docs/operator-runbook.md`](operator-runbook.md) for the exact steps and the `npm run google:preflight` command an operator runs first to check credentials and configuration before starting the server.
 
 ```sh
 npm ci
@@ -52,7 +54,7 @@ The server sets bounded request, header, keep-alive, model call, request-size, o
 
 ## Cloud Run shape
 
-`deploy/cloud-run.yaml` is a placeholder-only manifest. It declares port 8080, bounded concurrency and timeout, a non-default runtime service account placeholder, explicit `deployed_identity` and future `managed_interactions` modes, an operator-selected managed agent ID placeholder, and no secret value. The `MOVIEINATOR_SECRET_REF` value is a resource-name placeholder, not a credential. The previous `MOVIE_INATOR_SECRET_REF` name remains accepted as a compatibility alias. Managed mode still fails closed until the server-owned Google readiness check passes.
+`deploy/cloud-run.yaml` is a structurally real, valid `serving.knative.dev/v1` Service manifest with no real project, account, secret, or credential; every value an operator must supply is an explicit `<OPERATOR_SELECTED_...>` placeholder. It declares port 8080, bounded concurrency and timeout, a cost-bounding `autoscaling.knative.dev/maxScale` annotation, a non-default runtime service account placeholder, explicit `deployed_identity` and optional `managed_interactions` modes, an operator-selected managed agent ID placeholder, 100% traffic to the latest revision, and no secret value. The `MOVIEINATOR_SECRET_REF` value is a resource-name placeholder, not a credential. The previous `MOVIE_INATOR_SECRET_REF` name remains accepted as a compatibility alias. `test/phase5.test.js` checks the manifest's structural shape, its declared env vars, and that it contains no secret-shaped literal. Managed mode, and the `deployed_identity` REST mode, still fail closed until the server's own awaited, active Google readiness preflight passes at boot; see [`docs/operator-runbook.md`](operator-runbook.md) for the exact operator steps and the `npm run google:preflight` command that proves this before deploying.
 
 **Operator action - resource creation or update:** after choosing a project, billing account, region, artifact repository, service name, runtime service account, model, quota, and policy, an authorized operator may build and publish an image and apply the manifest. These commands can create or change paid resources and are intentionally not run here:
 

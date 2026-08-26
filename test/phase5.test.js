@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import { createAuditEvent, AuditRecorder } from "../src/audit.js";
 import { MockSecretProvider, parseSecretReference, SecretManagerProvider, createSecretProvider } from "../src/secrets.js";
@@ -48,6 +49,50 @@ test("runtime configuration keeps mock, ADC local, and deployed identity explici
   assert.throws(() => readRuntimeConfig({ ...live, GOOGLE_MODEL_ID: "" }), RuntimeConfigError);
   assert.throws(() => readRuntimeConfig({ NODE_ENV: "production" }), /explicit/);
   assert.throws(() => readRuntimeConfig({ ...live, MOVIE_INATOR_SECRET_REF: "not-a-value" }, { googleReadiness: liveReadiness }), /Secret Manager/);
+});
+
+test("the Cloud Run manifest is a structurally real, credential-free deployment template", () => {
+  const manifest = fs.readFileSync(new URL("../deploy/cloud-run.yaml", import.meta.url), "utf8");
+  assert.match(manifest, /^apiVersion: serving\.knative\.dev\/v1$/m);
+  assert.match(manifest, /^kind: Service$/m);
+  assert.match(manifest, /^\s+image: <OPERATOR_SELECTED_ARTIFACT_IMAGE>$/m);
+  assert.match(manifest, /^\s+containerPort: 8080$/m);
+  assert.match(manifest, /^\s+serviceAccountName: <OPERATOR_SELECTED_RUNTIME_SERVICE_ACCOUNT>$/m);
+  assert.match(manifest, /^\s+traffic:$/m);
+  assert.match(manifest, /^\s+latestRevision: true$/m);
+  assert.match(manifest, /^\s+autoscaling\.knative\.dev\/maxScale: "\d+"$/m);
+
+  // Every documented env var this manifest sets must be one `readGeminiConfig`,
+  // `readRuntimeConfig`, or `producer-agent-boundary.js` actually reads, so the
+  // manifest cannot silently drift from the code it configures.
+  const envNames = [...manifest.matchAll(/^\s+- name: ([A-Z0-9_]+)$/gm)].map(([, name]) => name);
+  assert.deepEqual(
+    [...envNames].sort(),
+    [
+      "AGENT_RUNTIME_AGENT_ID",
+      "AGENT_RUNTIME_MODE",
+      "DEPLOYMENT_TARGET",
+      "GOOGLE_AUTH_MODE",
+      "GOOGLE_GEMINI_ENABLED",
+      "GOOGLE_GEMINI_READINESS",
+      "GOOGLE_LOCATION",
+      "GOOGLE_MODEL_ID",
+      "GOOGLE_PROJECT_ID",
+      "GOOGLE_PUBLISHER",
+      "GOOGLE_REST_API_VERSION",
+      "GRACEFUL_SHUTDOWN_MS",
+      "MODEL_BACKEND",
+      "MOVIEINATOR_SECRET_REF",
+      "PORT",
+      "REQUEST_TIMEOUT_MS",
+      "RUNTIME_MODE",
+    ].sort(),
+  );
+
+  // No real secret value, only a Secret Manager resource-name reference.
+  const secretLine = manifest.match(/- name: MOVIEINATOR_SECRET_REF\n\s+value: "([^"]+)"/)[1];
+  assert.match(secretLine, /^projects\/<OPERATOR_SELECTED_PROJECT_NUMBER>\/secrets\/<OPERATOR_SELECTED_SECRET_NAME>\/versions\/latest$/);
+  assert.equal(/AIza[0-9A-Za-z_-]{30,}|ya29\.[0-9A-Za-z_-]+|-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(manifest), false);
 });
 
 test("server-owned partner configuration accepts only capability references", () => {

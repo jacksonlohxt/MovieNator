@@ -23,7 +23,7 @@ import {
 import { GroundedBriefEngine, projectGroundedRun } from "./grounding-engine.js";
 import { LocalDeterministicGroundingSource } from "./grounding.js";
 import { MockEngine, MockProvider, FakeModel, projectRun } from "./engine.js";
-import { GeminiRestBackend, createGeminiReadiness, isGeminiReadinessForConfig, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
+import { GEMINI_READINESS_MAX_AGE_MS, GeminiRestBackend, createGeminiReadiness, isGeminiReadinessForConfig, isGeminiReady, normalizeGeminiConfig, readGeminiConfig } from "./gemini-rest.js";
 import { createAdcTokenProvider } from "./google-auth.js";
 import { createAuditRecorder } from "./audit.js";
 import { createSecretProvider } from "./secrets.js";
@@ -251,6 +251,14 @@ function requestHash(request) {
   return hashValue(request);
 }
 
+const GOOGLE_AUTH_MODES_REQUIRING_ADC = Object.freeze(["adc", "workload_identity", "attached_identity"]);
+const GOOGLE_READINESS_REFRESH_MS = 4 * 60 * 1000;
+
+/** Resolve the server-only Google token provider from an injected override or ADC. */
+function resolveGoogleTokenProvider(config, tokenProvider) {
+  return tokenProvider || (GOOGLE_AUTH_MODES_REQUIRING_ADC.includes(config.authMode) ? createAdcTokenProvider() : undefined);
+}
+
 export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, agentInteractionsTransport, agentGenaiClient, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, partnerConfig, partnerTransport, partnerTransportFactory, partnerReadiness, partnerEndpointAllowlist, database, toolRegistry, producerBuilder } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
@@ -258,7 +266,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const actualDatabase = database || createLocalMcpDatabase();
   const actualToolRegistry = toolRegistry || createDefaultToolRegistry({ database: actualDatabase });
   const configuredGoogle = normalizeGeminiConfig(googleConfig || readGeminiConfig(env));
-  const actualTokenProvider = googleTokenProvider || (["adc", "workload_identity", "attached_identity"].includes(configuredGoogle.authMode) ? createAdcTokenProvider() : undefined);
+  const actualTokenProvider = resolveGoogleTokenProvider(configuredGoogle, googleTokenProvider);
   const actualReadiness = isGeminiReadinessForConfig(googleReadiness, configuredGoogle) ? googleReadiness : createGeminiReadiness({ config: configuredGoogle, transport: googleTransport, tokenProvider: actualTokenProvider });
   const runtimeConfig = readRuntimeConfig(env, { googleConfig: configuredGoogle, googleReadiness: actualReadiness, partnerConfig });
   const actualSecretProvider = createSecretProvider({ env, provider: secretProvider, tokenProvider: actualTokenProvider, references: runtimeConfig.secretReferences.map(({ reference }) => reference) });
@@ -836,8 +844,34 @@ function sendStatic(res, name, contentType) {
   }
 }
 
-export async function startServer({ env = process.env, ...options } = {}) {
-  const app = createApp({ ...options, env });
+/**
+ * Boot the server process. Unlike `createApp` (used synchronously by tests
+ * with pre-checked or intentionally unchecked readiness), this is the actual
+ * process entry point: when the operator has explicitly enabled and fully
+ * configured Google Gemini, it runs one real, awaited readiness preflight
+ * before the server accepts traffic, and keeps that evidence fresh with a
+ * bounded periodic recheck so the live call path stays genuinely usable
+ * instead of silently going stale after `GEMINI_READINESS_MAX_AGE_MS`. Mock
+ * mode and incomplete configuration take neither branch and make zero
+ * network calls, matching the existing fail-closed contract.
+ */
+export async function startServer({ env = process.env, googleReadinessRefreshMs = GOOGLE_READINESS_REFRESH_MS, ...options } = {}) {
+  const configuredGoogle = normalizeGeminiConfig(options.googleConfig || readGeminiConfig(env));
+  const tokenProvider = resolveGoogleTokenProvider(configuredGoogle, options.googleTokenProvider);
+  const liveGoogleIntent = configuredGoogle.enabled && configuredGoogle.configured;
+  let googleReadiness = options.googleReadiness;
+  if (liveGoogleIntent && !isGeminiReadinessForConfig(googleReadiness, configuredGoogle)) {
+    const readiness = createGeminiReadiness({ config: configuredGoogle, transport: options.googleTransport, tokenProvider });
+    await readiness.check();
+    googleReadiness = readiness;
+  }
+  const app = createApp({ ...options, env, googleConfig: configuredGoogle, googleTokenProvider: tokenProvider, googleReadiness });
+  let refreshTimer;
+  if (liveGoogleIntent && isGeminiReadinessForConfig(app.googleReadiness, configuredGoogle)) {
+    const refreshMs = Math.max(1000, Math.min(googleReadinessRefreshMs, GEMINI_READINESS_MAX_AGE_MS - 30_000));
+    refreshTimer = setInterval(() => { app.googleReadiness.check().catch(() => {}); }, refreshMs);
+    refreshTimer.unref?.();
+  }
   await new Promise((resolve, reject) => {
     app.server.once("error", reject);
     app.server.listen(app.runtimeConfig.port, app.runtimeConfig.host, resolve);
@@ -846,6 +880,7 @@ export async function startServer({ env = process.env, ...options } = {}) {
   const shutdown = async (signal = "shutdown") => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (refreshTimer) clearInterval(refreshTimer);
     let closed = false;
     const close = new Promise((resolve) => app.server.close(() => { closed = true; resolve(); }));
     await Promise.race([close, new Promise((resolve) => setTimeout(resolve, app.runtimeConfig.gracefulShutdownMs))]);
