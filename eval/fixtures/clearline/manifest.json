@@ -1,0 +1,54 @@
+{
+  "schema_version": "producer-intake-evaluation-fixture@1",
+  "fixture_id": "clearline-supported-facts",
+  "description": "Synthetic bundle with aligned access evidence and source facts for citation verification.",
+  "sources": [
+    {
+      "file": "clearline-script.txt",
+      "filename": "clearline-script.txt",
+      "source_kind": "primary_screenplay",
+      "input_ref": "clearline_1",
+      "version_label": "shooting draft 1"
+    },
+    {
+      "file": "clearline-location-access.txt",
+      "filename": "clearline-location-access.txt",
+      "source_kind": "location_access",
+      "input_ref": "clearline_2",
+      "status_label": "access record supplied"
+    },
+    {
+      "file": "clearline-schedule-assumption.txt",
+      "filename": "clearline-schedule-assumption.txt",
+      "source_kind": "schedule_assumptions",
+      "input_ref": "clearline_3"
+    }
+  ],
+  "ground_truth": {
+    "conflicts": [],
+    "unknowns": [],
+    "known_facts": [
+      {
+        "target_id": "park-heading",
+        "value": "SCENE 2 - EXT. PARK - DAY",
+        "source_filename": "clearline-script.txt",
+        "source_text_contains": "SCENE 2 - EXT. PARK - DAY",
+        "location": {"kind": "section", "section": "SCENE 2 - EXT. PARK - DAY", "line_start": 3, "line_end": 3}
+      },
+      {
+        "target_id": "access-status",
+        "value": "Permission status: confirmed by owner",
+        "source_filename": "clearline-location-access.txt",
+        "source_text_contains": "Permission status: confirmed by owner",
+        "location": {"kind": "section", "section": "LOCATION ACCESS", "line_start": 2, "line_end": 4}
+      },
+      {
+        "target_id": "schedule-assumption",
+        "value": "Assumption: Scene 2 is on a Park hold for 18 May",
+        "source_filename": "clearline-schedule-assumption.txt",
+        "source_text_contains": "Assumption: Scene 2 is on a Park hold for 18 May",
+        "location": {"kind": "section", "section": "SCHEDULE NOTES", "line_start": 2, "line_end": 2}
+      }
+    ]
+  }
+}

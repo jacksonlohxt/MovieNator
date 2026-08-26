@@ -1,0 +1,78 @@
+{
+  "schema_version": "producer-intake-evaluation-fixture@1",
+  "fixture_id": "northline-conflict",
+  "description": "Synthetic Northline bundle with a schedule/location conflict, an unconfirmed access gap, and exact cited facts.",
+  "sources": [
+    {
+      "file": "northline-shooting-script.txt",
+      "filename": "northline-shooting-script.txt",
+      "source_kind": "primary_screenplay",
+      "input_ref": "northline_1",
+      "version_label": "shooting draft 3"
+    },
+    {
+      "file": "northline-location-access.txt",
+      "filename": "northline-location-access.txt",
+      "source_kind": "location_access",
+      "input_ref": "northline_2",
+      "status_label": "permission pending"
+    },
+    {
+      "file": "northline-schedule-assumption.txt",
+      "filename": "northline-schedule-assumption.txt",
+      "source_kind": "schedule_assumptions",
+      "input_ref": "northline_3"
+    },
+    {
+      "file": "northline-budget-input.txt",
+      "filename": "northline-budget-input.txt",
+      "source_kind": "budget_assumptions",
+      "input_ref": "northline_4"
+    }
+  ],
+  "ground_truth": {
+    "conflicts": [
+      {
+        "target_id": "mill-hold-vs-no-hold",
+        "kind": "schedule_location_access",
+        "assertion_terms": ["Mill hold", "No location hold is confirmed"]
+      }
+    ],
+    "unknowns": [
+      {
+        "target_id": "scene-7-access-evidence",
+        "terms": ["access permission", "Mill hold", "confirmed"]
+      }
+    ],
+    "known_facts": [
+      {
+        "target_id": "scene-7-heading",
+        "value": "SCENE 7 - INT. MILL - NIGHT",
+        "source_filename": "northline-shooting-script.txt",
+        "source_text_contains": "SCENE 7 - INT. MILL - NIGHT",
+        "location": {"kind": "section", "section": "SCENE 7 - INT. MILL - NIGHT", "line_start": 3, "line_end": 3}
+      },
+      {
+        "target_id": "permission-status",
+        "value": "Permission status: permission pending",
+        "source_filename": "northline-location-access.txt",
+        "source_text_contains": "Permission status: permission pending",
+        "location": {"kind": "section", "section": "LOCATION ACCESS", "line_start": 2, "line_end": 4}
+      },
+      {
+        "target_id": "schedule-assumption",
+        "value": "Assumption: Scene 7 is on a Mill hold for 12 June",
+        "source_filename": "northline-schedule-assumption.txt",
+        "source_text_contains": "Assumption: Scene 7 is on a Mill hold for 12 June",
+        "location": {"kind": "section", "section": "SCHEDULE NOTES", "line_start": 2, "line_end": 2}
+      },
+      {
+        "target_id": "access-rate",
+        "value": "$1,200",
+        "source_filename": "northline-budget-input.txt",
+        "source_text_contains": "Access rate: $1,200 per access day",
+        "location": {"kind": "section", "section": "BUDGET INPUT", "line_start": 2, "line_end": 2}
+      }
+    ]
+  }
+}
