@@ -31,6 +31,7 @@
     "conflicts": { "type": "array", "maxItems": 120, "items": { "$ref": "#/$defs/canonical_item" } },
     "decision_question_register": { "type": "array", "maxItems": 120, "items": { "$ref": "#/$defs/canonical_item" } },
     "gaps_and_next_steps": { "type": "array", "maxItems": 120, "items": { "$ref": "#/$defs/canonical_item" } },
+    "external_evidence": { "type": "array", "maxItems": 60, "items": { "$ref": "#/$defs/canonical_item" } },
     "cited_citation_ids": { "type": "array", "maxItems": 128, "items": { "type": "string" } },
     "citations": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/citation" } },
     "limitations": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
@@ -50,7 +51,9 @@
         "bundle_manifest_hash": { "type": "string", "pattern": "^sha256:[A-Fa-f0-9]{16,}$" },
         "source_manifest_hash": { "type": "string", "pattern": "^sha256:[A-Fa-f0-9]{16,}$" },
         "fallback_used": { "type": "boolean" },
-        "retention_state": { "type": "string" }
+        "retention_state": { "type": "string" },
+        "external_evidence_enabled": { "type": "boolean" },
+        "external_evidence_provider": { "type": ["string", "null"] }
       }
     },
     "version_provenance": { "type": "object", "additionalProperties": true },
@@ -97,7 +100,7 @@
         "source_id": { "type": "string" },
         "document_id": { "type": "string" },
         "filename": { "type": "string" },
-        "media_type": { "enum": ["application/pdf", "text/plain"] },
+        "media_type": { "enum": ["application/pdf", "text/plain", "text/html"] },
         "source_kind": { "type": "string" },
         "source_label": { "type": "string" },
         "source_locations": { "type": "array" },
@@ -134,8 +137,8 @@
         "currency": { "type": ["string", "null"] },
         "original_wording": { "type": ["string", "null"], "maxLength": 700 },
         "normalization_basis": { "type": "string" },
-        "classification": { "enum": ["source_fact", "source_implied_inference", "externally_supplied_fact", "human_assumption", "conflict", "open_question", "decision"] },
-        "evidence_state": { "enum": ["established", "supplied_not_verified", "assumed", "not_established", "conflict", "recorded_decision", "stale", "unavailable"] },
+        "classification": { "enum": ["source_fact", "source_implied_inference", "externally_supplied_fact", "externally_researched_fact", "human_assumption", "conflict", "open_question", "decision"] },
+        "evidence_state": { "enum": ["established", "supplied_not_verified", "externally_researched_not_verified", "assumed", "not_established", "conflict", "recorded_decision", "stale", "unavailable"] },
         "inference_basis": { "type": "string" },
         "category": { "type": "string" },
         "department": { "type": ["string", "null"] },

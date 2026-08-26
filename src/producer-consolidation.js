@@ -1372,6 +1372,7 @@ export function safeProducerPacketProjection(packet) {
     conflicts: packet.conflicts?.map(safeEvidenceItem),
     decision_question_register: packet.decision_question_register?.map(safeEvidenceItem),
     gaps_and_next_steps: packet.gaps_and_next_steps?.map(safeEvidenceItem),
+    external_evidence: packet.external_evidence?.map(safeEvidenceItem),
     production_decisions: packet.production_decisions.map(safeStatement),
     decision_register: packet.decision_register.map(safeRegisterEntry),
     locations_and_timing: packet.locations_and_timing.map(safeStatement),

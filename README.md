@@ -62,6 +62,7 @@ The local server exposes the existing `/v1/runs` API and evidence paths unchange
 - [Operator runbook: live Gemini and Cloud Run deployment](docs/operator-runbook.md) - the exact operator-only steps and inputs to enable a live Gemini call and deploy to Cloud Run behind a public HTTPS URL, plus the readiness preflight command that proves it before claiming it.
 - [Google Agent Platform runtime scaffold](docs/google-agent-runtime.md) - exact accepted package pin, read-only packet boundary, deterministic local mock, readiness evidence, and future deployment boundary.
 - [Phase 3 partner integration operator guide](docs/partner-integration.md) - local automation, read-only registry rules, readiness and recovery, and the later live-access boundary.
+- [Parallel Search external evidence enrichment](docs/parallel-search-enrichment.md) - the credential-gated `PARALLEL_API_KEY` seam that adds cited, externally researched evidence rows to the Producer Intake Decision Packet, off by default and fail-closed.
 
 The PRD remains the source of truth for product detail. Producer Intake Decision Packet is the current product hypothesis; current Script Brief and Audience Data Readiness remain compatibility surfaces until a later implementation replaces neither route nor stored record.
 

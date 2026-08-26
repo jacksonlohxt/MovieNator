@@ -82,7 +82,7 @@ export class ProducerPacketEngine {
     this.store.appendProducerRunEvent(packetId, "producer_run.queued", "queue", "queued", "Producer packet run queued", { source_count: run.sources.length });
     run = this.store.transitionProducerRun(packetId, "running", { phase: "reconciling", progress: { stage: "reconciling" } });
     this.store.appendProducerRunEvent(packetId, "producer_run.reconciling", "reconcile", "running", "Reconciling supplied sources", { bundle_id: run.bundle_id });
-    const packet = this.builder(run.sources, {
+    const packet = await this.builder(run.sources, {
       bundleId: run.bundle_id || undefined,
       bundleManifestHash: run.bundle_manifest_hash || undefined,
       decisionContext: run.decision_context || "",
