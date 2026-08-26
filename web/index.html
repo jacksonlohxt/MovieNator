@@ -23,9 +23,9 @@
 
     <main id="main">
       <section class="hero" aria-labelledby="page-title">
-        <p id="hero-eyebrow" class="eyebrow">Filmmaker Script Brief</p>
-        <h1 id="page-title">Turn your script into a useful brief.</h1>
-        <p id="hero-copy" class="hero-copy">Upload a script, tell us what you need, and get the story essentials in one clear place. Start with the default brief or ask for a specific focus.</p>
+        <p id="hero-eyebrow" class="eyebrow">Producer Intake Decision Packet</p>
+        <h1 id="page-title">Turn your production sources into one decision packet.</h1>
+        <p id="hero-copy" class="hero-copy">Upload the screenplay and its companion production sources, label each one, and get one source-grounded packet: exact facts, a scene index, conflicts shown with both sides, and a decision and question register ready to hand off.</p>
         <div class="trust-strip" role="note" aria-live="polite">
           <span class="trust-item"><span id="runtime-trust-icon" class="trust-icon" aria-hidden="true">◌</span><strong id="runtime-trust-label">Checking runtime</strong><span id="runtime-trust-copy">Checking server evidence before describing this brief.</span></span>
           <span class="trust-divider" aria-hidden="true"></span>
@@ -33,16 +33,60 @@
         </div>
       </section>
 
-      <details class="developer-details">
-        <summary><span>Developer details</span><span class="summary-hint">Audience readiness and technical evidence</span></summary>
-        <div class="workflow-switch" role="group" aria-label="Choose a MovieInator workflow">
-          <button class="workflow-switch-button" type="button" data-workflow="readiness" aria-pressed="false">Audience Data Readiness</button>
-          <button class="workflow-switch-button is-selected" type="button" data-workflow="grounding" aria-pressed="true">Script Brief</button>
-        </div>
-        <p class="developer-note">Audience readiness remains available for operators. Technical details, provenance, recovery history, and local evidence stay behind this surface.</p>
-      </details>
+      <nav class="workflow-switch" role="tablist" aria-label="Choose a MovieInator workflow">
+        <button class="workflow-switch-button is-selected" type="button" role="tab" data-workflow="producer" aria-pressed="true">Producer Intake Decision Packet</button>
+        <button class="workflow-switch-button" type="button" role="tab" data-workflow="grounding" aria-pressed="false">Script Brief</button>
+        <button class="workflow-switch-button" type="button" role="tab" data-workflow="readiness" aria-pressed="false">Audience Data Readiness</button>
+      </nav>
+      <p class="compatibility-note">Script Brief and Audience Data Readiness remain available as compatibility workflows for existing operators. Every browser field stays read-only and cited; no tab exposes a provider, credential, tool, or approval control.</p>
 
-      <nav class="journey" data-workflow-surface="readiness" aria-label="Audience data readiness journey">
+      <section id="producer-section" class="panel grounding-panel producer-panel" data-workflow-surface="producer" aria-labelledby="producer-title">
+        <div class="section-heading"><div><p class="section-kicker">Start here</p><h2 id="producer-title">Upload your production source bundle.</h2></div><span class="step-badge">1 · Upload &amp; label</span></div>
+        <p class="state-copy">Upload the primary screenplay and up to eleven companion production sources your team already uses: location and access, schedule assumptions, budget inputs, rights and clearance, department notes, and more. MovieInator keeps every source's exact page or section and line locations and its own citation.</p>
+        <div class="producer-trust" role="note" aria-live="polite">
+          <strong>A label does not verify a fact.</strong>
+          <span>The source kind, version, and status you choose are human-supplied hints, not independent verification of a booking, permit, or approval. Uploaded sources and the generated packet stay on this local demo server for citation review; nothing is sent to an external service.</span>
+        </div>
+        <form id="producer-form" class="producer-form" novalidate>
+          <div class="field-group"><label for="producer-files">Production sources <span class="required">PDF or TXT</span></label><input id="producer-files" name="files" type="file" accept="application/pdf,text/plain,.pdf,.txt" multiple required aria-describedby="producer-help producer-error"><span id="producer-help" class="field-help">Maximum 12 files, 5 MiB each. One primary screenplay is required. Every source keeps its page or section and line locations.</span><p id="producer-error" class="field-error" role="alert" hidden></p></div>
+          <div id="producer-file-labels" class="producer-file-labels"></div>
+          <button id="submit-producer" class="button button-primary" type="submit"><span>Upload source bundle</span><span aria-hidden="true">↑</span></button>
+        </form>
+        <div id="producer-progress" class="grounding-progress" role="status" aria-live="polite" hidden><strong id="producer-progress-title">Mapping sources</strong><span id="producer-progress-detail">Checking bundle limits and assigning stable source IDs.</span></div>
+        <div id="producer-bundle-summary" class="document-summary producer-bundle-summary" hidden>
+          <p class="section-kicker">Source inventory</p>
+          <p id="producer-bundle-summary-text" class="field-help"></p>
+          <div id="producer-source-inventory" class="producer-table-wrap"></div>
+        </div>
+        <form id="producer-generate-form" class="grounding-form" novalidate hidden>
+          <div class="section-heading brief-request-heading"><div><p class="section-kicker">2 · Generate</p><h3>Anything to add before we consolidate the packet?</h3></div></div>
+          <div class="field-group"><label for="producer-decision-context">Decision context <span class="required">Optional</span></label><textarea id="producer-decision-context" rows="3" maxlength="1000" placeholder="e.g. We need to confirm Mill access before locking Scene 7's shoot date."></textarea><span class="field-help">A plain-language note only. It cannot select a provider, model, tool, threshold, or approval.</span></div>
+          <button id="submit-producer-packet" class="button button-primary" type="submit"><span>Prepare intake packet</span><span aria-hidden="true">→</span></button>
+        </form>
+        <div id="producer-run" class="grounding-run" aria-live="polite" hidden><div class="run-status-row"><div><span class="status-icon status-icon-running" aria-hidden="true">◌</span><span id="producer-phase">Reconciling source records</span></div></div></div>
+        <div id="producer-failure" class="grounding-failure" role="alert" hidden></div>
+        <article id="producer-result" class="producer-result" aria-labelledby="producer-result-title" hidden>
+          <div class="result-heading"><p class="section-kicker">3 · Review · Source-grounded packet</p><h3 id="producer-result-title">Producer Intake Decision Packet</h3></div>
+          <p id="producer-result-summary" class="producer-summary"></p>
+          <div class="brief-actions"><button id="copy-producer-handoff" class="button button-secondary" type="button">Copy read-only handoff</button><a id="export-producer-markdown" class="button button-secondary" href="#" download>Export Markdown</a><a id="export-producer-json" class="button button-secondary" href="#" download>Export JSON</a><a id="export-producer-csv" class="button button-secondary" href="#" download>Export CSV</a><span id="producer-copy-status" class="field-help" role="status" aria-live="polite"></span></div>
+          <div id="producer-handoff" class="producer-handoff" role="status"></div>
+          <section class="brief-section"><h4>Source and version manifest</h4><div id="producer-source-manifest" class="producer-table-wrap"></div></section>
+          <section class="brief-section"><h4>Exact facts</h4><div id="producer-facts" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Scene and production-element index</h4><div id="producer-scenes" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Locations and timing</h4><div id="producer-locations" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Cast and role demands</h4><div id="producer-cast" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Department requirements</h4><div id="producer-departments" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Schedule and budget inputs</h4><div id="producer-budget-inputs" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Rights, access, and logistics</h4><div id="producer-access" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Conflicts – both source sides</h4><div id="producer-conflicts" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Decision and question register</h4><div id="producer-questions" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Gaps and next steps</h4><div id="producer-next-steps" class="brief-list"></div></section>
+          <details class="citation-details"><summary>Source citations</summary><div id="producer-citations" class="grounding-citations"></div></details>
+          <p id="producer-limitations" class="limitation-note"></p>
+        </article>
+      </section>
+
+      <nav class="journey" data-workflow-surface="readiness" aria-label="Audience data readiness journey" hidden>
         <ol>
           <li class="journey-step is-current" data-step="ask"><span>01</span> Ask</li>
           <li class="journey-line" aria-hidden="true"></li>
@@ -56,7 +100,7 @@
         </ol>
       </nav>
 
-      <section id="ask-section" data-workflow-surface="readiness" class="panel ask-panel" aria-labelledby="ask-title">
+      <section id="ask-section" data-workflow-surface="readiness" class="panel ask-panel" aria-labelledby="ask-title" hidden>
         <div class="section-heading">
           <div>
             <p class="section-kicker">Start with the question</p>
@@ -144,7 +188,7 @@
         <p class="recovery-footnote">The original run and its provenance stay immutable. The retry never switches providers silently.</p>
       </section>
 
-      <section class="role-map panel" data-workflow-surface="readiness" aria-labelledby="role-map-title">
+      <section class="role-map panel" data-workflow-surface="readiness" aria-labelledby="role-map-title" hidden>
         <details>
           <summary><span><span class="section-kicker">On demand</span><strong id="role-map-title">See the bounded handoffs</strong></span><span class="summary-hint">No swarm, no hidden thoughts</span></summary>
           <div class="role-map-grid">
@@ -186,42 +230,6 @@
           <p id="grounding-model-status" class="model-status" role="status" aria-live="polite"></p>
           <p id="grounding-limitations" class="limitation-note"></p>
         </article>
-        <details class="producer-bundle-details">
-          <summary><span><span class="section-kicker">Producer view</span><strong>Consolidate a production source bundle</strong></span><span class="summary-hint">Up to 12 PDF or TXT sources</span></summary>
-          <div class="producer-bundle-copy">
-            <p>Upload the sources your team already uses. Choose a fixed source label for each file and MovieInator will return one source-grounded producer decision packet.</p>
-            <p class="field-help">Demo mode is deterministic, local, network-free, and no-credentials. It does not select a provider, model, credentials, URL, tool, or side effect.</p>
-          </div>
-          <form id="producer-form" class="producer-form" novalidate>
-            <div class="field-group"><label for="producer-files">Production sources <span class="required">PDF or TXT</span></label><input id="producer-files" name="files" type="file" accept="application/pdf,text/plain,.pdf,.txt" multiple required aria-describedby="producer-help producer-error"><span id="producer-help" class="field-help">Maximum 12 files, 5 MiB each. One primary screenplay is required. Every source keeps its page or section and line locations.</span><p id="producer-error" class="field-error" role="alert" hidden></p></div>
-            <div id="producer-file-labels" class="producer-file-labels"></div>
-            <button id="submit-producer" class="button button-primary" type="submit"><span>Create producer packet</span><span aria-hidden="true">→</span></button>
-          </form>
-          <article id="producer-result" class="producer-result" aria-labelledby="producer-result-title" hidden>
-            <div class="result-heading"><p class="section-kicker">Source-grounded packet</p><h3 id="producer-result-title">Producer Intake Decision Packet</h3></div>
-            <p id="producer-result-summary" class="producer-summary"></p>
-            <div class="brief-actions"><button id="copy-producer-handoff" class="button button-secondary" type="button">Copy read-only handoff</button><a id="export-producer-markdown" class="button button-secondary" href="#" download>Export Markdown</a><a id="export-producer-json" class="button button-secondary" href="#" download>Export JSON</a><a id="export-producer-csv" class="button button-secondary" href="#" download>Export CSV</a><span id="producer-copy-status" class="field-help" role="status" aria-live="polite"></span></div>
-            <div id="producer-handoff" class="producer-handoff" role="status"></div>
-            <div class="producer-meta" id="producer-source-inventory"></div>
-            <section class="brief-section"><h4>Source-bundle reconciliation</h4><div id="producer-reconciliation" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Prioritized producer decision register</h4><div id="producer-register" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Exact facts</h4><div id="producer-facts" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Scene index</h4><div id="producer-scenes" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Schedule and budget inputs</h4><div id="producer-budget-inputs" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Rights, access, and logistics</h4><div id="producer-access" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Questions and decisions</h4><div id="producer-questions" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Gaps and next steps</h4><div id="producer-next-steps" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Production decisions and next steps</h4><div id="producer-decisions" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Locations and timing</h4><div id="producer-locations" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Cast and role demands</h4><div id="producer-cast" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Department requirements</h4><div id="producer-departments" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Conflicts - both source sides</h4><div id="producer-conflicts" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Risks and conflicts</h4><div id="producer-risks" class="brief-list"></div></section>
-            <section class="brief-section"><h4>Gaps and questions</h4><div id="producer-gaps" class="brief-list"></div></section>
-            <details class="citation-details"><summary>Source citations</summary><div id="producer-citations" class="grounding-citations"></div></details>
-            <p id="producer-limitations" class="limitation-note"></p>
-          </article>
-        </details>
       </section>
     </main>
 

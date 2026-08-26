@@ -16,7 +16,7 @@
     "unknowns": [
       {
         "target_id": "archive-access-record",
-        "terms": ["access permission", "Mill hold", "confirmed"]
+        "terms": ["access permission", "schedule hold", "confirmed"]
       }
     ],
     "known_facts": [
