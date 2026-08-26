@@ -163,7 +163,15 @@ export class GoogleInteractionsTransport {
   }
 }
 
-function createManagedClient({ googleConfig }) {
+/**
+ * Construct the real `@google/genai` client for managed Interactions API
+ * calls. Construction reads no credential and makes no network call; the
+ * SDK resolves Application Default Credentials or the attached workload
+ * identity lazily, only when `client.interactions.create(...)` is invoked.
+ * Exported so tests can prove the accepted SDK is genuinely constructed and
+ * shaped as this adapter expects, without making a live call.
+ */
+export function createManagedClient({ googleConfig }) {
   if (!googleConfig?.projectId || !googleConfig?.location) throw new ProducerAgentBoundaryError("GOOGLE_CONFIGURATION_REQUIRED", "Managed interactions requires server-owned Google project and location");
   return new GoogleGenAI({ vertexai: true, project: googleConfig.projectId, location: googleConfig.location });
 }

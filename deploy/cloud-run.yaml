@@ -1,12 +1,29 @@
+# MovieInator Cloud Run manifest template - operator-owned, not enabled by this repository.
+#
+# This file is a structurally valid `serving.knative.dev/v1` Service manifest
+# for `gcloud run services replace`. It contains no real project, account,
+# secret, or credential. Every `<OPERATOR_SELECTED_...>` placeholder must be
+# replaced by an authorized operator before this manifest is applied; doing
+# so creates or changes a paid Google Cloud resource and is an operator
+# action, not something this repository or its tests perform.
+#
+# See docs/operator-runbook.md for the exact deploy steps and the readiness
+# preflight command that must pass before RUNTIME_MODE=deployed_identity is
+# safe to rely on, and docs/phase5-deployment.md for the wider deployment
+# and safety contract.
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: <OPERATOR_SELECTED_CLOUD_RUN_SERVICE>
+  name: <OPERATOR_SELECTED_CLOUD_RUN_SERVICE> # e.g. movieinator
+  labels:
+    cloud.googleapis.com/location: <OPERATOR_SELECTED_REGION>
 spec:
   template:
     metadata:
       annotations:
         run.googleapis.com/execution-environment: gen2
+        # Bounds cost exposure; raise only after reviewing quota and budget.
+        autoscaling.knative.dev/maxScale: "10"
     spec:
       containerConcurrency: 20
       timeoutSeconds: 60
@@ -18,21 +35,32 @@ spec:
             - name: http1
               containerPort: 8080
           env:
+            # --- Server and deployment shape ---
             - name: PORT
               value: "8080"
             - name: DEPLOYMENT_TARGET
               value: "cloud_run"
             - name: RUNTIME_MODE
+              # deployed_identity requires a passed, active Gemini readiness
+              # check (see docs/operator-runbook.md); an incomplete or
+              # unchecked configuration fails closed at container startup
+              # rather than silently falling back to mock mode.
               value: "deployed_identity"
-            - name: AGENT_RUNTIME_MODE
-              value: "managed_interactions"
-            - name: AGENT_RUNTIME_AGENT_ID
-              value: "<OPERATOR_SELECTED_MANAGED_AGENT_ID>"
+            - name: REQUEST_TIMEOUT_MS
+              value: "30000"
+            - name: GRACEFUL_SHUTDOWN_MS
+              value: "10000"
+
+            # --- Google Gemini REST call path (src/gemini-rest.js) ---
             - name: MODEL_BACKEND
               value: "google_rest"
             - name: GOOGLE_GEMINI_ENABLED
               value: "true"
             - name: GOOGLE_GEMINI_READINESS
+              # Informational only; the server never trusts this value. Live
+              # readiness is proven only by an active, passed preflight check
+              # performed by the running process (see the runbook's
+              # `npm run google:preflight` step).
               value: "passed"
             - name: GOOGLE_PROJECT_ID
               value: "<OPERATOR_SELECTED_PROJECT_ID>"
@@ -45,14 +73,31 @@ spec:
             - name: GOOGLE_REST_API_VERSION
               value: "<OPERATOR_SELECTED_API_VERSION>"
             - name: GOOGLE_AUTH_MODE
+              # Must be workload_identity or attached_identity on Cloud Run;
+              # the runtime service account above must be granted
+              # roles/aiplatform.user (and roles/secretmanager.secretAccessor
+              # if MOVIEINATOR_SECRET_REF is used).
               value: "workload_identity"
+
+            # --- Optional managed Agent Platform Interactions API path
+            #     (src/producer-agent-boundary.js, @google/genai). Leave
+            #     AGENT_RUNTIME_MODE unset or "local_mock" until an operator
+            #     has created and secured a managed agent. ---
+            - name: AGENT_RUNTIME_MODE
+              value: "managed_interactions"
+            - name: AGENT_RUNTIME_AGENT_ID
+              value: "<OPERATOR_SELECTED_MANAGED_AGENT_ID>"
+
+            # --- Secret Manager reference (a resource name, not a value).
+            #     src/secrets.js resolves this reference at runtime using the
+            #     runtime service account's own credentials; Cloud Run does
+            #     not inject the secret payload for this variable. ---
             - name: MOVIEINATOR_SECRET_REF
               value: "projects/<OPERATOR_SELECTED_PROJECT_NUMBER>/secrets/<OPERATOR_SELECTED_SECRET_NAME>/versions/latest"
-            - name: REQUEST_TIMEOUT_MS
-              value: "30000"
-            - name: GRACEFUL_SHUTDOWN_MS
-              value: "10000"
           resources:
             limits:
               cpu: "1"
               memory: "512Mi"
+  traffic:
+    - percent: 100
+      latestRevision: true
