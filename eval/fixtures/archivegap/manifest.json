@@ -1,0 +1,32 @@
+{
+  "schema_version": "producer-intake-evaluation-fixture@1",
+  "fixture_id": "archivegap-missing-access",
+  "description": "Synthetic screenplay-only bundle with a seeded missing access record and a known scene citation.",
+  "sources": [
+    {
+      "file": "archivegap-script.txt",
+      "filename": "archivegap-script.txt",
+      "source_kind": "primary_screenplay",
+      "input_ref": "archivegap_1",
+      "version_label": "shooting draft 2"
+    }
+  ],
+  "ground_truth": {
+    "conflicts": [],
+    "unknowns": [
+      {
+        "target_id": "archive-access-record",
+        "terms": ["access permission", "Mill hold", "confirmed"]
+      }
+    ],
+    "known_facts": [
+      {
+        "target_id": "archive-heading",
+        "value": "SCENE 4 - INT. MILL - NIGHT",
+        "source_filename": "archivegap-script.txt",
+        "source_text_contains": "SCENE 4 - INT. MILL - NIGHT",
+        "location": {"kind": "section", "section": "SCENE 4 - INT. MILL - NIGHT", "line_start": 3, "line_end": 3}
+      }
+    ]
+  }
+}
