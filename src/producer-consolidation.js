@@ -9,7 +9,13 @@ import { hashValue, stableStringify } from "./contracts.js";
 
 export const PRODUCER_SOURCE_SCHEMA = "producer-source@1";
 export const PRODUCER_BUNDLE_SCHEMA = "producer-source-bundle@1";
-export const PRODUCER_PACKET_SCHEMA = "producer-decision-packet@1";
+// PRODUCER_PACKET_SCHEMA is the PRD-target `producer-intake-decision-packet@1` contract emitted by the
+// strict bounded bundle path (one primary_screenplay, source/version manifest, exact facts, conflicts,
+// evidence states, and the full provenance object). PRODUCER_PACKET_SCHEMA_LEGACY remains a stable,
+// unrenamed compatibility alias for the older `/v1/producer-packets` free-label multipart path so that
+// existing legacy route behavior and packet identity are not disturbed by this contract alignment.
+export const PRODUCER_PACKET_SCHEMA = "producer-intake-decision-packet@1";
+export const PRODUCER_PACKET_SCHEMA_LEGACY = "producer-decision-packet@1";
 export const PRODUCER_WORKFLOW = "producer_consolidation";
 export const PRODUCER_RECONCILIATION_SCHEMA = "producer-reconciliation@1";
 export const PRODUCER_REGISTER_SCHEMA = "producer-register-entry@1";
@@ -452,7 +458,7 @@ function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toI
   }));
   const versionProvenance = {
     schema_version: PRODUCER_VERSION_PROVENANCE_SCHEMA,
-    packet_schema_version: PRODUCER_PACKET_SCHEMA,
+    packet_schema_version: PRODUCER_PACKET_SCHEMA_LEGACY,
     source_schema_version: PRODUCER_SOURCE_SCHEMA,
     sources: orderedSources.map((source) => ({
       source_id: source.source_id,
@@ -464,7 +470,7 @@ function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toI
       source_version_citation_ids: sourceVersions.get(source.source_id) ? [sourceVersions.get(source.source_id).citation_id] : [],
     })),
   };
-  const packetId = `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA, source_ids: orderedSources.map((source) => source.source_id).sort() })).slice(0, 32)}`;
+  const packetId = `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA_LEGACY, source_ids: orderedSources.map((source) => source.source_id).sort() })).slice(0, 32)}`;
   const handoffCitationIds = [...new Set(decisionRegister.flatMap((item) => item.citation_ids))].slice(0, 16);
   const handoff = {
     schema_version: PRODUCER_HANDOFF_SCHEMA,
@@ -492,7 +498,7 @@ function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toI
   ]);
   const citations = [...citedIds].map((id) => citationsById.get(id)).filter(Boolean).slice(0, MAX_PACKET_CITATIONS);
   return {
-    schema_version: PRODUCER_PACKET_SCHEMA,
+    schema_version: PRODUCER_PACKET_SCHEMA_LEGACY,
     workflow: PRODUCER_WORKFLOW,
     status: "succeeded",
     packet_id: packetId,
@@ -521,6 +527,7 @@ function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toI
     citations,
     provenance: {
       schema_version: "producer-provenance@1",
+      contract_version: PRODUCER_PACKET_SCHEMA_LEGACY,
       mode: "demo",
       backend: "local-deterministic-consolidation",
       provider: "MovieInator uploaded production sources",
@@ -629,12 +636,25 @@ function canonicalRegister({ entryType, title, related, owner, priority, priorit
   };
 }
 
+function producerBundleManifestEntries(sources) {
+  return sources.map((source) => ({ source_id: source.source_id, source_kind: source.source_kind, input_ref: source.input_ref || null, filename: source.filename, version_label: source.version_label || null, status_label: source.status_label || null, relationships: source.relationships || [] }));
+}
+
 export function producerBundleId(sources) {
-  const manifest = sources.map((source) => ({ source_id: source.source_id, source_kind: source.source_kind, input_ref: source.input_ref || null, filename: source.filename, version_label: source.version_label || null, status_label: source.status_label || null, relationships: source.relationships || [] }));
+  const manifest = producerBundleManifestEntries(sources);
   return `bdl_${hashValue(stableStringify({ manifest, content_hashes: sources.map((source) => source.content_hash) })).slice(0, 32)}`;
 }
 
-function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "" } = {}) {
+// Distinct from source_manifest_hash: this hashes the client-labelled bundle manifest (source kinds,
+// filenames, supplied version/status labels, and relationships) rather than the server-derived
+// per-source/version manifest rows. Callers that already hold the exact submitted manifest (the
+// producer-source-bundle route) should pass that manifest_hash through explicitly; this fallback keeps
+// the field always present and deterministic when no separate manifest transaction exists.
+export function producerBundleManifestHash(sources) {
+  return `sha256:${hashValue(stableStringify(producerBundleManifestEntries(sources)))}`;
+}
+
+function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "", bundleManifestHash = undefined } = {}) {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
     throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
   }
@@ -768,6 +788,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const sourceManifest = canonicalSourceManifest(orderedSources);
   const sourceManifestHash = `sha256:${hashValue(stableStringify(sourceManifest))}`;
   const normalizedBundleId = bundleId || producerBundleId(orderedSources);
+  const normalizedBundleManifestHash = bundleManifestHash || producerBundleManifestHash(orderedSources);
   const packetId = `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA, bundle_id: normalizedBundleId })).slice(0, 32)}`;
   const summaryText = `The supplied bundle contains ${orderedSources.length} labelled sources. ${scene ? `The primary screenplay establishes ${sceneHeading}.` : "The primary screenplay does not establish the requested scene heading."} ${conflict ? "Schedule and location access records remain in conflict." : "No seeded schedule and location access conflict was established."} ${budgetInputs.length ? "The access rate is supplied but not independently verified; no total is calculated." : "No access rate is established."}`;
   return {
@@ -777,7 +798,10 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     packet_id: packetId,
     bundle_id: normalizedBundleId,
     created_at: createdAt,
-    bundle: { schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: normalizedBundleId, source_count: orderedSources.length, source_ids: orderedSources.map((source) => source.source_id), total_bytes: orderedSources.reduce((total, source) => total + source.byte_size, 0), total_extracted_chars: orderedSources.reduce((total, source) => total + source.text_char_count, 0), manifest_hash: sourceManifestHash },
+    // `generated_at` matches the PRD's literal result-schema sample field name; `created_at` is kept for
+    // compatibility with existing callers and the shared legacy packet shape.
+    generated_at: createdAt,
+    bundle: { schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: normalizedBundleId, source_count: orderedSources.length, source_ids: orderedSources.map((source) => source.source_id), total_bytes: orderedSources.reduce((total, source) => total + source.byte_size, 0), total_extracted_chars: orderedSources.reduce((total, source) => total + source.text_char_count, 0), manifest_hash: normalizedBundleManifestHash },
     executive_summary: { text: summaryText, classification: "source_fact", evidence_state: "established", citation_ids: citedIds.slice(0, 8), source_ids: [script.source_id] },
     source_manifest: sourceManifest,
     source_inventory: sourceManifest,
@@ -804,7 +828,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     handoff: { schema_version: PRODUCER_HANDOFF_SCHEMA, audience: ["producer"], status: "review_required", next_owner: ownerValue || null, source_ids: orderedSources.map((source) => source.source_id), open_register_ids: [openQuestion.entry_id], prioritized_register_ids: [], next_action: "obtain or record the access evidence", claim_type: "inference", citation_ids: openQuestion.citation_ids },
     cited_citation_ids: citedIds,
     citations: citedIds.map((citationId) => citationsById.get(citationId)).filter(Boolean).slice(0, MAX_PACKET_CITATIONS),
-    provenance: { schema_version: "producer-provenance@1", mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieInator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
+    provenance: { schema_version: "producer-provenance@1", contract_version: PRODUCER_PACKET_SCHEMA, mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieInator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", bundle_manifest_hash: normalizedBundleManifestHash, source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
     limitations: ["This packet only reports what the bounded uploaded bundle establishes.", "Externally supplied rates and statuses are not independently verified.", "Conflicts and open questions remain for human resolution; no booking, approval, permission, safety clearance, rights conclusion, or budget total was created.", ...(decisionContext ? [`Decision context supplied by the producer: ${boundedText(decisionContext, 1_000)}`] : [])],
   };
 }
@@ -896,11 +920,13 @@ function safeEvidenceItem(item) {
 export function safeProducerPacketProjection(packet) {
   if (!packet) return undefined;
   return {
-    schema_version: PRODUCER_PACKET_SCHEMA,
+    schema_version: packet.schema_version || PRODUCER_PACKET_SCHEMA,
     workflow: PRODUCER_WORKFLOW,
     status: packet.status,
     packet_id: packet.packet_id,
+    bundle_id: packet.bundle_id ?? packet.bundle?.bundle_id ?? null,
     created_at: packet.created_at,
+    generated_at: packet.generated_at || packet.created_at,
     bundle: packet.bundle,
     executive_summary: safeStatement(packet.executive_summary),
     source_manifest: packet.source_manifest?.map(safeSource),

@@ -7,8 +7,11 @@ import { createApp } from "../src/server.js";
 import {
   MAX_PRODUCER_SOURCES,
   PRODUCER_PACKET_SCHEMA,
+  PRODUCER_PACKET_SCHEMA_LEGACY,
   buildProducerDecisionPacket,
   parseProducerSource,
+  producerBundleId,
+  producerBundleManifestHash,
   safeProducerPacketProjection,
 } from "../src/producer-consolidation.js";
 import { MAX_DOCUMENT_BYTES, parseGroundingDocument } from "../src/documents.js";
@@ -70,7 +73,7 @@ const mixedEntries = [
 test("producer consolidation keeps mixed source kinds, exact locations, and citation integrity", () => {
   const sources = mixedEntries.map((entry) => source(entry.filename, entry.source_kind, entry.text));
   const packet = buildProducerDecisionPacket(sources, { createdAt: "2026-08-14T00:00:00.000Z" });
-  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA_LEGACY);
   assert.equal(packet.workflow, "producer_consolidation");
   assert.equal(packet.source_inventory.length, mixedEntries.length);
   assert.deepEqual(packet.source_inventory.map((item) => item.source_kind), mixedEntries.map((entry) => entry.source_kind));
@@ -142,7 +145,8 @@ test("producer HTTP flow returns a safe packet and preserves packet retrieval", 
   const accepted = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm(mixedEntries) });
   assert.equal(accepted.status, 201);
   const packet = await accepted.json();
-  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA_LEGACY);
+  assert.equal(packet.bundle_id, null);
   assert.equal(packet.source_inventory.length, mixedEntries.length);
   assert.equal(JSON.stringify(packet).includes("prompt"), false);
   assert.equal(JSON.stringify(packet).includes("chunks"), false);
@@ -209,8 +213,18 @@ test("Northline Producer Intake proof preserves classifications, hashes, both co
   assert.equal(packet.decision_question_register[0].priority, "unset");
   assert.equal(packet.decision_question_register[0].next_action, "obtain or record the access evidence");
   assert.equal(packet.gaps_and_next_steps[0].next_action, "obtain or record the access evidence");
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.bundle_id, producerBundleId(sources));
   assert.equal(packet.provenance.mode, "demo");
   assert.equal(packet.provenance.retention_state, "local");
+  assert.equal(packet.provenance.contract_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.provenance.bundle_manifest_hash, producerBundleManifestHash(sources));
+  assert.match(packet.provenance.source_manifest_hash, /^sha256:[a-f0-9]+$/);
+  assert.equal(packet.provenance.fallback_used, false);
+  assert.equal(packet.provenance.grounding_strategy, "bounded_source_manifest_and_deterministic_reconciliation");
+  const safe = safeProducerPacketProjection(packet);
+  assert.equal(safe.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(safe.bundle_id, packet.bundle_id);
 });
 
 test("strict Producer Intake bundle and handoff routes provide safe failures, citations, copy/export projections", async (t) => {
@@ -225,6 +239,10 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   const packetResponse = await fetch(`${base}/v1/producer-source-bundles/${bundle.bundle_id}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schema_version: "producer-intake-request@1", bundle_id: bundle.bundle_id }) });
   assert.equal(packetResponse.status, 201);
   const packet = await packetResponse.json();
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.bundle_id, bundle.bundle_id);
+  assert.equal(packet.provenance.contract_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.provenance.bundle_manifest_hash, bundle.manifest_hash);
   assert.equal(packet.scene_index[0].scene_heading, "SCENE 7 - INT. MILL - NIGHT");
   const citation = packet.citations.find((item) => item.excerpt.includes("SCENE 7 - INT. MILL - NIGHT"));
   assert.ok(citation);
@@ -237,7 +255,14 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   const handoff = await jsonHandoff.json();
   assert.equal(handoff.schema_version, "producer-read-only-handoff@1");
   assert.equal(JSON.stringify(handoff).includes("Mara enters"), false);
-  const badFormat = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=csv`);
+  const csvHandoff = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=csv`);
+  assert.equal(csvHandoff.status, 200);
+  assert.match(csvHandoff.headers.get("content-type") || "", /text\/csv/);
+  const csvText = await csvHandoff.text();
+  assert.match(csvText, /^"section","label","classification","evidence_state","value","owner","priority","citation_ids"/);
+  assert.match(csvText, /obtain or record the access evidence/);
+  assert.equal(csvText.includes("Mara enters"), false);
+  const badFormat = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=xml`);
   assert.equal(badFormat.status, 400);
   assert.equal((await badFormat.json()).error.code, "UNSUPPORTED_EXPORT_FORMAT");
 
@@ -252,11 +277,12 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
 test("producer browser DOM contract exposes proof sections, citation focus hooks, safe copy, and exports", () => {
   const html = fs.readFileSync(path.join(process.cwd(), "web/index.html"), "utf8");
   const app = fs.readFileSync(path.join(process.cwd(), "web/app.js"), "utf8");
-  for (const id of ["producer-source-inventory", "producer-facts", "producer-scenes", "producer-budget-inputs", "producer-access", "producer-conflicts", "producer-questions", "producer-next-steps", "copy-producer-handoff", "export-producer-markdown", "export-producer-json", "evidence-drawer"]) assert.match(html, new RegExp(`id="${id}"`), id);
+  for (const id of ["producer-source-inventory", "producer-facts", "producer-scenes", "producer-budget-inputs", "producer-access", "producer-conflicts", "producer-questions", "producer-next-steps", "copy-producer-handoff", "export-producer-markdown", "export-producer-json", "export-producer-csv", "evidence-drawer"]) assert.match(html, new RegExp(`id="${id}"`), id);
   assert.match(app, /openProducerCitation/);
   assert.match(app, /lastFocused = document\.activeElement/);
   assert.match(app, /copyProducerHandoff/);
   assert.match(app, /handoff\?format=markdown/);
   assert.match(app, /handoff\?format=json/);
+  assert.match(app, /handoff\?format=csv/);
   assert.match(app, /textContent = citation\.excerpt/);
 });

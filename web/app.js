@@ -1107,6 +1107,7 @@ function renderProducerPacket(packet) {
   $("#copy-producer-handoff").dataset.packetId = packet.packet_id;
   $("#export-producer-markdown").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=markdown`;
   $("#export-producer-json").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=json`;
+  $("#export-producer-csv").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=csv`;
 }
 
 async function openProducerCitation(packetId, citationId) {

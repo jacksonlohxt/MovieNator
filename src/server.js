@@ -439,7 +439,7 @@ async function createProducerPacketFromBundle(req, res, store, bundleId) {
   if (body.schema_version !== "producer-intake-request@1" || body.bundle_id !== bundleId) throw new ContractError("INVALID_SCHEMA_VERSION", "schema_version and bundle_id must identify a producer-intake-request@1 for this bundle");
   const decisionContext = body.decision_context === undefined ? "" : String(body.decision_context).normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
   if (decisionContext.length > 1_000) throw new ContractError("INVALID_REQUEST", "decision_context must be at most 1,000 characters", "decision_context");
-  const packet = buildProducerDecisionPacket(bundle.sources, { bundleId, decisionContext });
+  const packet = buildProducerDecisionPacket(bundle.sources, { bundleId, decisionContext, bundleManifestHash: bundle.manifest_hash });
   const result = store.createProducerPacket(packet);
   return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
 }
@@ -447,8 +447,9 @@ async function createProducerPacketFromBundle(req, res, store, bundleId) {
 async function createProducerPacket(req, res, store) {
   const upload = await readProducerUpload(req);
   const bundleId = upload.canonical ? producerBundleId(upload.sources) : undefined;
-  if (upload.canonical) store.createProducerBundle({ schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: bundleId, manifest_hash: `sha256:${hashValue(stableStringify(upload.manifest))}`, sources: upload.sources, created_at: new Date().toISOString(), retention_state: "local" });
-  const packet = buildProducerDecisionPacket(upload.sources, { bundleId });
+  const bundleManifestHash = upload.canonical ? `sha256:${hashValue(stableStringify(upload.manifest))}` : undefined;
+  if (upload.canonical) store.createProducerBundle({ schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: bundleId, manifest_hash: bundleManifestHash, sources: upload.sources, created_at: new Date().toISOString(), retention_state: "local" });
+  const packet = buildProducerDecisionPacket(upload.sources, { bundleId, bundleManifestHash });
   const result = store.createProducerPacket(packet);
   return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
 }
@@ -517,15 +518,61 @@ function markdownHandoff(packet) {
     "",
     "Read-only local/demo handoff. It does not book, approve, publish, send, or modify a downstream system.",
   ];
-  return lines.join("\\n").slice(0, 90_000);
+  return lines.join("\n").slice(0, 90_000);
+}
+
+function csvCell(value) {
+  const text = value === undefined || value === null ? "" : String(value);
+  return `"${text.replace(/"/g, '""').replace(/[\r\n]+/g, " ").slice(0, 700)}"`;
+}
+
+function csvRow(cells) {
+  return cells.map(csvCell).join(",");
+}
+
+function csvHandoff(packet) {
+  const handoff = producerHandoffJson(packet);
+  const rows = [csvRow(["section", "label", "classification", "evidence_state", "value", "owner", "priority", "citation_ids"])];
+  for (const source of handoff.source_manifest) {
+    rows.push(csvRow(["source_manifest", source.source_id, "externally_supplied_fact", source.ingestion_state || "ready", `${source.filename} (${source.source_kind}${source.version_label ? `, version ${source.version_label}` : ""})`, source.department || "", "", (source.relationships || []).map((relationship) => relationship.type).join("; ")]));
+  }
+  for (const fact of handoff.exact_facts) {
+    rows.push(csvRow(["exact_facts", fact.field || fact.fact_id || "", fact.classification || "", fact.evidence_state || "", fact.value || fact.text || "", "", "", (fact.citation_ids || []).join("; ")]));
+  }
+  for (const scene of handoff.scene_index) {
+    rows.push(csvRow(["scene_index", scene.scene_id || "", scene.classification || "", scene.evidence_state || "", scene.scene_heading || scene.scene_reference || "", "", "", (scene.citation_ids || []).join("; ")]));
+  }
+  for (const input of handoff.budget_inputs) {
+    rows.push(csvRow(["budget_inputs", input.input_id || "", input.classification || "", input.evidence_state || "", `${input.value || input.original_wording || ""} ${input.unit || ""} ${input.currency || ""}`.trim(), "", "", (input.citation_ids || []).join("; ")]));
+  }
+  for (const row of handoff.rights_access_logistics) {
+    rows.push(csvRow(["rights_access_logistics", row.category || row.field || "", row.classification || "", row.evidence_state || "", row.value || row.text || "", row.owner || "", row.priority || "", (row.citation_ids || []).join("; ")]));
+  }
+  for (const conflict of handoff.conflicts) {
+    for (const assertion of conflict.assertions || [{ text: conflict.question || conflict.impact, citation_ids: conflict.citation_ids, classification: conflict.classification, evidence_state: conflict.evidence_state }]) {
+      rows.push(csvRow(["conflicts", conflict.conflict_id || conflict.title || "", assertion.classification || conflict.classification || "conflict", assertion.evidence_state || conflict.evidence_state || "conflict", assertion.text || "", "", "", (assertion.citation_ids || []).join("; ")]));
+    }
+  }
+  for (const entry of handoff.decision_question_register) {
+    rows.push(csvRow(["decision_question_register", entry.entry_id || "", entry.classification || entry.entry_type || "", entry.evidence_state || "", `${entry.title || entry.related_to || ""}${entry.next_action ? ` | next action: ${entry.next_action}` : ""}`, entry.owner || "", entry.priority || "", (entry.citation_ids || []).join("; ")]));
+  }
+  for (const gap of handoff.gaps_and_next_steps) {
+    rows.push(csvRow(["gaps_and_next_steps", gap.gap_id || "", gap.classification || "open_question", gap.evidence_state || "", `${gap.question || ""}${gap.next_action ? ` | next action: ${gap.next_action}` : ""}`, gap.owner || "", gap.priority || "", (gap.citation_ids || []).join("; ")]));
+  }
+  return rows.slice(0, 512).join("\r\n");
 }
 
 function getProducerHandoff(req, res, store, packetId) {
   const packet = store.getProducerPacket(packetId);
   if (!packet) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet not found");
   const format = new URL(req.url, "http://localhost").searchParams.get("format") || "markdown";
-  if (!["markdown", "json"].includes(format)) throw new ContractError("UNSUPPORTED_EXPORT_FORMAT", "Only Markdown and JSON handoff exports are supported", "format");
+  if (!["markdown", "json", "csv"].includes(format)) throw new ContractError("UNSUPPORTED_EXPORT_FORMAT", "Only Markdown, JSON, and CSV handoff exports are supported", "format");
   if (format === "json") return sendJson(res, 200, producerHandoffJson(packet), { "content-disposition": `attachment; filename="${packet.packet_id}-handoff.json"` });
+  if (format === "csv") {
+    const csv = csvHandoff(packet);
+    res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${packet.packet_id}-handoff.csv"`, "cache-control": "no-store" });
+    return res.end(csv);
+  }
   const body = markdownHandoff(packet);
   res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/markdown; charset=utf-8", "content-disposition": `attachment; filename="${packet.packet_id}-handoff.md"`, "cache-control": "no-store" });
   res.end(body);
