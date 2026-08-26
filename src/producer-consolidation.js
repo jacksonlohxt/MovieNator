@@ -672,6 +672,383 @@ export function producerBundleManifestHash(sources) {
   return `sha256:${hashValue(stableStringify(producerBundleManifestEntries(sources)))}`;
 }
 
+// Controlled production-element categories from the PRD's production-element index contract
+// (docs/prd.md section 6, item 4). `other` is the safe fallback for unmapped explicit labels.
+export const PRODUCTION_ELEMENT_LABELS = Object.freeze({
+  cast_or_role: "cast or role",
+  extras: "extras",
+  location_or_set: "location or set",
+  props: "props",
+  set_dressing: "set dressing",
+  wardrobe: "wardrobe",
+  makeup_hair: "makeup and hair",
+  vehicles: "vehicles",
+  animals: "animals",
+  stunts: "stunts",
+  vfx_sfx: "VFX/SFX",
+  special_equipment: "special equipment",
+  sound: "sound",
+  music: "music",
+  graphics: "graphics",
+  other: "other",
+});
+export const PRODUCTION_ELEMENT_CATEGORIES = Object.freeze(Object.keys(PRODUCTION_ELEMENT_LABELS));
+const MAX_PRODUCTION_ELEMENT_ROWS = 60;
+const MAX_CAST_ROLE_ROWS = 40;
+const MAX_DEPARTMENT_REQUIREMENT_ROWS = 60;
+
+// Explicit category-labelled lines (e.g. "PROPS: a hunting knife") are a bounded, literal source
+// statement, so they are recorded as `source_fact`. They may appear in any source kind: a companion
+// department or breakdown document is as entitled to state a production element directly as the script.
+const PRODUCTION_ELEMENT_EXPLICIT_PATTERNS = Object.freeze([
+  { category: "props", pattern: /^props?\s*[:=-]\s*(.+)$/i },
+  { category: "set_dressing", pattern: /^set\s*dressing\s*[:=-]\s*(.+)$/i },
+  { category: "wardrobe", pattern: /^(?:wardrobe|costume)\s*[:=-]\s*(.+)$/i },
+  { category: "makeup_hair", pattern: /^(?:makeup(?:\s*(?:and|&)\s*hair)?|hair)\s*[:=-]\s*(.+)$/i },
+  { category: "vehicles", pattern: /^vehicles?\s*[:=-]\s*(.+)$/i },
+  { category: "animals", pattern: /^animals?\s*[:=-]\s*(.+)$/i },
+  { category: "stunts", pattern: /^stunts?\s*[:=-]\s*(.+)$/i },
+  { category: "vfx_sfx", pattern: /^(?:vfx|sfx|visual\s*effects?|special\s*effects?)\s*[:=-]\s*(.+)$/i },
+  { category: "special_equipment", pattern: /^(?:special\s*equipment|equipment)\s*[:=-]\s*(.+)$/i },
+  { category: "sound", pattern: /^sound\s*[:=-]\s*(.+)$/i },
+  { category: "music", pattern: /^music\s*[:=-]\s*(.+)$/i },
+  { category: "graphics", pattern: /^graphics?\s*[:=-]\s*(.+)$/i },
+  { category: "extras", pattern: /^extras?\s*[:=-]\s*(.+)$/i },
+  { category: "location_or_set", pattern: /^(?:location|set|venue)\s*[:=-]\s*(.+)$/i },
+]);
+
+// Action-line patterns scanned only within the primary screenplay or a screenplay revision. A match is
+// a bounded interpretation of source language (the PRD's example is "a likely production element implied
+// by an action line"), so these are always recorded as `source_implied_inference` with an `inference_basis`,
+// never upgraded to an externally supplied or verified fact.
+const PRODUCTION_ELEMENT_INFERENCE_PATTERNS = Object.freeze([
+  { category: "props", pattern: /\b(?:holds?|carries?|grabs?|draws?|wields?|picks up|pulls out)\s+(?:a|an|the|his|her|their)\s+[a-z][a-z'-]{2,40}\b/i, basis: "Action line describes a character handling or carrying an object, implying a prop element." },
+  { category: "vehicles", pattern: /\b(?:car|taxi|motorcycle|motorbike|scooter|bus|van|truck|vehicle|boat|train|ferry|bicycle|bike)\b/i, basis: "Action line names a vehicle." },
+  { category: "wardrobe", pattern: /\b(?:wears?|wearing|dressed in|dons?)\b/i, basis: "Action line describes a character's clothing, implying a wardrobe element." },
+  { category: "set_dressing", pattern: /\b(?:furniture|decor(?:ation)?|wallpaper|curtains?|bookcase|cluttered with|lined with)\b/i, basis: "Action or scene description implies set dressing." },
+  { category: "stunts", pattern: /\b(?:fight(?:s|ing)?|chase(?:s|d)?|falls?|jumps?|crash(?:es|ed)?|punch(?:es|ed)?|kicks?|tackles?|leaps?)\b/i, basis: "Action line describes physical action that may require stunt coordination." },
+  { category: "vfx_sfx", pattern: /\b(?:VFX|CGI|visual effect|green[- ]screen|wire removal|digital double|SFX|special effect|explosion|explodes?)\b/i, basis: "Action or scene description references a visual or special effect." },
+  { category: "sound", pattern: /\b(?:radio crackles|phone rings?|alarm (?:blares|sounds)|sirens? wail|voice[- ]over|O\.S\.)\b/i, basis: "Action line references a sound cue." },
+  { category: "music", pattern: /\b(?:music plays|soundtrack|hums? a tune|song plays)\b/i, basis: "Action line references music." },
+  { category: "animals", pattern: /\b(?:dog|cat|horse|bird|snake|monkey)\b/i, basis: "Action line names an animal." },
+  { category: "extras", pattern: /\b(?:crowd|crowds|dozens of|hundreds of|onlookers|bystanders)\b/i, basis: "Action line describes a crowd, implying extras." },
+]);
+
+function isScreenplaySource(source) {
+  return source.source_kind === "primary_screenplay" || source.source_kind === "screenplay_revision";
+}
+
+function productionElementRow({ category, value, classification, evidenceState, source, citationId, inferenceBasis }) {
+  const text = boundedText(value, 420);
+  return {
+    element_id: `element_${hashValue(stableStringify({ category, text, source_id: source.source_id, citation_id: citationId || null })).slice(0, 32)}`,
+    category,
+    department: source.department || null,
+    value: text,
+    text,
+    classification,
+    evidence_state: evidenceState,
+    source_ids: [source.source_id],
+    citation_ids: citationId ? [citationId] : [],
+    ...(inferenceBasis ? { inference_basis: inferenceBasis } : {}),
+    limitations: [],
+  };
+}
+
+// Generalizes production-element extraction to any bounded bundle: explicit category labels are
+// scanned across every source, and screenplay action-line inference is scanned only within screenplay
+// sources. Nothing is invented; every row cites the exact source line it was derived from.
+function deriveProductionElements(sources) {
+  const rows = [];
+  const seen = new Set();
+  const push = (row) => {
+    const key = `${row.category}|${row.text}|${row.source_ids[0]}`;
+    if (seen.has(key) || rows.length >= MAX_PRODUCTION_ELEMENT_ROWS) return;
+    seen.add(key);
+    rows.push(row);
+  };
+  for (const source of sources) {
+    for (const line of canonicalLineEntries(source)) {
+      let matchedExplicit = false;
+      for (const { category, pattern } of PRODUCTION_ELEMENT_EXPLICIT_PATTERNS) {
+        const match = line.text.match(pattern);
+        if (!match) continue;
+        matchedExplicit = true;
+        push(productionElementRow({ category, value: match[1], classification: "source_fact", evidenceState: "established", source: line.source, citationId: line.citation_id }));
+      }
+      if (matchedExplicit || !isScreenplaySource(source)) continue;
+      for (const { category, pattern, basis } of PRODUCTION_ELEMENT_INFERENCE_PATTERNS) {
+        if (!pattern.test(line.text)) continue;
+        push(productionElementRow({ category, value: line.text, classification: "source_implied_inference", evidenceState: "established", source: line.source, citationId: line.citation_id, inferenceBasis: basis }));
+      }
+    }
+  }
+  return rows;
+}
+
+const CAST_EXPLICIT_PATTERN = /^(?:role|cast|character)\s*[:=-]\s*(.+)$/i;
+const CAST_SUPPLIED_PATTERN = /^(?:actor|candidate|availability|deal\s*status)\s*[:=-]\s*(.+)$/i;
+const CAST_DEMAND_PATTERN = /(?:\(\s*\d{1,2}\s*\)|\b\d{1,2}\s*(?:years?\s*old|yo)\b|\bchild(?:ren)?\b|\bkid\b|\bteen(?:ager)?\b|\belderly\b|\bpregnant\b|\btwins?\b|\bminors?\b|\bstunt double\b|\bwheelchair\b|\bdeaf\b|\bblind\b|\baccent\b|\bdialect\b)/i;
+
+function castRoleRow({ value, classification, evidenceState, source, citationId }) {
+  const text = boundedText(value, 420);
+  return {
+    element_id: `cast_${hashValue(stableStringify({ text, source_id: source.source_id, citation_id: citationId || null })).slice(0, 32)}`,
+    category: "cast_or_role",
+    department: source.department || "cast",
+    value: text,
+    text,
+    classification,
+    evidence_state: evidenceState,
+    source_ids: [source.source_id],
+    citation_ids: citationId ? [citationId] : [],
+    limitations: classification === "externally_supplied_fact" ? ["A named candidate or availability record is not a cast commitment."] : [],
+  };
+}
+
+// Cast and role demands are drawn from explicit ROLE/CAST/CHARACTER labels in any source, supplied
+// candidate or availability lines in a `cast_notes` companion, and age/ability/continuity demand
+// language stated directly in the screenplay. An actor name or candidate is never treated as an
+// availability or contract status; that limitation travels with every externally supplied row.
+function deriveCastRoleDemands(sources) {
+  const rows = [];
+  const seen = new Set();
+  const push = (row) => {
+    const key = `${row.text}|${row.source_ids[0]}`;
+    if (seen.has(key) || rows.length >= MAX_CAST_ROLE_ROWS) return;
+    seen.add(key);
+    rows.push(row);
+  };
+  for (const source of sources) {
+    for (const line of canonicalLineEntries(source)) {
+      const explicit = line.text.match(CAST_EXPLICIT_PATTERN);
+      if (explicit) {
+        push(castRoleRow({ value: explicit[1], classification: "source_fact", evidenceState: "established", source: line.source, citationId: line.citation_id }));
+        continue;
+      }
+      if (source.source_kind === "cast_notes") {
+        const supplied = line.text.match(CAST_SUPPLIED_PATTERN);
+        if (supplied) {
+          push(castRoleRow({ value: line.text, classification: "externally_supplied_fact", evidenceState: "supplied_not_verified", source: line.source, citationId: line.citation_id }));
+          continue;
+        }
+      }
+      if (isScreenplaySource(source) && CAST_DEMAND_PATTERN.test(line.text)) {
+        push(castRoleRow({ value: line.text, classification: "source_fact", evidenceState: "established", source: line.source, citationId: line.citation_id }));
+      }
+    }
+  }
+  return rows;
+}
+
+// Keyword routing used only to infer a PRD-listed department (docs/prd.md section 5) when a
+// department_input or breakdown source does not supply its own `department` label. A supplied label
+// always wins; this is a bounded fallback, not a classification authority.
+const DEPARTMENT_KEYWORDS = Object.freeze([
+  { department: "camera", pattern: /\b(?:camera|lens|steadicam|gimbal|drone|crane shot)\b/i },
+  { department: "art", pattern: /\b(?:art department|set design|production design|set dressing|props?)\b/i },
+  { department: "costume", pattern: /\b(?:costume|wardrobe)\b/i },
+  { department: "makeup_hair", pattern: /\b(?:makeup|hair)\b/i },
+  { department: "sound_music", pattern: /\b(?:sound|audio|music|score|composer)\b/i },
+  { department: "vfx_sfx", pattern: /\b(?:vfx|sfx|visual effect|special effect|cgi)\b/i },
+  { department: "stunts_safety", pattern: /\b(?:stunt|safety|hazard|risk assessment)\b/i },
+  { department: "locations", pattern: /\b(?:location|venue|permit|access)\b/i },
+  { department: "cast", pattern: /\b(?:cast|actor|role|talent)\b/i },
+  { department: "production_management", pattern: /\b(?:call sheet|logistics|transport|catering|unit base)\b/i },
+  { department: "line_production", pattern: /\b(?:schedule|budget|line producer)\b/i },
+  { department: "legal_business_affairs", pattern: /\b(?:rights|clearance|release form|legal|contract)\b/i },
+  { department: "finance", pattern: /\b(?:invoice|payment|finance|accountant)\b/i },
+]);
+
+function inferDepartment(text) {
+  return DEPARTMENT_KEYWORDS.find((entry) => entry.pattern.test(text))?.department || "other";
+}
+
+function departmentRow({ department, value, classification, evidenceState, source, citationId, limitations = [] }) {
+  const text = boundedText(value, 420);
+  return {
+    element_id: `department_${hashValue(stableStringify({ department, text, source_id: source.source_id, citation_id: citationId || null })).slice(0, 32)}`,
+    category: "department_requirement",
+    department,
+    value: text,
+    text,
+    classification,
+    evidence_state: evidenceState,
+    source_ids: [source.source_id],
+    citation_ids: citationId ? [citationId] : [],
+    limitations,
+  };
+}
+
+// Department requirements are drawn from `department_input`/`breakdown` sources (using the supplied
+// department label, or a bounded keyword fallback), and from `director_notes` requirement language.
+// A detected stunt production element always routes an explicit safety-review open question; stunts
+// and physical action are never labelled safe or approved by this deterministic pipeline.
+function deriveDepartmentRequirements(sources, productionElementRows) {
+  const rows = [];
+  const seen = new Set();
+  const push = (row) => {
+    const key = `${row.department}|${row.text}|${row.source_ids[0]}`;
+    if (seen.has(key) || rows.length >= MAX_DEPARTMENT_REQUIREMENT_ROWS) return;
+    seen.add(key);
+    rows.push(row);
+  };
+  for (const source of sources) {
+    if (source.source_kind !== "department_input" && source.source_kind !== "breakdown") continue;
+    for (const line of canonicalLineEntries(source)) {
+      if (line.text.length < 4) continue;
+      const department = source.department || inferDepartment(line.text);
+      push(departmentRow({ department, value: line.text, classification: "source_fact", evidenceState: "established", source: line.source, citationId: line.citation_id }));
+    }
+  }
+  for (const source of sources) {
+    if (source.source_kind !== "director_notes") continue;
+    for (const line of canonicalLineEntries(source)) {
+      if (!/\b(?:must|need|require[sd]?|please|ensure)\b/i.test(line.text)) continue;
+      push(departmentRow({ department: "director", value: line.text, classification: "externally_supplied_fact", evidenceState: "supplied_not_verified", source: line.source, citationId: line.citation_id }));
+    }
+  }
+  for (const element of productionElementRows) {
+    if (element.category !== "stunts") continue;
+    push(departmentRow({
+      department: "stunts_safety",
+      value: `Confirm specialist safety review for: ${element.text}`,
+      classification: "open_question",
+      evidenceState: "not_established",
+      source: { source_id: element.source_ids[0] },
+      citationId: element.citation_ids[0],
+      limitations: ["Stunts and physical action are routed to specialist safety review; this is never a safety approval or clearance."],
+    }));
+  }
+  return rows;
+}
+
+// Explicit human decisions recorded directly in a source (e.g. "Decision: ..." or "Approved: ...")
+// are the only case the deterministic pipeline records as classification `decision`; MovieInator never
+// generates, approves, or infers a decision on its own.
+const EXPLICIT_DECISION_PATTERN = /^(?:decision|decided|approved)\s*[:=-]\s*(.+)$/i;
+
+function deriveExplicitDecisions(sources) {
+  const results = [];
+  const seen = new Set();
+  for (const source of sources) {
+    for (const line of canonicalLineEntries(source)) {
+      const match = line.text.match(EXPLICIT_DECISION_PATTERN);
+      if (!match) continue;
+      const text = boundedText(match[1], 700);
+      const key = `${source.source_id}|${text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push({ text, source, citationId: line.citation_id });
+      if (results.length >= 20) return results;
+    }
+  }
+  return results;
+}
+
+// Retention lifecycle: local demo mode declares no server-owned TTL by default (docs/prd.md's
+// "local demo ... has no external retention"), so `retentionLifecycle` is a no-op unless a caller
+// supplies an explicit bounded `retentionTtlMs` policy. When a TTL is supplied, evidence ages through
+// three stages: fresh ("local"), "stale" once past `PRODUCER_RETENTION_STALE_RATIO` of the window, and
+// "expired" once past the full window, matching the PRD's declared server-owned retention contract.
+export const PRODUCER_RETENTION_STALE_RATIO = 0.8;
+const RETENTION_EXPIRED_LIMITATION = "Source retention has expired; this record can no longer be independently re-verified from the original source.";
+const RETENTION_STALE_LIMITATION = "This record is approaching the retention window limit and should be reconfirmed before relying on it.";
+const RETENTION_EXPIRED_CONTENT = "[Source retention has expired. The original content is no longer available.]";
+// Once retention fully expires, the PRD treats source bytes and extracted text as gone, not merely the
+// citation excerpt. These are the verbatim-wording fields a canonical_item can carry; they are replaced
+// with the same bounded placeholder so an expired record cannot keep displaying quoted source content it
+// can no longer be re-verified against. Structural fields (classification, evidence_state, ids, owner,
+// priority, department, category) are preserved so the record remains auditable.
+const RETENTION_EXPIRED_TEXT_FIELDS = Object.freeze(["text", "value", "original_wording", "scene_heading", "scene_reference", "setting", "related_to", "question", "impact", "why_it_matters", "evidence_needed", "title", "next_action"]);
+
+function retentionLifecycle({ createdAt, now, retentionTtlMs }) {
+  if (!retentionTtlMs || !Number.isFinite(retentionTtlMs) || retentionTtlMs <= 0) {
+    return { state: "local", expired: false, stale: false, expires_at: null };
+  }
+  const createdMs = Date.parse(createdAt);
+  const nowMs = Date.parse(now ?? createdAt);
+  if (!Number.isFinite(createdMs) || !Number.isFinite(nowMs)) {
+    return { state: "local", expired: false, stale: false, expires_at: null };
+  }
+  const expiresAtMs = createdMs + retentionTtlMs;
+  const staleAtMs = createdMs + Math.round(retentionTtlMs * PRODUCER_RETENTION_STALE_RATIO);
+  const expired = nowMs >= expiresAtMs;
+  const stale = !expired && nowMs >= staleAtMs;
+  return { state: expired ? "expired" : stale ? "stale" : "local", expired, stale, expires_at: new Date(expiresAtMs).toISOString() };
+}
+
+export function computeProducerRetentionLifecycle({ createdAt, now = new Date().toISOString(), retentionTtlMs } = {}) {
+  return retentionLifecycle({ createdAt, now, retentionTtlMs });
+}
+
+function applyRetentionToItem(item, lifecycle) {
+  if (!item || typeof item !== "object" || lifecycle.state === "local") return item;
+  const assertions = Array.isArray(item.assertions) ? item.assertions.map((assertion) => applyRetentionToItem(assertion, lifecycle)) : undefined;
+  if (!item.evidence_state) return assertions ? { ...item, assertions } : item;
+  if (lifecycle.state === "expired") {
+    const redacted = { ...item };
+    for (const field of RETENTION_EXPIRED_TEXT_FIELDS) {
+      if (redacted[field] !== undefined && redacted[field] !== null) redacted[field] = RETENTION_EXPIRED_CONTENT;
+    }
+    if (redacted.location && typeof redacted.location === "object") redacted.location = { ...redacted.location, section: redacted.location.section ? RETENTION_EXPIRED_CONTENT : redacted.location.section };
+    return {
+      ...redacted,
+      ...(assertions ? { assertions } : {}),
+      evidence_state: "unavailable",
+      limitations: [...new Set([...(item.limitations || []), RETENTION_EXPIRED_LIMITATION])].slice(0, 8),
+    };
+  }
+  if (lifecycle.state === "stale" && (item.evidence_state === "established" || item.evidence_state === "supplied_not_verified")) {
+    return {
+      ...item,
+      ...(assertions ? { assertions } : {}),
+      evidence_state: "stale",
+      limitations: [...new Set([...(item.limitations || []), RETENTION_STALE_LIMITATION])].slice(0, 8),
+    };
+  }
+  return assertions ? { ...item, assertions } : item;
+}
+
+function applyRetentionToCitation(citation, lifecycle) {
+  if (!citation || lifecycle.state !== "expired") return citation;
+  return { ...citation, excerpt: RETENTION_EXPIRED_CONTENT };
+}
+
+function retentionLimitationMessage(lifecycle, now) {
+  return lifecycle.state === "expired"
+    ? `Retention has expired as of ${now}; citations reflect only that the original source content is no longer available.`
+    : `Retention is approaching its limit as of ${now} (window ends ${lifecycle.expires_at}); some records are marked stale pending reconfirmation.`;
+}
+
+// A read-time retention overlay for an already-built, immutable packet. Packet identity, created_at,
+// and source content never change; this only projects `status`, per-item `evidence_state`, and citation
+// excerpts forward against the wall clock and a server-owned retention policy, matching the PRD's
+// retention contract (docs/prd.md section 5, "Normalization, redaction, and retention"). Calling this
+// with no `retentionTtlMs` is a no-op, matching local demo mode's declared "no external retention".
+export function applyProducerPacketRetention(packet, { now = new Date().toISOString(), retentionTtlMs } = {}) {
+  if (!packet || typeof packet !== "object") return packet;
+  const lifecycle = retentionLifecycle({ createdAt: packet.created_at, now, retentionTtlMs });
+  if (lifecycle.state === "local") return packet;
+  const transformValue = (value) => {
+    if (Array.isArray(value)) return value.map((item) => (item && typeof item === "object" && item.excerpt !== undefined && item.citation_id !== undefined ? applyRetentionToCitation(item, lifecycle) : applyRetentionToItem(item, lifecycle)));
+    if (value && typeof value === "object") {
+      if (value.excerpt !== undefined && value.citation_id !== undefined) return applyRetentionToCitation(value, lifecycle);
+      if (value.evidence_state !== undefined || value.classification !== undefined) return applyRetentionToItem(value, lifecycle);
+    }
+    return value;
+  };
+  const next = { ...packet };
+  for (const key of Object.keys(next)) {
+    if (key === "provenance" || key === "status" || key === "bundle" || key === "limitations") continue;
+    next[key] = transformValue(next[key]);
+  }
+  next.status = lifecycle.state === "expired" ? "expired" : packet.status;
+  next.provenance = { ...packet.provenance, retention_state: lifecycle.state };
+  next.limitations = [...new Set([...(packet.limitations || []), retentionLimitationMessage(lifecycle, now)])].slice(0, 8);
+  return next;
+}
+
 function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "", bundleManifestHash = undefined, overridePacketId = undefined } = {}) {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
     throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
@@ -686,6 +1063,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const scene = firstCanonicalLine(script, /^SCENE\s+7\s*-\s*INT\.\s*MILL\s*-\s*NIGHT$/i) || firstCanonicalLine(script, /^SCENE\s+\d+\s*-/i);
   const sceneHeading = scene?.text || "Scene heading is not established in the primary screenplay.";
   const sceneCitationId = scene?.citation_id;
+  const sceneReferenceLabel = scene ? boundedText(sceneHeading, 160) : "the primary screenplay's referenced scene";
   const sceneRow = {
     scene_id: `scene_${hashValue(stableStringify({ sceneHeading, source_id: script.source_id })).slice(0, 32)}`,
     scene_reference: sceneHeading,
@@ -766,8 +1144,8 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
       { text: scheduleAssumption.text, classification: "human_assumption", evidence_state: "assumed", source_ids: [scheduleSource.source_id], citation_ids: [scheduleAssumption.citation_id] },
       { text: noHold.text, classification: "source_fact", evidence_state: "established", source_ids: [locationSource.source_id], citation_ids: [noHold.citation_id] },
     ],
-    impact: "A Mill hold or access date must not be treated as confirmed until the access evidence is recorded.",
-    question: "Which access evidence governs Scene 7 before schedule or location commitment?",
+    impact: "An assumed schedule hold or access date must not be treated as confirmed until the access evidence is recorded.",
+    question: `Which access evidence governs ${sceneReferenceLabel} before schedule or location commitment?`,
     classification: "conflict",
     evidence_state: "conflict",
     source_ids: [scheduleSource.source_id, locationSource.source_id],
@@ -776,7 +1154,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const conflicts = conflict ? [conflict] : [];
   const openQuestion = canonicalRegister({
     entryType: "open_question",
-    title: "Confirm Scene 7 mill access evidence",
+    title: boundedText(`Confirm access evidence for ${sceneReferenceLabel}`, 180),
     related: sceneHeading,
     owner: ownerValue || null,
     priority: "unset",
@@ -788,7 +1166,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   });
   const gapsAndNextSteps = [{
     gap_id: `gap_${hashValue(openQuestion.entry_id).slice(0, 32)}`,
-    question: "Is access permission or a Mill hold confirmed for Scene 7?",
+    question: boundedText(`Is access permission or the assumed schedule hold confirmed for ${sceneReferenceLabel}?`, 700),
     why_it_matters: "The schedule assumption and location access record are not the same operational status.",
     owner: ownerValue || null,
     priority: "unset",
@@ -798,21 +1176,52 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     source_ids: openQuestion.source_ids,
     citation_ids: openQuestion.citation_ids,
     next_action: "obtain or record the access evidence",
-    evidence_needed: "A supplied permission, hold, or access record linked to the Mill.",
+    evidence_needed: boundedText(`A supplied permission, hold, or access record linked to ${sceneReferenceLabel}.`, 700),
   }];
-  const decisionQuestionRegister = [openQuestion];
-  const allItems = [...exactFacts, sceneRow, ...locationsAndTiming, ...budgetInputs, ...scheduleInputs, ...conflicts, ...decisionQuestionRegister, ...gapsAndNextSteps];
+
+  const productionElementRows = deriveProductionElements(orderedSources);
+  const castRoleDemandRows = deriveCastRoleDemands(orderedSources);
+  const departmentRequirementRows = deriveDepartmentRequirements(orderedSources, productionElementRows);
+  const explicitDecisionEntries = deriveExplicitDecisions(orderedSources).map((item) => canonicalRegister({
+    entryType: "decision",
+    title: "Recorded decision supplied in the source bundle",
+    related: null,
+    owner: null,
+    priority: "unset",
+    priorityBasis: "Priority was not supplied in the bundle.",
+    action: `Recorded decision: ${item.text}`,
+    sourceIds: [item.source.source_id],
+    citationIds: [item.citationId],
+    evidenceState: "recorded_decision",
+  }));
+  const decisionQuestionRegister = [...explicitDecisionEntries, openQuestion];
+  const allItems = [...exactFacts, sceneRow, ...locationsAndTiming, ...budgetInputs, ...scheduleInputs, ...conflicts, ...decisionQuestionRegister, ...gapsAndNextSteps, ...productionElementRows, ...castRoleDemandRows, ...departmentRequirementRows];
   const citedIds = canonicalCitationIds(allItems);
+
+  // A required source's content is unreadable, absent, or outside the safe bound only in the narrow
+  // sense the deterministic pipeline can detect here: the primary screenplay never yields a scene, and
+  // the bundle never yields any other established, source-implied, or supplied content either. That is
+  // `failed` (no verified result). If only the scene is missing but other bounded content was still
+  // established, the packet is a `source_gap`, not a fabricated `succeeded` result.
+  const hasEstablishedContent = exactFacts.length > 0
+    || productionElementRows.length > 0
+    || castRoleDemandRows.length > 0
+    || departmentRequirementRows.length > 0
+    || budgetInputs.length > 0
+    || scheduleInputs.length > 0
+    || rightsAccessLogistics.some((row) => row.classification !== "open_question");
+  const sceneEstablished = Boolean(scene);
+  const packetStatus = !sceneEstablished && !hasEstablishedContent ? "failed" : !sceneEstablished ? "source_gap" : "succeeded";
   const sourceManifest = canonicalSourceManifest(orderedSources);
   const sourceManifestHash = `sha256:${hashValue(stableStringify(sourceManifest))}`;
   const normalizedBundleId = bundleId || producerBundleId(orderedSources);
   const normalizedBundleManifestHash = bundleManifestHash || producerBundleManifestHash(orderedSources);
   const packetId = overridePacketId || producerPacketId(orderedSources, { bundleId: normalizedBundleId });
-  const summaryText = `The supplied bundle contains ${orderedSources.length} labelled sources. ${scene ? `The primary screenplay establishes ${sceneHeading}.` : "The primary screenplay does not establish the requested scene heading."} ${conflict ? "Schedule and location access records remain in conflict." : "No seeded schedule and location access conflict was established."} ${budgetInputs.length ? "The access rate is supplied but not independently verified; no total is calculated." : "No access rate is established."}`;
+  const summaryText = boundedText(`The supplied bundle contains ${orderedSources.length} labelled sources. ${scene ? `The primary screenplay establishes ${sceneHeading}.` : "The primary screenplay does not establish a scene heading."} ${conflict ? "Schedule and location access records remain in conflict." : "No schedule and location access conflict was established."} ${budgetInputs.length ? "An access rate is supplied but not independently verified; no total is calculated." : "No access rate is established."} ${productionElementRows.length || castRoleDemandRows.length || departmentRequirementRows.length ? `${productionElementRows.length} production element(s), ${castRoleDemandRows.length} cast or role demand(s), and ${departmentRequirementRows.length} department requirement(s) were identified.` : "No production element, cast or role demand, or department requirement was identified."}`, 700);
   return {
     schema_version: PRODUCER_PACKET_SCHEMA,
     workflow: PRODUCER_WORKFLOW,
-    status: "succeeded",
+    status: packetStatus,
     packet_id: packetId,
     bundle_id: normalizedBundleId,
     created_at: createdAt,
@@ -825,10 +1234,10 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     source_inventory: sourceManifest,
     exact_facts: exactFacts,
     scene_index: [sceneRow],
-    production_elements: [],
+    production_elements: productionElementRows,
     locations_and_timing: locationsAndTiming,
-    cast_role_demands: [],
-    department_requirements: [],
+    cast_role_demands: castRoleDemandRows,
+    department_requirements: departmentRequirementRows,
     schedule_inputs: scheduleInputs,
     budget_inputs: budgetInputs,
     rights_access_logistics: rightsAccessLogistics,
@@ -843,7 +1252,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     risks_or_conflicts: conflicts.map((item) => ({ text: item.title, claim_type: "fact", kind: "conflict", topic: item.kind, citation_ids: item.citation_ids, source_ids: item.source_ids })),
     cross_document_conflicts: conflicts.map((item) => ({ text: item.title, claim_type: "fact", kind: "conflict", topic: item.kind, citation_ids: item.citation_ids, source_ids: item.source_ids })),
     gaps_or_questions: gapsAndNextSteps.map((item) => ({ text: `${item.question} Next action: ${item.next_action}`, claim_type: "unknown", kind: "gap", citation_ids: item.citation_ids, source_ids: item.source_ids })),
-    handoff: { schema_version: PRODUCER_HANDOFF_SCHEMA, audience: ["producer"], status: "review_required", next_owner: ownerValue || null, source_ids: orderedSources.map((source) => source.source_id), open_register_ids: [openQuestion.entry_id], prioritized_register_ids: [], next_action: "obtain or record the access evidence", claim_type: "inference", citation_ids: openQuestion.citation_ids },
+    handoff: { schema_version: PRODUCER_HANDOFF_SCHEMA, audience: ["producer"], status: "review_required", next_owner: ownerValue || null, source_ids: orderedSources.map((source) => source.source_id), open_register_ids: decisionQuestionRegister.map((entry) => entry.entry_id), prioritized_register_ids: [], next_action: "obtain or record the access evidence", claim_type: "inference", citation_ids: openQuestion.citation_ids },
     cited_citation_ids: citedIds,
     citations: citedIds.map((citationId) => citationsById.get(citationId)).filter(Boolean).slice(0, MAX_PACKET_CITATIONS),
     provenance: { schema_version: "producer-provenance@1", contract_version: PRODUCER_PACKET_SCHEMA, mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieInator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", bundle_manifest_hash: normalizedBundleManifestHash, source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
@@ -936,6 +1345,10 @@ function safeEvidenceItem(item) {
 
 export function safeProducerPacketProjection(packet) {
   if (!packet) return undefined;
+  // Only the strict PRD-target contract populates cast_role_demands/department_requirements with rich
+  // canonical_item rows (classification, evidence_state, department, inference_basis, limitations); the
+  // unrenamed legacy contract keeps its original ProducerStatement shape via safeStatement.
+  const isCanonicalPacket = (packet.schema_version || PRODUCER_PACKET_SCHEMA) === PRODUCER_PACKET_SCHEMA;
   return {
     schema_version: packet.schema_version || PRODUCER_PACKET_SCHEMA,
     workflow: PRODUCER_WORKFLOW,
@@ -962,8 +1375,8 @@ export function safeProducerPacketProjection(packet) {
     production_decisions: packet.production_decisions.map(safeStatement),
     decision_register: packet.decision_register.map(safeRegisterEntry),
     locations_and_timing: packet.locations_and_timing.map(safeStatement),
-    cast_role_demands: packet.cast_role_demands.map(safeStatement),
-    department_requirements: packet.department_requirements.map(safeStatement),
+    cast_role_demands: packet.cast_role_demands.map(isCanonicalPacket ? safeEvidenceItem : safeStatement),
+    department_requirements: packet.department_requirements.map(isCanonicalPacket ? safeEvidenceItem : safeStatement),
     risks_or_conflicts: packet.risks_or_conflicts.map(safeStatement),
     cross_document_conflicts: packet.cross_document_conflicts.map(safeStatement),
     gaps_or_questions: packet.gaps_or_questions.map(safeStatement),
