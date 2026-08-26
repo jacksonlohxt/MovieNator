@@ -8,7 +8,9 @@ import {
   MAX_PRODUCER_SOURCES,
   PRODUCER_PACKET_SCHEMA,
   PRODUCER_PACKET_SCHEMA_LEGACY,
+  applyProducerPacketRetention,
   buildProducerDecisionPacket,
+  computeProducerRetentionLifecycle,
   parseProducerSource,
   producerBundleId,
   producerBundleManifestHash,
@@ -23,6 +25,34 @@ function tempPath(prefix = "movie-inator-producer") {
 
 function source(filename, source_kind, text) {
   return parseProducerSource({ filename, source_kind, contentType: "text/plain", bytes: Buffer.from(text) });
+}
+
+function canonicalSource(filename, source_kind, text, extra = {}) {
+  return parseProducerSource({ filename, source_kind, contentType: "text/plain", bytes: Buffer.from(text), ...extra });
+}
+
+// An entirely different production than the Northline fixture, used to prove the deterministic
+// extractor generalizes production_elements, cast_role_demands, and department_requirements rather
+// than only reproducing the seeded Northline demo shape.
+function harborLightsEntries() {
+  return [
+    canonicalSource("harbor-lights-script.txt", "primary_screenplay", [
+      "SHOOTING DRAFT 1",
+      "SCENE 3 - EXT. HARBOR - DAY",
+      "Nadia draws a rusted key from her coat.",
+      "A battered pickup truck idles nearby.",
+      "She wears a faded fisherman's jacket.",
+      "They fight along the pier railing.",
+      "SAM (9), clutching a life vest, watches from the dock.",
+    ].join("\n")),
+    canonicalSource("harbor-lights-breakdown.txt", "department_input", [
+      "PROPS: a rusted iron key",
+      "VEHICLES: a battered pickup truck",
+    ].join("\n"), { department: "art" }),
+    canonicalSource("harbor-lights-director-notes.txt", "director_notes", "We must ensure the harbor horn sounds authentic for the pier scene."),
+    canonicalSource("harbor-lights-cast-notes.txt", "cast_notes", "Availability: Priya Shah is available the week of March 3 for Nadia."),
+    canonicalSource("harbor-lights-handoff.txt", "handoff", "Decision: Move the harbor scene to the pier's north dock."),
+  ];
 }
 
 function bundleForm(entries, { schema = "producer-source-bundle@1", extra = undefined } = {}) {
@@ -292,4 +322,161 @@ test("producer browser DOM contract exposes proof sections, citation focus hooks
   assert.match(app, /handoff\?format=json/);
   assert.match(app, /handoff\?format=csv/);
   assert.match(app, /textContent = citation\.excerpt/);
+});
+
+test("production_elements, cast_role_demands, and department_requirements generalize beyond the Northline fixture", () => {
+  const entries = harborLightsEntries();
+  const packet = buildProducerDecisionPacket(entries, { createdAt: "2026-09-01T00:00:00.000Z" });
+  assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
+  assert.equal(packet.status, "succeeded");
+  assert.equal(packet.scene_index[0].scene_heading, "SCENE 3 - EXT. HARBOR - DAY");
+
+  const explicitProps = packet.production_elements.find((item) => item.category === "props" && item.classification === "source_fact");
+  const inferredProps = packet.production_elements.find((item) => item.category === "props" && item.classification === "source_implied_inference");
+  assert.ok(explicitProps, "expected an explicit PROPS: label to produce a source_fact row");
+  assert.equal(explicitProps.value, "a rusted iron key");
+  assert.equal(explicitProps.evidence_state, "established");
+  assert.ok(inferredProps, "expected the action line to produce a source_implied_inference row");
+  assert.match(inferredProps.text, /draws a rusted key/);
+  assert.equal(typeof inferredProps.inference_basis, "string");
+  assert.ok(inferredProps.inference_basis.length > 0);
+
+  const inferredVehicle = packet.production_elements.find((item) => item.category === "vehicles" && item.classification === "source_implied_inference");
+  assert.ok(inferredVehicle);
+  assert.match(inferredVehicle.text, /pickup truck/);
+  const inferredWardrobe = packet.production_elements.find((item) => item.category === "wardrobe");
+  assert.ok(inferredWardrobe);
+  const inferredStunt = packet.production_elements.find((item) => item.category === "stunts");
+  assert.ok(inferredStunt);
+  assert.match(inferredStunt.text, /fight along the pier railing/);
+
+  const scriptCastDemand = packet.cast_role_demands.find((item) => item.classification === "source_fact");
+  assert.ok(scriptCastDemand, "expected an age/continuity demand stated in the screenplay");
+  assert.match(scriptCastDemand.text, /SAM \(9\)/);
+  const suppliedCastCandidate = packet.cast_role_demands.find((item) => item.classification === "externally_supplied_fact");
+  assert.ok(suppliedCastCandidate);
+  assert.equal(suppliedCastCandidate.evidence_state, "supplied_not_verified");
+  assert.match(suppliedCastCandidate.text, /Priya Shah/);
+  assert.match(suppliedCastCandidate.limitations[0], /not a cast commitment/);
+
+  const artDepartmentRow = packet.department_requirements.find((item) => item.department === "art");
+  assert.ok(artDepartmentRow);
+  assert.equal(artDepartmentRow.classification, "source_fact");
+  const directorDepartmentRow = packet.department_requirements.find((item) => item.department === "director");
+  assert.ok(directorDepartmentRow);
+  assert.equal(directorDepartmentRow.classification, "externally_supplied_fact");
+  assert.equal(directorDepartmentRow.evidence_state, "supplied_not_verified");
+  const stuntSafetyRow = packet.department_requirements.find((item) => item.department === "stunts_safety");
+  assert.ok(stuntSafetyRow, "expected a stunt production element to route a stunts_safety open question");
+  assert.equal(stuntSafetyRow.classification, "open_question");
+  assert.equal(stuntSafetyRow.evidence_state, "not_established");
+  assert.match(stuntSafetyRow.limitations[0], /never a safety approval/);
+
+  const decisionEntry = packet.decision_question_register.find((item) => item.classification === "decision");
+  assert.ok(decisionEntry, "expected the explicit Decision: line to be recorded");
+  assert.equal(decisionEntry.evidence_state, "recorded_decision");
+  assert.match(decisionEntry.next_action, /Move the harbor scene to the pier's north dock/);
+  assert.equal(packet.decision_question_register.some((item) => item.entry_type === "open_question"), true);
+
+  const citationIds = new Set(packet.citations.map((citation) => citation.citation_id));
+  for (const item of [...packet.production_elements, ...packet.cast_role_demands, ...packet.department_requirements, decisionEntry]) {
+    for (const citationId of item.citation_ids) assert.equal(citationIds.has(citationId), true, `${item.text || item.next_action}: ${citationId}`);
+  }
+
+  const safe = safeProducerPacketProjection(packet);
+  const safeArtRow = safe.department_requirements.find((item) => item.department === "art");
+  assert.ok(safeArtRow, "safe projection must preserve department for the canonical contract");
+  assert.equal(safeArtRow.classification, "source_fact");
+  const safeCastDemand = safe.cast_role_demands.find((item) => item.classification === "source_fact");
+  assert.ok(safeCastDemand);
+});
+
+test("Producer Intake packet reports source_gap when the primary screenplay establishes no scene but other content exists", () => {
+  const entries = [
+    canonicalSource("no-scene-script.txt", "primary_screenplay", "Just some narrative text with no scene heading at all."),
+    canonicalSource("no-scene-location.txt", "location_access", "Owner: Alex - Locations"),
+  ];
+  const packet = buildProducerDecisionPacket(entries, { createdAt: "2026-09-01T00:00:00.000Z" });
+  assert.equal(packet.status, "source_gap");
+  assert.equal(packet.scene_index[0].classification, "open_question");
+  assert.equal(packet.exact_facts.some((fact) => fact.value === "Alex - Locations"), true);
+});
+
+test("Producer Intake packet reports failed when nothing can be established from any supplied source", () => {
+  const entries = [
+    canonicalSource("empty-signal-script.txt", "primary_screenplay", "FADE IN.\nNothing of note happens in this quiet room.\nFADE OUT."),
+  ];
+  const packet = buildProducerDecisionPacket(entries, { createdAt: "2026-09-01T00:00:00.000Z" });
+  assert.equal(packet.status, "failed");
+  assert.equal(packet.exact_facts.length, 0);
+  assert.equal(packet.production_elements.length, 0);
+  assert.equal(packet.cast_role_demands.length, 0);
+  assert.equal(packet.department_requirements.length, 0);
+});
+
+test("retention lifecycle stays local when no server-owned TTL is declared", () => {
+  assert.deepEqual(
+    computeProducerRetentionLifecycle({ createdAt: "2026-01-01T00:00:00.000Z", now: "2026-06-01T00:00:00.000Z" }),
+    { state: "local", expired: false, stale: false, expires_at: null },
+  );
+  const entries = northlineEntries();
+  const packet = buildProducerDecisionPacket(entries.map((entry, index) => parseProducerSource({ ...entry, contentType: "text/plain", bytes: Buffer.from(entry.text), input_ref: `northline_${index + 1}` })), { createdAt: "2026-01-01T00:00:00.000Z" });
+  const projected = applyProducerPacketRetention(packet, {});
+  assert.equal(projected, packet);
+  assert.equal(projected.provenance.retention_state, "local");
+});
+
+test("retention lifecycle marks aging evidence stale and expired evidence unavailable without inventing content", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const entries = northlineEntries().map((entry, index) => parseProducerSource({ ...entry, contentType: "text/plain", bytes: Buffer.from(entry.text), input_ref: `northline_${index + 1}` }));
+  const packet = buildProducerDecisionPacket(entries, { createdAt });
+  const retentionTtlMs = 30 * 24 * 60 * 60 * 1000;
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const staleLifecycle = computeProducerRetentionLifecycle({ createdAt, now: new Date(Date.parse(createdAt) + 26 * dayMs).toISOString(), retentionTtlMs });
+  assert.equal(staleLifecycle.state, "stale");
+  const stalePacket = applyProducerPacketRetention(packet, { now: new Date(Date.parse(createdAt) + 26 * dayMs).toISOString(), retentionTtlMs });
+  assert.equal(stalePacket.status, "succeeded");
+  assert.equal(stalePacket.provenance.retention_state, "stale");
+  const staleSceneFact = stalePacket.exact_facts.find((fact) => fact.field === "scene_heading");
+  assert.equal(staleSceneFact.evidence_state, "stale");
+  assert.match(staleSceneFact.limitations.join(" "), /approaching the retention window/);
+  const staleBudgetFact = stalePacket.exact_facts.find((fact) => fact.field === "access_rate");
+  assert.equal(staleBudgetFact.evidence_state, "stale");
+  const staleScheduleFact = stalePacket.exact_facts.find((fact) => fact.field === "schedule_assumption");
+  assert.equal(staleScheduleFact.evidence_state, "assumed", "human_assumption rows are not overridden by staleness");
+  assert.equal(stalePacket.conflicts[0].assertions.find((assertion) => assertion.classification === "source_fact").evidence_state, "stale");
+  assert.equal(stalePacket.conflicts[0].assertions.find((assertion) => assertion.classification === "human_assumption").evidence_state, "assumed");
+  assert.match(stalePacket.citations[0].excerpt, /SCENE 7|MILL|Permission|Owner|Access rate/i);
+
+  const expiredNow = new Date(Date.parse(createdAt) + 31 * dayMs).toISOString();
+  const expiredLifecycle = computeProducerRetentionLifecycle({ createdAt, now: expiredNow, retentionTtlMs });
+  assert.equal(expiredLifecycle.state, "expired");
+  const expiredPacket = applyProducerPacketRetention(packet, { now: expiredNow, retentionTtlMs });
+  assert.equal(expiredPacket.status, "expired");
+  assert.equal(expiredPacket.provenance.retention_state, "expired");
+  assert.equal(expiredPacket.exact_facts.every((fact) => fact.evidence_state === "unavailable"), true);
+  assert.equal(expiredPacket.scene_index[0].evidence_state, "unavailable");
+  assert.equal(expiredPacket.conflicts[0].assertions.every((assertion) => assertion.evidence_state === "unavailable"), true);
+  assert.equal(expiredPacket.citations.every((citation) => citation.excerpt.includes("retention has expired")), true);
+  const expiredPrimaryContent = JSON.stringify([
+    expiredPacket.executive_summary,
+    expiredPacket.exact_facts,
+    expiredPacket.scene_index,
+    expiredPacket.locations_and_timing,
+    expiredPacket.budget_inputs,
+    expiredPacket.schedule_inputs,
+    expiredPacket.rights_access_logistics,
+    expiredPacket.conflicts,
+    expiredPacket.decision_question_register,
+    expiredPacket.gaps_and_next_steps,
+  ]);
+  assert.equal(expiredPrimaryContent.includes("SCENE 7 - INT. MILL - NIGHT"), false, "expired canonical rows must not keep displaying quoted source wording");
+  assert.match(expiredPrimaryContent, /retention has expired/i);
+  assert.match(expiredPacket.limitations.join(" "), /Retention has expired/);
+
+  // The original packet object is never mutated by projecting a retention view over it.
+  assert.equal(packet.status, "succeeded");
+  assert.equal(packet.provenance.retention_state, "local");
+  assert.match(packet.citations[0].excerpt, /SCENE 7|MILL|Permission|Owner|Access rate/i);
 });

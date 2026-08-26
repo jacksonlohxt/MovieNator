@@ -115,6 +115,7 @@
         "entry_id": { "type": "string" },
         "gap_id": { "type": "string" },
         "conflict_id": { "type": "string" },
+        "element_id": { "type": "string" },
         "entry_type": { "enum": ["decision", "open_question"] },
         "scene_reference": { "type": ["string", "null"], "maxLength": 700 },
         "scene_heading": { "type": ["string", "null"], "maxLength": 700 },
