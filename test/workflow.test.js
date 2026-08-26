@@ -97,15 +97,22 @@ test("active workflow leases renew during long-running provider work", async () 
   const run = store.createRun({ request: requestFor("season_2_audience_engagement"), requestHash: "lease-renewal", idempotencyHash: "lease-renewal" }).run;
   let leaseBefore;
   let leaseAfter;
+  let resolveRenewal;
+  const renewalObserved = new Promise((resolve) => { resolveRenewal = resolve; });
+  const renewLease = store.renewLease.bind(store);
+  store.renewLease = (...args) => {
+    const renewed = renewLease(...args);
+    if (renewed && leaseBefore && renewed.heartbeat_at !== leaseBefore.heartbeat_at) resolveRenewal(renewed);
+    return renewed;
+  };
   class SlowProvider extends MockProvider {
     async resolve_asset(...args) {
       leaseBefore = store.getWorkflowState(run.run_id).lease;
-      await sleep(45);
-      leaseAfter = store.getWorkflowState(run.run_id).lease;
+      leaseAfter = await renewalObserved;
       return super.resolve_asset(...args);
     }
   }
-  const engine = new MockEngine({ store, provider: new SlowProvider(), leaseTtlMs: 20, leaseRenewIntervalMs: 5 });
+  const engine = new MockEngine({ store, provider: new SlowProvider(), leaseTtlMs: 500, leaseRenewIntervalMs: 25 });
   await engine.enqueue(run.run_id);
   assert.equal(store.getRun(run.run_id).state, "succeeded");
   assert.notEqual(leaseBefore?.heartbeat_at, leaseAfter?.heartbeat_at);
