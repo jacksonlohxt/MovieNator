@@ -44,6 +44,7 @@ import {
   MAX_PRODUCER_SOURCES,
   CANONICAL_PRODUCER_SOURCE_KINDS,
   PRODUCER_BUNDLE_SCHEMA,
+  buildProducerDecisionPacket,
   parseProducerSource,
   producerBundleId,
   producerCitation,
@@ -52,6 +53,7 @@ import {
   validateProducerBundleSchema,
 } from "./producer-consolidation.js";
 import { ProducerPacketEngine, projectProducerRun } from "./producer-engine.js";
+import { ParallelSearchClient, createParallelEnrichedProducerBuilder, readParallelApiKey, readParallelConfig } from "./parallel-search.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
@@ -259,7 +261,7 @@ function resolveGoogleTokenProvider(config, tokenProvider) {
   return tokenProvider || (GOOGLE_AUTH_MODES_REQUIRING_ADC.includes(config.authMode) ? createAdcTokenProvider() : undefined);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, agentInteractionsTransport, agentGenaiClient, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, partnerConfig, partnerTransport, partnerTransportFactory, partnerReadiness, partnerEndpointAllowlist, database, toolRegistry, producerBuilder } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, agentInteractionsTransport, agentGenaiClient, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, partnerConfig, partnerTransport, partnerTransportFactory, partnerReadiness, partnerEndpointAllowlist, database, toolRegistry, producerBuilder, parallelConfig, parallelClient } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
   const actualProvider = provider || new MockProvider();
@@ -278,7 +280,11 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel, audit });
   const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
   const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel, audit });
-  const producerEngine = new ProducerPacketEngine({ store: actualStore, audit, ...(producerBuilder ? { builder: producerBuilder } : {}) });
+  const configuredParallel = parallelConfig || readParallelConfig(env);
+  const actualParallelClient = parallelClient || new ParallelSearchClient({ config: configuredParallel, apiKey: configuredParallel.configured ? readParallelApiKey(env) : undefined });
+  audit.record({ type: "configuration_state", outcome: configuredParallel.enabled ? "ready" : "disabled", mode: "parallel_search", attributes: { configured: configuredParallel.configured, enabled: configuredParallel.enabled, mode: configuredParallel.mode } });
+  const actualProducerBuilder = producerBuilder || createParallelEnrichedProducerBuilder({ baseBuilder: buildProducerDecisionPacket, parallelClient: actualParallelClient, parallelConfig: configuredParallel });
+  const producerEngine = new ProducerPacketEngine({ store: actualStore, audit, builder: actualProducerBuilder });
   const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry({
     secretProvider: actualSecretProvider,
     partnerConfig: runtimeConfig.partner,
@@ -312,7 +318,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   server.requestTimeout = runtimeConfig.requestTimeoutMs;
   server.headersTimeout = Math.min(runtimeConfig.requestTimeoutMs, 30_000);
   server.keepAliveTimeout = Math.min(runtimeConfig.requestTimeoutMs, 10_000);
-  return { server, store: actualStore, engine, groundedEngine, producerEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary };
+  return { server, store: actualStore, engine, groundedEngine, producerEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary, parallelConfig: configuredParallel, parallelClient: actualParallelClient };
 }
 
 function resumeActiveProducerRuns(store, producerEngine) {
@@ -538,6 +544,7 @@ function producerHandoffJson(packet) {
     conflicts: (packet.conflicts || []).slice(0, 24),
     decision_question_register: (packet.decision_question_register || []).slice(0, 120),
     gaps_and_next_steps: (packet.gaps_and_next_steps || []).slice(0, 120),
+    external_evidence: (packet.external_evidence || []).slice(0, 60),
     handoff: packet.handoff,
     provenance: packet.provenance,
     limitations: packet.limitations.slice(0, 8),
@@ -569,6 +576,9 @@ function markdownHandoff(packet) {
     "",
     "## Questions and next steps",
     ...handoff.gaps_and_next_steps.map((gap) => `- ${gap.question} | owner: ${gap.owner || "unset"} | priority: ${gap.priority || "unset"} | next action: ${gap.next_action}`),
+    "",
+    "## External evidence (Parallel Search, not verified against uploaded sources)",
+    ...(handoff.external_evidence.length ? handoff.external_evidence.map((item) => `- [${item.classification}] [${item.evidence_state}] ${item.value || item.text} (citations: ${(item.citation_ids || []).join(", ") || "none"})`) : ["- Parallel Search enrichment is not enabled for this packet."]),
     "",
     `Handoff: ${handoff.handoff?.next_action || "Human review required."}`,
     "",
@@ -614,6 +624,9 @@ function csvHandoff(packet) {
   }
   for (const gap of handoff.gaps_and_next_steps) {
     rows.push(csvRow(["gaps_and_next_steps", gap.gap_id || "", gap.classification || "open_question", gap.evidence_state || "", `${gap.question || ""}${gap.next_action ? ` | next action: ${gap.next_action}` : ""}`, gap.owner || "", gap.priority || "", (gap.citation_ids || []).join("; ")]));
+  }
+  for (const item of handoff.external_evidence) {
+    rows.push(csvRow(["external_evidence", item.element_id || "", item.classification || "", item.evidence_state || "", item.value || item.text || "", "", "", (item.citation_ids || []).join("; ")]));
   }
   return rows.slice(0, 512).join("\r\n");
 }

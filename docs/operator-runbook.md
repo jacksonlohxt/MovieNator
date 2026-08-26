@@ -107,6 +107,21 @@ Read first: [`docs/google-setup.md`](google-setup.md) for the required Captain/o
 
    `smoke:deployment` checks `/healthz` and `/readyz` and refuses any response containing a credential-shaped field. The `/readyz` body is the authoritative live-status evidence: only `"ok": true` with `"google": {"state": "passed", "checked": true, "passed": true, "stale": false}` supports a claim of a genuinely live, deployed Gemini call path. `"mode": "mock-only"` or a stale/failed `google` block means the deployment is still mock or not yet live, whatever the manifest's env values say.
 
+## Part C: enable Parallel Search external evidence enrichment
+
+This is a separate, optional, credential-gated feature (see [`docs/parallel-search-enrichment.md`](parallel-search-enrichment.md) for the full contract); it never affects Gemini configuration and is off by default.
+
+1. **Obtain an API key.** Create an account at [platform.parallel.ai](https://platform.parallel.ai) and generate an API key from the dashboard.
+2. **Set it as server configuration only.** Never commit this value.
+
+   ```sh
+   # .env.local (already git-ignored), or your deployment's own secret store
+   PARALLEL_API_KEY=<your Parallel API key>
+   ```
+
+3. **Start the server as usual** (`npm run start:google` reads `.env.local`, or export the variable directly before `npm start`). `src/parallel-search.js` reports `enabled: true` only when this variable is present, and every producer packet's `provenance.external_evidence_enabled` reflects the same fact. No repository test, `npm run check`, or `npm run check:docs` ever sets this variable, so the regression gate always exercises the off/deterministic path plus an injected-mock on path in `test/parallel-search.test.js`.
+4. **Confirm from the outside.** Build a Producer Intake Decision Packet whose bundle establishes a scene location or a budget input; its `external_evidence` array and citations (`source_kind: "external_research"`) should be non-empty and cite real Parallel result URLs.
+
 ## Honesty and fail-closed notes
 
 - `GOOGLE_GEMINI_READINESS=passed` in the manifest or an env file is informational only; `src/gemini-rest.js` never reads it as authority. Only an actual, passed, unstale `GeminiReadiness.check()` result makes the server report or use a live call path.

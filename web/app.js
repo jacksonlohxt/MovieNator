@@ -1181,13 +1181,14 @@ function renderProducerPacket(packet) {
   renderProducerEvidenceList("#producer-conflicts", packet.conflicts, "No conflict was found across the supplied sources.", packet.packet_id);
   renderProducerEvidenceList("#producer-questions", packet.decision_question_register, "No open decision or question was recorded.", packet.packet_id);
   renderProducerEvidenceList("#producer-next-steps", packet.gaps_and_next_steps, "No gap was recorded.", packet.packet_id);
+  renderProducerEvidenceList("#producer-external-evidence", packet.external_evidence, "Parallel Search enrichment is not enabled for this packet, or found no relevant external evidence.", packet.packet_id);
   const citations = $("#producer-citations");
   citations.replaceChildren();
   for (const citation of packet.citations || []) {
     const button = document.createElement("button");
     button.className = "citation-card";
     button.type = "button";
-    const locations = citation.source_locations?.map((location) => location.page ? `Page ${location.page}` : `${location.section || "Section"} (lines ${location.line_start}-${location.line_end})`).join(", ");
+    const locations = formatProducerCitationLocations(citation.source_locations);
     button.textContent = `${citation.source_label} · ${citation.filename} · ${locations || "Source"}`;
     button.addEventListener("click", () => openProducerCitation(packet.packet_id, citation.citation_id));
     citations.append(button);
@@ -1197,6 +1198,10 @@ function renderProducerPacket(packet) {
   $("#export-producer-markdown").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=markdown`;
   $("#export-producer-json").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=json`;
   $("#export-producer-csv").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=csv`;
+}
+
+function formatProducerCitationLocations(sourceLocations) {
+  return sourceLocations?.map((location) => location.kind === "url" ? location.section : location.page ? `Page ${location.page}` : `${location.section || "Section"} (lines ${location.line_start}-${location.line_end})`).join(", ");
 }
 
 async function openProducerCitation(packetId, citationId) {
@@ -1211,7 +1216,7 @@ async function openProducerCitation(packetId, citationId) {
   const table = document.createElement("dl");
   table.className = "evidence-table";
   addField(table, "Source", `${citation.filename} · ${citation.source_kind}`);
-  addField(table, "Location", citation.source_locations?.map((location) => location.page ? `Page ${location.page}` : `${location.section || "Section"} (lines ${location.line_start}-${location.line_end})`).join(", "));
+  addField(table, "Location", formatProducerCitationLocations(citation.source_locations));
   const field = document.createElement("div");
   field.className = "evidence-field";
   const label = document.createElement("dt");
