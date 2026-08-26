@@ -26,8 +26,8 @@ export class ProducerPacketEngine {
     return this.provenanceFn();
   }
 
-  create({ sources, packetId, bundleId = null, bundleManifestHash = null, decisionContext = "" }) {
-    const result = this.store.createProducerRun({ packetId, bundleId, bundleManifestHash, decisionContext, sources, provenance: this.provenance() });
+  create({ sources, packetId, bundleId = null, bundleManifestHash = null, decisionContext = "", targetRegion = "Singapore" }) {
+    const result = this.store.createProducerRun({ packetId, bundleId, bundleManifestHash, decisionContext, targetRegion, sources, provenance: this.provenance() });
     if (result.created) this.enqueue(packetId);
     return result;
   }
@@ -66,6 +66,7 @@ export class ProducerPacketEngine {
       bundleId: run.bundle_id,
       bundleManifestHash: run.bundle_manifest_hash,
       decisionContext: run.decision_context,
+      targetRegion: run.target_region || "Singapore",
       sources: run.sources,
       parentPacketId: packetId,
       retryCount: (run.retry_count || 0) + 1,
@@ -86,6 +87,7 @@ export class ProducerPacketEngine {
       bundleId: run.bundle_id || undefined,
       bundleManifestHash: run.bundle_manifest_hash || undefined,
       decisionContext: run.decision_context || "",
+      targetRegion: run.target_region || "Singapore",
       overridePacketId: packetId,
     });
     this.store.appendProducerRunEvent(packetId, "producer_run.verifying", "verify", "running", "Checking citation IDs and safe fields", { citation_count: packet.citations?.length || 0 });

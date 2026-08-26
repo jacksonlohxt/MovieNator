@@ -1092,6 +1092,31 @@ function renderProducerEvidenceList(selector, items, emptyText, packetId) {
     const text = document.createElement("p");
     text.textContent = baseText;
     card.append(text);
+    if (item.setting || item.int_ext || item.time_of_day || item.actor_count !== undefined) {
+      const sceneMeta = document.createElement("div");
+      sceneMeta.className = "producer-meta-list";
+      appendProducerMetaRow(sceneMeta, "Setting", item.setting);
+      appendProducerMetaRow(sceneMeta, "Interior / exterior", item.int_ext);
+      appendProducerMetaRow(sceneMeta, "Time", item.time_of_day);
+      appendProducerMetaRow(sceneMeta, "Actor count", item.actor_count ?? "Not established");
+      appendProducerMetaRow(sceneMeta, "Dialogue characters", item.dialogue_characters?.join(", "));
+      appendProducerMetaRow(sceneMeta, "Weather", item.atmosphere?.weather?.join(" "));
+      appendProducerMetaRow(sceneMeta, "Ambient", item.atmosphere?.ambient_considerations?.join(" "));
+      if (sceneMeta.children.length) card.append(sceneMeta);
+    }
+    if (item.dialogue?.length) appendProducerMetaRow(card, "Dialogue", item.dialogue.map((line) => line.text).join(" "));
+    if (item.actions?.length) appendProducerMetaRow(card, "Action", item.actions.map((line) => line.text).join(" "));
+    if (item.character_analysis?.length) appendProducerMetaRow(card, "Character analysis", item.character_analysis.map((analysis) => `${analysis.character}: ${analysis.physical_traits?.join(", ") || "physical traits not established"}; ${analysis.personality_traits?.join(", ") || "personality traits not established"}; ${analysis.narrative_arc || "narrative arc not established"}`).join(" | "));
+    if (item.count !== undefined || item.specification || item.complexity || item.stunt_double_mandatory !== undefined) {
+      const elementMeta = document.createElement("div");
+      elementMeta.className = "producer-meta-list";
+      appendProducerMetaRow(elementMeta, "Count", item.count ?? "Not established");
+      appendProducerMetaRow(elementMeta, "Specification", item.specification);
+      appendProducerMetaRow(elementMeta, "Complexity", item.complexity || "Not established");
+      appendProducerMetaRow(elementMeta, "Execution", item.execution_description);
+      appendProducerMetaRow(elementMeta, "Stunt double mandatory", item.stunt_double_mandatory === null ? "Not established" : item.stunt_double_mandatory === undefined ? undefined : String(item.stunt_double_mandatory));
+      if (elementMeta.children.length) card.append(elementMeta);
+    }
 
     if (item.amount) {
       const amount = document.createElement("p");
@@ -1173,6 +1198,9 @@ function renderProducerPacket(packet) {
   renderProducerSourceTable("#producer-source-manifest", packet.source_inventory);
   renderProducerEvidenceList("#producer-facts", packet.exact_facts, "No exact source facts were established in the bundle.", packet.packet_id);
   renderProducerEvidenceList("#producer-scenes", packet.scene_index, "No scene heading is established in the primary screenplay.", packet.packet_id);
+  renderProducerEvidenceList("#producer-elements", packet.production_elements, "No production elements are established in the supplied sources.", packet.packet_id);
+  renderProducerEvidenceList("#producer-budget-risks", packet.budget_risk_observations, "No source-grounded budget-risk observations were recorded.", packet.packet_id);
+  renderProducerEvidenceList("#producer-coverage-gaps", packet.coverage_gaps, "No coverage gaps were recorded.", packet.packet_id);
   renderProducerEvidenceList("#producer-locations", packet.locations_and_timing, "No location or timing is established in the bundle.", packet.packet_id);
   renderProducerEvidenceList("#producer-cast", packet.cast_role_demands, "No cast or role demand is established in the bundle.", packet.packet_id);
   renderProducerEvidenceList("#producer-departments", packet.department_requirements, "No department requirement is established in the bundle.", packet.packet_id);
@@ -1426,7 +1454,8 @@ async function requestProducerPacket() {
   $("#submit-producer-packet").disabled = true;
   try {
     const decisionContext = $("#producer-decision-context").value.trim();
-    const body = { schema_version: "producer-intake-request@1", bundle_id: currentProducerBundle.bundle_id, ...(decisionContext ? { decision_context: decisionContext } : {}) };
+    const targetRegion = $("#producer-target-region").value.trim() || "Singapore";
+    const body = { schema_version: "producer-intake-request@1", bundle_id: currentProducerBundle.bundle_id, target_region: targetRegion, ...(decisionContext ? { decision_context: decisionContext } : {}) };
     const response = await fetch(`/v1/producer-source-bundles/${encodeURIComponent(currentProducerBundle.bundle_id)}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The producer packet could not be consolidated");

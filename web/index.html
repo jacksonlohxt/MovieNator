@@ -60,6 +60,7 @@
         </div>
         <form id="producer-generate-form" class="grounding-form" novalidate hidden>
           <div class="section-heading brief-request-heading"><div><p class="section-kicker">2 · Generate</p><h3>Anything to add before we consolidate the packet?</h3></div></div>
+          <div class="field-group"><label for="producer-target-region">Target filming region <span class="required">Optional</span></label><input id="producer-target-region" maxlength="100" value="Singapore" placeholder="e.g. Singapore"><span class="field-help">Used only to scope clearly labelled external research suggestions and cited guidance. It is not a location booking, permit approval, or verified suitability finding.</span></div>
           <div class="field-group"><label for="producer-decision-context">Decision context <span class="required">Optional</span></label><textarea id="producer-decision-context" rows="3" maxlength="1000" placeholder="e.g. We need to confirm Mill access before locking Scene 7's shoot date."></textarea><span class="field-help">A plain-language note only. It cannot select a provider, model, tool, threshold, or approval.</span></div>
           <button id="submit-producer-packet" class="button button-primary" type="submit"><span>Prepare intake packet</span><span aria-hidden="true">→</span></button>
         </form>
@@ -72,7 +73,10 @@
           <div id="producer-handoff" class="producer-handoff" role="status"></div>
           <section class="brief-section"><h4>Source and version manifest</h4><div id="producer-source-manifest" class="producer-table-wrap"></div></section>
           <section class="brief-section"><h4>Exact facts</h4><div id="producer-facts" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Scene and production-element index</h4><div id="producer-scenes" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Scene breakdown and atmosphere</h4><p class="field-help">Scene summaries, dialogue/action cues, actor counts, character signals, time/weather, and ambient cues are source-grounded. Unestablished details remain open questions.</p><div id="producer-scenes" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Production elements</h4><div id="producer-elements" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Budget-risk observations</h4><p class="field-help">These are bounded observations from source signals, not budget amounts, tier decisions, forecasts, or approvals. Route them to a human line producer or department lead.</p><div id="producer-budget-risks" class="brief-list"></div></section>
+          <section class="brief-section"><h4>Coverage gaps</h4><div id="producer-coverage-gaps" class="brief-list"></div></section>
           <section class="brief-section"><h4>Locations and timing</h4><div id="producer-locations" class="brief-list"></div></section>
           <section class="brief-section"><h4>Cast and role demands</h4><div id="producer-cast" class="brief-list"></div></section>
           <section class="brief-section"><h4>Department requirements</h4><div id="producer-departments" class="brief-list"></div></section>

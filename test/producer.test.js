@@ -291,14 +291,14 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   assert.equal(jsonHandoff.status, 200);
   const handoff = await jsonHandoff.json();
   assert.equal(handoff.schema_version, "producer-read-only-handoff@1");
-  assert.equal(JSON.stringify(handoff).includes("Mara enters"), false);
+  assert.match(JSON.stringify(handoff), /Mara enters/);
   const csvHandoff = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=csv`);
   assert.equal(csvHandoff.status, 200);
   assert.match(csvHandoff.headers.get("content-type") || "", /text\/csv/);
   const csvText = await csvHandoff.text();
   assert.match(csvText, /^"section","label","classification","evidence_state","value","owner","priority","citation_ids"/);
   assert.match(csvText, /obtain or record the access evidence/);
-  assert.equal(csvText.includes("Mara enters"), false);
+  assert.match(csvText, /Mara enters/);
   const badFormat = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=xml`);
   assert.equal(badFormat.status, 400);
   assert.equal((await badFormat.json()).error.code, "UNSUPPORTED_EXPORT_FORMAT");
@@ -389,6 +389,48 @@ test("production_elements, cast_role_demands, and department_requirements genera
   assert.equal(safeArtRow.classification, "source_fact");
   const safeCastDemand = safe.cast_role_demands.find((item) => item.classification === "source_fact");
   assert.ok(safeCastDemand);
+});
+
+test("Producer Intake creates a bounded line-producer breakdown without inventing budget totals", () => {
+  const packet = buildProducerDecisionPacket([
+    canonicalSource("depth-script.txt", "primary_screenplay", [
+      "SCENE 1 - EXT. GARDENS - DAY",
+      "MARA (30s)",
+      "We move at dawn.",
+      "Mara draws a key from her coat.",
+      "Rain lashes the path.",
+      "A siren wails.",
+      "SCENE 2 - INT. STUDIO - NIGHT",
+      "The screen explodes.",
+      "SAM (9) watches.",
+    ].join("\n")),
+    canonicalSource("depth-elements.txt", "department_input", [
+      "PROPS: 2 brass keys",
+      "COSTUME: Mara's weathered coat",
+      "VEHICLES: 1 van",
+      "ANIMALS: 1 dog",
+      "VFX: complexity: high, digital explosion",
+      "STUNTS: stunt double mandatory",
+      "SFX: rain and siren",
+      "MUSIC: tense diegetic score",
+      "LEGAL: brand clearance required",
+      "SPECIAL EQUIPMENT: rain tower",
+    ].join("\n")),
+  ], { targetRegion: "Singapore", createdAt: "2026-09-01T00:00:00.000Z" });
+  assert.equal(packet.target_region, "Singapore");
+  assert.equal(packet.scene_index.length, 2);
+  assert.equal(packet.scene_index[0].actor_count, 1);
+  assert.deepEqual(packet.scene_index[0].dialogue_characters, ["MARA"]);
+  assert.ok(packet.scene_index[0].actions.some((action) => /draws a key/.test(action.text)));
+  assert.equal(packet.scene_index[0].atmosphere.weather.length, 1);
+  assert.ok(packet.production_elements.some((item) => item.category === "vfx_sfx" && item.complexity === "high"));
+  assert.ok(packet.production_elements.some((item) => item.category === "stunts" && item.stunt_double_mandatory === true));
+  assert.ok(packet.production_elements.some((item) => item.category === "legal_clearance"));
+  assert.ok(packet.budget_risk_observations.length > 0);
+  assert.ok(packet.coverage_gaps.some((item) => item.field !== "props"));
+  assert.equal(Object.hasOwn(packet, "total_budget"), false);
+  assert.equal(Object.hasOwn(packet, "budget_tier"), false);
+  assert.equal(JSON.stringify(packet).includes("authoritative budget"), false);
 });
 
 test("Producer Intake packet reports source_gap when the primary screenplay establishes no scene but other content exists", () => {

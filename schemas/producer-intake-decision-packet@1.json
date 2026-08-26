@@ -15,6 +15,7 @@
     "created_at": { "type": "string" },
     "generated_at": { "type": "string" },
     "decision_context": { "type": ["string", "null"], "maxLength": 1000 },
+    "target_region": { "type": "string", "maxLength": 100 },
     "bundle": { "$ref": "producer-source-bundle@1" },
     "executive_summary": { "$ref": "#/$defs/canonical_item" },
     "source_manifest": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "#/$defs/source" } },
@@ -22,6 +23,8 @@
     "exact_facts": { "type": "array", "maxItems": 240, "items": { "$ref": "#/$defs/canonical_item" } },
     "scene_index": { "type": "array", "maxItems": 240, "items": { "$ref": "#/$defs/canonical_item" } },
     "production_elements": { "type": "array", "maxItems": 240, "items": { "$ref": "#/$defs/canonical_item" } },
+    "budget_risk_observations": { "type": "array", "maxItems": 120, "items": { "$ref": "#/$defs/canonical_item" } },
+    "coverage_gaps": { "type": "array", "maxItems": 120, "items": { "$ref": "#/$defs/canonical_item" } },
     "locations_and_timing": { "type": "array", "maxItems": 240, "items": { "$ref": "#/$defs/canonical_item" } },
     "cast_role_demands": { "type": "array", "maxItems": 240, "items": { "$ref": "#/$defs/canonical_item" } },
     "department_requirements": { "type": "array", "maxItems": 240, "items": { "$ref": "#/$defs/canonical_item" } },
@@ -53,7 +56,8 @@
         "fallback_used": { "type": "boolean" },
         "retention_state": { "type": "string" },
         "external_evidence_enabled": { "type": "boolean" },
-        "external_evidence_provider": { "type": ["string", "null"] }
+        "external_evidence_provider": { "type": ["string", "null"] },
+        "target_region": { "type": "string", "maxLength": 100 }
       }
     },
     "version_provenance": { "type": "object", "additionalProperties": true },
@@ -107,6 +111,40 @@
         "excerpt": { "type": "string", "maxLength": 900 }
       }
     },
+    "cited_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "citation_ids"],
+      "properties": {
+        "text": { "type": "string", "maxLength": 420 },
+        "citation_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } }
+      }
+    },
+    "character_analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["character", "physical_traits", "personality_traits", "narrative_arc", "classification", "evidence_state", "citation_ids"],
+      "properties": {
+        "character": { "type": "string", "maxLength": 120 },
+        "physical_traits": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 180 } },
+        "personality_traits": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 180 } },
+        "narrative_arc": { "type": ["string", "null"], "maxLength": 240 },
+        "classification": { "enum": ["source_fact", "source_implied_inference", "open_question"] },
+        "evidence_state": { "enum": ["established", "not_established"] },
+        "citation_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } }
+      }
+    },
+    "atmosphere": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time_of_day", "weather", "ambient_considerations", "citation_ids"],
+      "properties": {
+        "time_of_day": { "type": ["string", "null"], "maxLength": 80 },
+        "weather": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 420 } },
+        "ambient_considerations": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 420 } },
+        "citation_ids": { "type": "array", "maxItems": 8, "items": { "type": "string" } }
+      }
+    },
     "canonical_item": {
       "type": "object",
       "additionalProperties": false,
@@ -122,6 +160,15 @@
         "entry_type": { "enum": ["decision", "open_question"] },
         "scene_reference": { "type": ["string", "null"], "maxLength": 700 },
         "scene_heading": { "type": ["string", "null"], "maxLength": 700 },
+        "scene_summary": { "type": ["string", "null"], "maxLength": 700 },
+        "narrative_summary": { "type": ["string", "null"], "maxLength": 700 },
+        "actor_count": { "type": ["integer", "null"], "minimum": 0 },
+        "actor_count_basis": { "type": "string", "maxLength": 240 },
+        "dialogue_characters": { "type": "array", "maxItems": 40, "items": { "type": "string", "maxLength": 120 } },
+        "dialogue": { "type": "array", "maxItems": 40, "items": { "$ref": "#/$defs/cited_text" } },
+        "actions": { "type": "array", "maxItems": 40, "items": { "$ref": "#/$defs/cited_text" } },
+        "character_analysis": { "type": "array", "maxItems": 40, "items": { "$ref": "#/$defs/character_analysis" } },
+        "atmosphere": { "$ref": "#/$defs/atmosphere" },
         "setting": { "type": ["string", "null"], "maxLength": 240 },
         "int_ext": { "type": ["string", "null"] },
         "time_of_day": { "type": ["string", "null"] },
@@ -132,6 +179,11 @@
         "location": { "type": ["object", "null"], "additionalProperties": false, "properties": { "kind": { "type": "string" }, "page": { "type": "integer" }, "section": { "type": "string" }, "line_start": { "type": "integer" }, "line_end": { "type": "integer" } } },
         "value": { "type": ["string", "null"], "maxLength": 700 },
         "text": { "type": ["string", "null"], "maxLength": 700 },
+        "count": { "type": ["integer", "null"], "minimum": 0 },
+        "specification": { "type": ["string", "null"], "maxLength": 420 },
+        "complexity": { "enum": ["low", "medium", "high", null] },
+        "execution_description": { "type": ["string", "null"], "maxLength": 700 },
+        "stunt_double_mandatory": { "type": ["boolean", "null"] },
         "field": { "type": ["string", "null"] },
         "amount": { "type": ["string", "number", "null"] },
         "currency": { "type": ["string", "null"] },

@@ -6,7 +6,7 @@ import Parallel, {
   PermissionDeniedError,
   RateLimitError,
 } from "parallel-web";
-import { PRODUCER_PACKET_SCHEMA } from "./producer-consolidation.js";
+import { normalizeProducerTargetRegion, PRODUCER_PACKET_SCHEMA } from "./producer-consolidation.js";
 import { hashValue, stableStringify } from "./contracts.js";
 
 // Bounded, credential-gated Parallel Search seam. This module never presents a Parallel finding as a
@@ -173,14 +173,20 @@ function firstNonEmpty(...values) {
   return values.find((value) => typeof value === "string" && value.trim().length > 0);
 }
 
+function targetRegionFromPacket(packet) {
+  return normalizeProducerTargetRegion(packet?.target_region);
+}
+
 function locationLabelFromPacket(packet) {
-  const scene = packet.scene_index?.[0];
-  const label = firstNonEmpty(scene?.setting, scene?.scene_heading, scene?.scene_reference);
+  const scene = packet.scene_index?.find((item) => item.setting || item.scene_heading || item.scene_reference);
+  const element = packet.production_elements?.find((item) => item.category === "location_or_set");
+  const label = firstNonEmpty(scene?.setting, scene?.scene_heading, scene?.scene_reference, element?.value);
   return label ? boundedText(label, 120) : undefined;
 }
 
 function hasMinorCastDemand(packet) {
-  return (packet.cast_role_demands || []).some((item) => /\bminors?\b|\bchild(?:ren)?\b|\bkid\b|\bteen(?:ager)?s?\b/i.test(item.text || item.value || ""));
+  return [...(packet.cast_role_demands || []), ...(packet.production_elements || []).filter((item) => item.category === "child_labor")]
+    .some((item) => /\bminors?\b|\bchild(?:ren)?\b|\bkid\b|\bteen(?:ager)?s?\b/i.test(item.text || item.value || ""));
 }
 
 function hasStuntElement(packet) {
@@ -202,33 +208,33 @@ const PARALLEL_EVIDENCE_TOPICS = Object.freeze([
     buildRequest: (packet) => {
       const location = locationLabelFromPacket(packet);
       return {
-        objective: `Research real-world film production permit lead times and jurisdiction requirements for a scene described in the script as: ${location}. The uploaded bundle does not establish a confirmed permit status; find general guidance on typical lead time and the filing process.`,
-        searchQueries: ["film location permit lead time", "location filming permit requirements", "film shoot permit application process"],
+        objective: `Research ${targetRegionFromPacket(packet)} real-world film location suggestions and permit lead times for a scene described in the script as: ${location}. The uploaded bundle does not establish a confirmed location or permit status; find cited guidance and candidate places for a human to verify.`,
+        searchQueries: [`${targetRegionFromPacket(packet)} film locations`, `${targetRegionFromPacket(packet)} filming permit lead time`, `${targetRegionFromPacket(packet)} location filming requirements`],
       };
     },
   },
   {
     topic: "minor_labor_rules",
     detect: (packet) => hasMinorCastDemand(packet),
-    buildRequest: () => ({
-      objective: "Research SAG-AFTRA and applicable state child labor rules for minors working on a film or TV production, including work-hour limits and required on-set supervision, because the supplied cast or role demands reference a minor.",
-      searchQueries: ["SAG-AFTRA minor performer rules", "child actor work hour limits", "film set minor labor law"],
+    buildRequest: (packet) => ({
+      objective: `Research ${targetRegionFromPacket(packet)} minor-labor and child-performer guidance for film or TV production, including work-hour limits and on-set supervision. The supplied role demand references a minor; return cited material for human verification, not a legal conclusion.`,
+      searchQueries: [`${targetRegionFromPacket(packet)} child actor rules`, `${targetRegionFromPacket(packet)} minor performer work hours`, `${targetRegionFromPacket(packet)} film set child supervision`],
     }),
   },
   {
     topic: "stunt_turnaround",
     detect: (packet) => hasStuntElement(packet),
-    buildRequest: () => ({
-      objective: "Research SAG-AFTRA and IATSE stunt safety and shoot-day turnaround time rules for a film production involving a stunt or physical-action element identified in the script.",
-      searchQueries: ["SAG-AFTRA stunt safety rules", "IATSE crew turnaround time rules", "film stunt coordinator requirements"],
+    buildRequest: (packet) => ({
+      objective: `Research ${targetRegionFromPacket(packet)} stunt-safety guidance and applicable crew turnaround rules for a production involving a physical-action element identified in the script. Return cited guidance for the stunt and production leads to verify; do not conclude that the action is safe or legally compliant.`,
+      searchQueries: [`${targetRegionFromPacket(packet)} film stunt safety guidance`, `${targetRegionFromPacket(packet)} crew turnaround rules`, `${targetRegionFromPacket(packet)} stunt coordinator requirements`],
     }),
   },
   {
     topic: "vendor_day_rate",
     detect: (packet) => hasBudgetInput(packet),
-    buildRequest: () => ({
-      objective: "Research typical vendor and day-rate ranges for independent film production location access, equipment rental, or crew day rates in the United States, to help evaluate a supplied budget figure.",
-      searchQueries: ["film location access day rate", "independent film crew day rate", "production vendor rate ranges"],
+    buildRequest: (packet) => ({
+      objective: `Research cited ${targetRegionFromPacket(packet)} vendor and day-rate ranges for equipment, location access, and crew that may provide context for the supplied production cost input. These are external estimates for a human to compare, not a budget total, tier verdict, quote, or approval.`,
+      searchQueries: [`${targetRegionFromPacket(packet)} film vendor day rates`, `${targetRegionFromPacket(packet)} production equipment rental rates`, `${targetRegionFromPacket(packet)} film location access rates`],
     }),
   },
 ]);
@@ -283,14 +289,16 @@ export function mapParallelResultsToEvidence({ topic, objective, searchQueries, 
       element_id: `extev_${hashValue(stableStringify({ topic, url })).slice(0, 32)}`,
       category: "external_evidence",
       field: topic,
-      value: boundedText(`${title} — ${excerpt}`, 700),
-      text: boundedText(`${title} — ${excerpt}`, 700),
+      value: boundedText(`${title} - ${excerpt}`, 700),
+      text: boundedText(`${title} - ${excerpt}`, 700),
       classification: PARALLEL_EXTERNAL_CLASSIFICATION,
       evidence_state: PARALLEL_EXTERNAL_EVIDENCE_STATE,
       department: null,
       source_ids: [],
       citation_ids: [citationId],
-      next_action: "Route to the responsible producer or department lead to independently verify this externally researched finding before relying on it.",
+      owner: topicRouting(topic).owner,
+      priority: ["location_permit", "minor_labor_rules", "stunt_turnaround"].includes(topic) ? "high" : "medium",
+      next_action: topicRouting(topic).action,
       provenance: { provider: PARALLEL_PROVIDER_ID, query_objective: objective, search_queries: searchQueries, url, title },
       limitations: [
         "This finding was retrieved from an external web search (Parallel) and is not verified against the user's own uploaded sources.",
@@ -299,6 +307,15 @@ export function mapParallelResultsToEvidence({ topic, objective, searchQueries, 
     });
   }
   return { evidenceItems, citations };
+}
+
+function topicRouting(topic) {
+  return {
+    location_permit: { owner: "producer or locations lead", action: "Route to the producer or locations lead to verify the cited location suggestion and permit lead-time guidance before any access conversation." },
+    minor_labor_rules: { owner: "producer and casting lead", action: "Route to the producer and casting lead to verify the cited minor-labor guidance with applicable counsel or authority before scheduling a minor." },
+    stunt_turnaround: { owner: "stunt coordinator and production manager", action: "Route to the stunt coordinator and production manager to verify the cited safety and turnaround guidance before planning physical action." },
+    vendor_day_rate: { owner: "line producer or production accountant", action: "Route to the line producer or production accountant to compare the cited external range with current quotes; do not treat it as a budget total or approved rate." },
+  }[topic] || { owner: "producer", action: "Route this cited external finding to the responsible producer or department lead for independent verification." };
 }
 
 function unavailableEvidenceRow(topic, error) {
@@ -314,7 +331,9 @@ function unavailableEvidenceRow(topic, error) {
     department: null,
     source_ids: [],
     citation_ids: [],
-    next_action: "Route to the responsible producer or department lead for manual research; the automated external research call did not complete.",
+    owner: topicRouting(topic).owner,
+    priority: "high",
+    next_action: `${topicRouting(topic).action} The automated external research call did not complete.`,
     provenance: { provider: PARALLEL_PROVIDER_ID, error_class: error.code },
     limitations: ["No provider fallback was used; this row only records that the external research attempt did not complete."],
   };
