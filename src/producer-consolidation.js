@@ -305,7 +305,7 @@ function duplicateGroups(sources) {
   }));
 }
 
-function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toISOString() } = {}) {
+function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), overridePacketId = undefined } = {}) {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
     throw new DocumentContractError("INVALID_SOURCE_COUNT", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
   }
@@ -470,7 +470,7 @@ function buildLegacyProducerDecisionPacket(sources, { createdAt = new Date().toI
       source_version_citation_ids: sourceVersions.get(source.source_id) ? [sourceVersions.get(source.source_id).citation_id] : [],
     })),
   };
-  const packetId = `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA_LEGACY, source_ids: orderedSources.map((source) => source.source_id).sort() })).slice(0, 32)}`;
+  const packetId = overridePacketId || producerPacketId(orderedSources);
   const handoffCitationIds = [...new Set(decisionRegister.flatMap((item) => item.citation_ids))].slice(0, 16);
   const handoff = {
     schema_version: PRODUCER_HANDOFF_SCHEMA,
@@ -645,6 +645,24 @@ export function producerBundleId(sources) {
   return `bdl_${hashValue(stableStringify({ manifest, content_hashes: sources.map((source) => source.content_hash) })).slice(0, 32)}`;
 }
 
+export const CANONICAL_PRODUCER_INTENT_KINDS = Object.freeze(["primary_screenplay", "screenplay_revision", "cast_notes", "location_access", "schedule_assumptions", "budget_assumptions", "rights_clearance", "department_input", "breakdown", "handoff"]);
+
+export function isCanonicalProducerIntent(sources) {
+  return sources.some((source) => CANONICAL_PRODUCER_INTENT_KINDS.includes(source.source_kind));
+}
+
+// The deterministic packet identity is derived once, up front, from the same content that the builder
+// itself later hashes. The async producer packet run queues under this identity before the packet body
+// is built, so a run can be tracked, polled, and streamed at `/v1/producer-packets/{packet_id}` from the
+// moment it is accepted through its terminal state.
+export function producerPacketId(sources, { bundleId = undefined } = {}) {
+  if (isCanonicalProducerIntent(sources)) {
+    const normalizedBundleId = bundleId || producerBundleId(sources);
+    return `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA, bundle_id: normalizedBundleId })).slice(0, 32)}`;
+  }
+  return `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA_LEGACY, source_ids: sources.map((source) => source.source_id).sort() })).slice(0, 32)}`;
+}
+
 // Distinct from source_manifest_hash: this hashes the client-labelled bundle manifest (source kinds,
 // filenames, supplied version/status labels, and relationships) rather than the server-derived
 // per-source/version manifest rows. Callers that already hold the exact submitted manifest (the
@@ -654,7 +672,7 @@ export function producerBundleManifestHash(sources) {
   return `sha256:${hashValue(stableStringify(producerBundleManifestEntries(sources)))}`;
 }
 
-function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "", bundleManifestHash = undefined } = {}) {
+function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "", bundleManifestHash = undefined, overridePacketId = undefined } = {}) {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
     throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
   }
@@ -789,7 +807,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const sourceManifestHash = `sha256:${hashValue(stableStringify(sourceManifest))}`;
   const normalizedBundleId = bundleId || producerBundleId(orderedSources);
   const normalizedBundleManifestHash = bundleManifestHash || producerBundleManifestHash(orderedSources);
-  const packetId = `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA, bundle_id: normalizedBundleId })).slice(0, 32)}`;
+  const packetId = overridePacketId || producerPacketId(orderedSources, { bundleId: normalizedBundleId });
   const summaryText = `The supplied bundle contains ${orderedSources.length} labelled sources. ${scene ? `The primary screenplay establishes ${sceneHeading}.` : "The primary screenplay does not establish the requested scene heading."} ${conflict ? "Schedule and location access records remain in conflict." : "No seeded schedule and location access conflict was established."} ${budgetInputs.length ? "The access rate is supplied but not independently verified; no total is calculated." : "No access rate is established."}`;
   return {
     schema_version: PRODUCER_PACKET_SCHEMA,
@@ -834,8 +852,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
 }
 
 export function buildProducerDecisionPacket(sources, options = {}) {
-  const canonicalIntent = sources.some((source) => ["primary_screenplay", "screenplay_revision", "cast_notes", "location_access", "schedule_assumptions", "budget_assumptions", "rights_clearance", "department_input", "breakdown", "handoff"].includes(source.source_kind));
-  if (canonicalIntent) return buildCanonicalProducerDecisionPacket(sources, options);
+  if (isCanonicalProducerIntent(sources)) return buildCanonicalProducerDecisionPacket(sources, options);
   return buildLegacyProducerDecisionPacket(sources, options);
 }
 

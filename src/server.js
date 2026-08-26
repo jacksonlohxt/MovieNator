@@ -44,13 +44,14 @@ import {
   MAX_PRODUCER_SOURCES,
   CANONICAL_PRODUCER_SOURCE_KINDS,
   PRODUCER_BUNDLE_SCHEMA,
-  buildProducerDecisionPacket,
   parseProducerSource,
   producerBundleId,
   producerCitation,
+  producerPacketId,
   safeProducerPacketProjection,
   validateProducerBundleSchema,
 } from "./producer-consolidation.js";
+import { ProducerPacketEngine, projectProducerRun } from "./producer-engine.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(ROOT, "..", "web");
@@ -250,7 +251,7 @@ function requestHash(request) {
   return hashValue(request);
 }
 
-export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, agentInteractionsTransport, agentGenaiClient, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, partnerConfig, partnerTransport, partnerTransportFactory, partnerReadiness, partnerEndpointAllowlist, database, toolRegistry } = {}) {
+export function createApp({ store, provider, model, dataPath, env = process.env, googleConfig, googleTransport, googleTokenProvider, googleReadiness, agentInteractionsTransport, agentGenaiClient, groundingSource, secretProvider, auditLogger, partnerRegistry, partnerRuntime, partnerConfig, partnerTransport, partnerTransportFactory, partnerReadiness, partnerEndpointAllowlist, database, toolRegistry, producerBuilder } = {}) {
   const actualStore = store || new FileStore(dataPath);
   const audit = createAuditRecorder({ store: actualStore, logger: auditLogger });
   const actualProvider = provider || new MockProvider();
@@ -269,6 +270,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const engine = new MockEngine({ store: actualStore, provider: actualProvider, model: actualModel, audit });
   const actualGroundingSource = groundingSource || new LocalDeterministicGroundingSource({ store: actualStore });
   const groundedEngine = new GroundedBriefEngine({ store: actualStore, groundingSource: actualGroundingSource, model: actualModel, audit });
+  const producerEngine = new ProducerPacketEngine({ store: actualStore, audit, ...(producerBuilder ? { builder: producerBuilder } : {}) });
   const actualPartnerRegistry = partnerRegistry || createDefaultPartnerRegistry({
     secretProvider: actualSecretProvider,
     partnerConfig: runtimeConfig.partner,
@@ -280,6 +282,7 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   const actualPartnerRuntime = partnerRuntime || new PartnerOperationRunner({ registry: actualPartnerRegistry });
   const actualAgentBoundary = createProducerAgentBoundary({ store: actualStore, audit, env, runtimeConfig, googleConfig: configuredGoogle, googleReadiness: actualReadiness, interactionsTransport: agentInteractionsTransport, genaiClient: agentGenaiClient });
   engine.resumeActive();
+  resumeActiveProducerRuns(actualStore, producerEngine);
 
   const server = http.createServer(async (req, res) => {
     const streaming = String(req.url || "").endsWith("/events");
@@ -288,10 +291,10 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
       req.destroy();
     });
     try {
-      await route(req, res, { store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary });
+      await route(req, res, { store: actualStore, engine, groundedEngine, producerEngine, groundingSource: actualGroundingSource, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, audit, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary });
     } catch (error) {
       const notFound = ["RUN_NOT_FOUND", "DOCUMENT_NOT_FOUND", "SCRIPT_RUN_NOT_FOUND", "PRODUCER_PACKET_NOT_FOUND", "PRODUCER_BUNDLE_NOT_FOUND", ...PARTNER_NOT_FOUND_CODES].includes(error.code);
-      const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE", "SCRIPT_RUN_NOT_RETRYABLE"].includes(error.code);
+      const conflict = ["IDEMPOTENCY_KEY_REUSED", "RUN_NOT_RETRYABLE", "RUN_NOT_CLARIFIABLE", "INVALID_CANDIDATE", "SCRIPT_RUN_NOT_RETRYABLE", "PRODUCER_PACKET_NOT_RETRYABLE"].includes(error.code);
       const safeContractError = error instanceof ContractError || error instanceof DocumentContractError || error instanceof PartnerContractError || error instanceof LogicContractError;
       const status = notFound ? 404 : conflict ? 409 : safeContractError ? 400 : 500;
       if (!res.headersSent) sendError(res, status, error.code || "INTERNAL_ERROR", safeContractError ? error.message : `The ${PRODUCT_DISPLAY_NAME} server could not complete the request`, error.field);
@@ -301,10 +304,14 @@ export function createApp({ store, provider, model, dataPath, env = process.env,
   server.requestTimeout = runtimeConfig.requestTimeoutMs;
   server.headersTimeout = Math.min(runtimeConfig.requestTimeoutMs, 30_000);
   server.keepAliveTimeout = Math.min(runtimeConfig.requestTimeoutMs, 10_000);
-  return { server, store: actualStore, engine, groundedEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary };
+  return { server, store: actualStore, engine, groundedEngine, producerEngine, groundingSource: actualGroundingSource, provider: actualProvider, model: actualModel, googleConfig: configuredGoogle, googleReadiness: actualReadiness, runtimeConfig, secretProvider: actualSecretProvider, audit, partnerRegistry: actualPartnerRegistry, partnerRuntime: actualPartnerRuntime, database: actualDatabase, toolRegistry: actualToolRegistry, agentBoundary: actualAgentBoundary };
 }
 
-async function route(req, res, { store, engine, groundedEngine, groundingSource, googleConfig, googleReadiness, runtimeConfig, audit, partnerRuntime, database, toolRegistry, agentBoundary }) {
+function resumeActiveProducerRuns(store, producerEngine) {
+  for (const packetId of store.listActiveProducerRunIds()) producerEngine.enqueue(packetId);
+}
+
+async function route(req, res, { store, engine, groundedEngine, producerEngine, groundingSource, googleConfig, googleReadiness, runtimeConfig, audit, partnerRuntime, database, toolRegistry, agentBoundary }) {
   const url = new URL(req.url, "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
   if (req.method === "GET" && url.pathname === "/readyz") {
@@ -333,9 +340,11 @@ async function route(req, res, { store, engine, groundedEngine, groundingSource,
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "documents") return createDocument(req, res, store);
   if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "producer-source-bundles") return createProducerSourceBundle(req, res, store);
   if (req.method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "producer-source-bundles") return getProducerSourceBundle(res, store, parts[2]);
-  if (req.method === "POST" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-source-bundles" && parts[3] === "packets") return createProducerPacketFromBundle(req, res, store, parts[2]);
-  if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "producer-packets") return createProducerPacket(req, res, store);
+  if (req.method === "POST" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-source-bundles" && parts[3] === "packets") return createProducerPacketFromBundle(req, res, store, producerEngine, parts[2]);
+  if (req.method === "POST" && parts.length === 2 && parts[0] === "v1" && parts[1] === "producer-packets") return createProducerPacket(req, res, store, producerEngine);
   if (req.method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "producer-packets") return getProducerPacket(res, store, parts[2]);
+  if (req.method === "GET" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "events") return streamProducerEvents(req, res, store, parts[2]);
+  if (req.method === "POST" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "retry") return retryProducerPacket(req, res, store, producerEngine, parts[2]);
   if (req.method === "GET" && parts.length === 5 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "citations") return getProducerCitation(res, store, parts[2], parts[4]);
   if (req.method === "GET" && parts.length === 4 && parts[0] === "v1" && parts[1] === "producer-packets" && parts[3] === "handoff") return getProducerHandoff(req, res, store, parts[2]);
   if (parts[0] === "v1" && parts[1] === "documents" && parts.length >= 3) {
@@ -430,7 +439,7 @@ function getProducerSourceBundle(res, store, bundleId) {
   return sendJson(res, 200, safeProducerBundleProjection(bundle));
 }
 
-async function createProducerPacketFromBundle(req, res, store, bundleId) {
+async function createProducerPacketFromBundle(req, res, store, producerEngine, bundleId) {
   const bundle = store.getProducerBundle(bundleId);
   if (!bundle) throw new ContractError("PRODUCER_BUNDLE_NOT_FOUND", "Producer source bundle not found");
   const body = await readBody(req);
@@ -439,25 +448,64 @@ async function createProducerPacketFromBundle(req, res, store, bundleId) {
   if (body.schema_version !== "producer-intake-request@1" || body.bundle_id !== bundleId) throw new ContractError("INVALID_SCHEMA_VERSION", "schema_version and bundle_id must identify a producer-intake-request@1 for this bundle");
   const decisionContext = body.decision_context === undefined ? "" : String(body.decision_context).normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
   if (decisionContext.length > 1_000) throw new ContractError("INVALID_REQUEST", "decision_context must be at most 1,000 characters", "decision_context");
-  const packet = buildProducerDecisionPacket(bundle.sources, { bundleId, decisionContext, bundleManifestHash: bundle.manifest_hash });
-  const result = store.createProducerPacket(packet);
-  return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
+  const packetId = producerPacketId(bundle.sources, { bundleId });
+  const result = producerEngine.create({ sources: bundle.sources, packetId, bundleId, bundleManifestHash: bundle.manifest_hash, decisionContext });
+  return sendJson(res, result.created ? 202 : 200, projectProducerRun(result.run, store), { location: `/v1/producer-packets/${packetId}` });
 }
 
-async function createProducerPacket(req, res, store) {
+async function createProducerPacket(req, res, store, producerEngine) {
   const upload = await readProducerUpload(req);
   const bundleId = upload.canonical ? producerBundleId(upload.sources) : undefined;
   const bundleManifestHash = upload.canonical ? `sha256:${hashValue(stableStringify(upload.manifest))}` : undefined;
   if (upload.canonical) store.createProducerBundle({ schema_version: PRODUCER_BUNDLE_SCHEMA, bundle_id: bundleId, manifest_hash: bundleManifestHash, sources: upload.sources, created_at: new Date().toISOString(), retention_state: "local" });
-  const packet = buildProducerDecisionPacket(upload.sources, { bundleId, bundleManifestHash });
-  const result = store.createProducerPacket(packet);
-  return sendJson(res, result.created ? 201 : 200, safeProducerPacketProjection(result.packet), { location: `/v1/producer-packets/${result.packet.packet_id}` });
+  const packetId = producerPacketId(upload.sources, { bundleId });
+  const result = producerEngine.create({ sources: upload.sources, packetId, bundleId, bundleManifestHash });
+  return sendJson(res, result.created ? 202 : 200, projectProducerRun(result.run, store), { location: `/v1/producer-packets/${packetId}` });
 }
 
 function getProducerPacket(res, store, packetId) {
+  const run = store.getProducerRun(packetId);
+  if (run) return sendJson(res, 200, projectProducerRun(run, store));
   const packet = store.getProducerPacket(packetId);
   if (!packet) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet not found");
   return sendJson(res, 200, safeProducerPacketProjection(packet));
+}
+
+const PRODUCER_RUN_TERMINAL = new Set(["succeeded", "failed"]);
+
+function streamProducerEvents(req, res, store, packetId) {
+  const requestUrl = new URL(req.url, "http://localhost");
+  const run = store.getProducerRun(packetId);
+  if (!run) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet run not found");
+  let cursor = Number(req.headers["last-event-id"] || requestUrl.searchParams.get("cursor") || 0);
+  if (!Number.isSafeInteger(cursor) || cursor < 0) cursor = 0;
+  res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-store", connection: "keep-alive", "x-accel-buffering": "no" });
+  let closed = false;
+  const write = (event) => {
+    if (closed) return;
+    res.write(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    cursor = event.seq;
+  };
+  const flush = () => {
+    if (closed) return;
+    for (const event of store.getProducerRunEvents(packetId, cursor)) write(event);
+    const current = store.getProducerRun(packetId);
+    if (current && PRODUCER_RUN_TERMINAL.has(current.state)) {
+      clearInterval(poll);
+      clearInterval(heartbeat);
+      setTimeout(() => { if (!closed) { closed = true; res.end(); } }, 30);
+    }
+  };
+  const poll = setInterval(flush, 150);
+  const heartbeat = setInterval(() => { if (!closed) res.write(": heartbeat\n\n"); }, 10_000);
+  req.on("close", () => { closed = true; clearInterval(poll); clearInterval(heartbeat); });
+  flush();
+}
+
+async function retryProducerPacket(req, res, store, producerEngine, packetId) {
+  requireEmpty(await readBody(req));
+  const child = await producerEngine.retry(packetId);
+  return sendJson(res, 202, projectProducerRun(child, store), { location: `/v1/producer-packets/${child.packet_id}` });
 }
 
 function getProducerCitation(res, store, packetId, citationId) {
