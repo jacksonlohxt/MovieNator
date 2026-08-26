@@ -20,5 +20,8 @@
   "dependencies": {
     "@google/genai": "2.18.0",
     "google-auth-library": "^11.0.2"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }
