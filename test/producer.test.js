@@ -143,8 +143,12 @@ test("producer source identity is stable while source labels remain distinct", (
 test("producer HTTP flow returns a safe packet and preserves packet retrieval", async (t) => {
   const { app, base } = await startApp(t);
   const accepted = await fetch(`${base}/v1/producer-packets`, { method: "POST", body: bundleForm(mixedEntries) });
-  assert.equal(accepted.status, 201);
-  const packet = await accepted.json();
+  assert.equal(accepted.status, 202);
+  const accepted_body = await accepted.json();
+  assert.equal(accepted_body.status, "pending");
+  assert.ok(["accepted", "queued", "running", "succeeded"].includes(accepted_body.state) || accepted_body.state === undefined);
+  await app.producerEngine.waitForIdle(accepted_body.packet_id);
+  const packet = await (await fetch(`${base}/v1/producer-packets/${accepted_body.packet_id}`)).json();
   assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA_LEGACY);
   assert.equal(packet.bundle_id, null);
   assert.equal(packet.source_inventory.length, mixedEntries.length);
@@ -237,8 +241,11 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   const retrievedBundle = await fetch(`${base}/v1/producer-source-bundles/${bundle.bundle_id}`);
   assert.equal(retrievedBundle.status, 200);
   const packetResponse = await fetch(`${base}/v1/producer-source-bundles/${bundle.bundle_id}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schema_version: "producer-intake-request@1", bundle_id: bundle.bundle_id }) });
-  assert.equal(packetResponse.status, 201);
-  const packet = await packetResponse.json();
+  assert.equal(packetResponse.status, 202);
+  const packetAccepted = await packetResponse.json();
+  assert.equal(packetAccepted.status, "pending");
+  await app.producerEngine.waitForIdle(packetAccepted.packet_id);
+  const packet = await (await fetch(`${base}/v1/producer-packets/${packetAccepted.packet_id}`)).json();
   assert.equal(packet.schema_version, PRODUCER_PACKET_SCHEMA);
   assert.equal(packet.bundle_id, bundle.bundle_id);
   assert.equal(packet.provenance.contract_version, PRODUCER_PACKET_SCHEMA);

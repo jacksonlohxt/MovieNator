@@ -377,20 +377,20 @@ The UI must retain accessible labels, keyboard focus, visible focus states, safe
 
 ## 8. Server API and browser authority
 
-The future packet API is server-owned and read-only. It is a target implementation contract; this documentation ship does not add these routes.
+The packet API is server-owned and read-only. Every route in the table below is implemented in the current local demo server (`src/server.js`, `src/store.js`, `src/producer-consolidation.js`, `src/producer-engine.js`); this is the shipped shape of the contract, not a future placeholder.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `POST` | `/v1/producer-source-bundles` | Ingest one multipart bundle containing a manifest and at most 12 PDF/TXT files. Assign stable IDs and return a safe bundle projection. |
 | `GET` | `/v1/producer-source-bundles/{bundle_id}` | Read the safe manifest, source statuses, hashes, relationships, and retention state. |
-| `POST` | `/v1/producer-source-bundles/{bundle_id}/packets` | Create an idempotent `producer-intake-request@1` and queue one immutable packet run. |
-| `GET` | `/v1/producer-packets/{packet_id}` | Read the safe packet projection, progress, status, result, limitations, provenance summary, and recovery actions. |
-| `GET` | `/v1/producer-packets/{packet_id}/events` | Read bounded safe progress events through SSE with cursor support. |
+| `POST` | `/v1/producer-source-bundles/{bundle_id}/packets` | Accept an idempotent `producer-intake-request@1` and queue one immutable packet run at a stable `packet_id`. The route returns `202 Accepted` with the run's current safe projection; the run then advances through `accepted`, `queued`, and `running` before reaching a terminal `succeeded` or `failed` state. Resubmitting the identical bundle and request returns the same `packet_id` and its current projection rather than starting a second run. |
+| `GET` | `/v1/producer-packets/{packet_id}` | Read the safe packet projection at its current lifecycle state: a bounded pending projection with progress and recovery actions while the run is active or after a recoverable failure, or the full safe packet, result, limitations, and provenance summary once the run has succeeded. |
+| `GET` | `/v1/producer-packets/{packet_id}/events` | Stream the run's bounded safe progress events over SSE, with `Last-Event-ID` and `cursor` resumption, until the run reaches a terminal state. |
 | `GET` | `/v1/producer-packets/{packet_id}/citations/{citation_id}` | Read one bounded cited excerpt and source location if retention permits. |
 | `GET` | `/v1/producer-packets/{packet_id}/handoff?format=markdown\|json\|csv` | Return a bounded read-only handoff projection. The format is an allowlisted view, not an arbitrary destination or side effect. |
-| `POST` | `/v1/producer-packets/{packet_id}/retry` | Create an immutable child after a recoverable failure. The original result, provenance, and error remain unchanged. |
+| `POST` | `/v1/producer-packets/{packet_id}/retry` | After a recoverable failure, queue a new immutable child run under a freshly assigned `packet_id`, linked back to the original by `parent_packet_id`. The original run's result, provenance, and error remain unchanged and readable at its own `packet_id`; retry never mutates it. |
 
-All packet routes enforce bounded request and response sizes, safe content types, unknown-field rejection, idempotency keys for creation, and server-owned deadlines. Reusing an idempotency key with a different normalized request returns a conflict. A run cannot be published unless its schema, classifications, citation IDs, source locations, source relationships, output limits, and unsafe-text checks pass.
+All packet routes enforce bounded request and response sizes, safe content types, unknown-field rejection, and server-owned deadlines. Packet creation is idempotent by construction: the `packet_id` is derived from the bundle or source identity, so resubmitting the same request reattaches to the existing run instead of creating a duplicate. A run cannot be published unless its schema, classifications, citation IDs, source locations, source relationships, output limits, and unsafe-text checks pass.
 
 The browser may choose files, fixed source labels, optional supplied metadata, a bounded decision context, and a read-only handoff view. The server assigns source IDs, packet IDs, policy, model and provider configuration, budgets, tools, retention, and approvals. No browser field may select:
 

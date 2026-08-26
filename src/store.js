@@ -31,8 +31,10 @@ function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
+const PRODUCER_RUN_TERMINAL_STATES = new Set(["succeeded", "failed"]);
+
 function defaultState() {
-  return { version: 4, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, producerBundles: {}, producerPackets: {}, auditEvents: [] };
+  return { version: 5, runs: {}, events: {}, evidence: {}, idempotency: {}, documents: {}, scriptRuns: {}, scriptEvents: {}, scriptIdempotency: {}, producerBundles: {}, producerPackets: {}, producerRuns: {}, producerRunEvents: {}, auditEvents: [] };
 }
 
 function ensureWorkflowFields(run, clock = Date) {
@@ -57,8 +59,8 @@ export class FileStore {
   #read() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      if (!parsed || ![1, 2, 3, 4].includes(parsed.version)) return defaultState();
-      return { ...defaultState(), ...parsed, version: 4, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, producerBundles: parsed.producerBundles || {}, producerPackets: parsed.producerPackets || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
+      if (!parsed || ![1, 2, 3, 4, 5].includes(parsed.version)) return defaultState();
+      return { ...defaultState(), ...parsed, version: 5, documents: parsed.documents || {}, scriptRuns: parsed.scriptRuns || {}, scriptEvents: parsed.scriptEvents || {}, scriptIdempotency: parsed.scriptIdempotency || {}, producerBundles: parsed.producerBundles || {}, producerPackets: parsed.producerPackets || {}, producerRuns: parsed.producerRuns || {}, producerRunEvents: parsed.producerRunEvents || {}, auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents.slice(-5000) : [] };
     } catch {
       return defaultState();
     }
@@ -459,6 +461,115 @@ export class FileStore {
 
   getProducerPacket(packetId) {
     return clone(this.state.producerPackets[packetId]);
+  }
+
+  /**
+   * A producer packet run is the immutable async job record queued by a packet creation request. Its
+   * `packet_id` is the same stable, content-derived identity the eventual packet is published under (or,
+   * for a retry child, a fresh identity), so `GET /v1/producer-packets/{packet_id}` and its `/events`
+   * stream can address the run from acceptance through its terminal state without a separate run ID space.
+   * The run record is never mutated after it reaches a terminal state; retries only ever create a new run.
+   */
+  createProducerRun({ packetId, bundleId = null, bundleManifestHash = null, decisionContext = "", sources, parentPacketId = null, retryCount = 0, provenance = null }) {
+    const existing = this.state.producerRuns[packetId];
+    if (existing) return { run: clone(existing), created: false };
+    const now = nowIso(this.clock);
+    const run = {
+      packet_id: packetId,
+      schema_version: "producer-packet-run@1",
+      workflow: "producer_consolidation",
+      bundle_id: bundleId,
+      bundle_manifest_hash: bundleManifestHash,
+      decision_context: decisionContext,
+      sources: clone(sources),
+      parent_packet_id: parentPacketId,
+      retry_count: retryCount,
+      state: "accepted",
+      phase: "accepted",
+      created_at: now,
+      updated_at: now,
+      progress: { stage: "accepted" },
+      provenance: clone(provenance),
+      error: null,
+    };
+    this.state.producerRuns[packetId] = run;
+    this.state.producerRunEvents[packetId] = [];
+    this.#persist();
+    this.appendProducerRunEvent(packetId, "producer_run.accepted", "intake", "accepted", "Producer packet run accepted", { bundle_id: bundleId, retry_count: retryCount });
+    return { run: clone(run), created: true };
+  }
+
+  getProducerRun(packetId) {
+    return clone(this.state.producerRuns[packetId]);
+  }
+
+  listActiveProducerRunIds() {
+    return Object.values(this.state.producerRuns).filter((run) => !PRODUCER_RUN_TERMINAL_STATES.has(run.state)).map((run) => run.packet_id);
+  }
+
+  transitionProducerRun(packetId, state, patch = {}) {
+    const run = this.state.producerRuns[packetId];
+    if (!run) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet run not found");
+    if (PRODUCER_RUN_TERMINAL_STATES.has(run.state) && run.state !== state) return clone(run);
+    const next = { ...run, ...clone(patch), state, updated_at: nowIso(this.clock) };
+    this.state.producerRuns[packetId] = next;
+    this.#persist();
+    return clone(next);
+  }
+
+  appendProducerRunEvent(packetId, type, step, state, display, payload = {}) {
+    const run = this.state.producerRuns[packetId];
+    if (!run) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet run not found");
+    const events = this.state.producerRunEvents[packetId] || (this.state.producerRunEvents[packetId] = []);
+    if (events.length >= MAX_EVENTS_PER_RUN) return clone(events.at(-1));
+    const event = {
+      schema_version: EVENT_SCHEMA,
+      run_id: packetId,
+      seq: events.length + 1,
+      type,
+      step,
+      state,
+      display: String(display).slice(0, 240),
+      payload: sanitizePayload(payload),
+      occurred_at: nowIso(this.clock),
+    };
+    events.push(event);
+    this.#persist();
+    return clone(event);
+  }
+
+  getProducerRunEvents(packetId, after = 0) {
+    return clone((this.state.producerRunEvents[packetId] || []).filter((event) => event.seq > after));
+  }
+
+  addProducerRunResult(packetId, packet) {
+    const run = this.state.producerRuns[packetId];
+    if (!run) throw new ContractError("PRODUCER_PACKET_NOT_FOUND", "Producer decision packet run not found");
+    if (PRODUCER_RUN_TERMINAL_STATES.has(run.state)) return clone(run);
+    this.createProducerPacket(packet);
+    run.state = "succeeded";
+    run.phase = "succeeded";
+    run.progress = { stage: "succeeded" };
+    run.updated_at = nowIso(this.clock);
+    this.state.producerRuns[packetId] = run;
+    this.#persist();
+    return clone(run);
+  }
+
+  markProducerRunFailed(packetId, error) {
+    const run = this.state.producerRuns[packetId];
+    if (!run || PRODUCER_RUN_TERMINAL_STATES.has(run.state)) return clone(run);
+    run.state = "failed";
+    run.phase = "failed";
+    run.error = {
+      class: String(error.class || "failed").slice(0, 60),
+      message: String(error.message || "The producer packet run could not be completed").slice(0, 300),
+      recoverable: Boolean(error.recoverable),
+    };
+    run.updated_at = nowIso(this.clock);
+    this.state.producerRuns[packetId] = run;
+    this.#persist();
+    return clone(run);
   }
 
   createScriptRun({ documentId, question, requestIntent = question, briefVersion = 1, idempotencyHash, parentRunId = null, retryCount = 0, provenance }) {
