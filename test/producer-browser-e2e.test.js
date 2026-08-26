@@ -134,6 +134,13 @@ test(
     // Scene 7 is present with its exact source heading.
     const sceneText = await page.textContent("#producer-scenes");
     assert.match(sceneText, /SCENE 7 - INT\. MILL - NIGHT/);
+    assert.match(sceneText, /Actor count|not established/i);
+    const elementText = await page.textContent("#producer-elements");
+    assert.match(elementText, /location_or_set|Location or set|SCENE 7/i);
+    const budgetRiskText = await page.textContent("#producer-budget-risks");
+    assert.match(budgetRiskText, /Budget-risk observation/i);
+    const coverageGapText = await page.textContent("#producer-coverage-gaps");
+    assert.match(coverageGapText, /No props requirement|props/i);
 
     // A conflict is shown with both sides, not a silently resolved precedence.
     const conflictCard = page.locator("#producer-conflicts .producer-evidence-card").first();

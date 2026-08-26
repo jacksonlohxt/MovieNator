@@ -457,13 +457,15 @@ async function createProducerPacketFromBundle(req, res, store, producerEngine, b
   const bundle = store.getProducerBundle(bundleId);
   if (!bundle) throw new ContractError("PRODUCER_BUNDLE_NOT_FOUND", "Producer source bundle not found");
   const body = await readBody(req);
-  const allowed = new Set(["schema_version", "bundle_id", "decision_context"]);
+  const allowed = new Set(["schema_version", "bundle_id", "decision_context", "target_region"]);
   for (const key of Object.keys(body)) if (!allowed.has(key)) throw new ContractError("UNKNOWN_FIELD", `Producer Intake request contains unknown field: ${key}`, key);
   if (body.schema_version !== "producer-intake-request@1" || body.bundle_id !== bundleId) throw new ContractError("INVALID_SCHEMA_VERSION", "schema_version and bundle_id must identify a producer-intake-request@1 for this bundle");
   const decisionContext = body.decision_context === undefined ? "" : String(body.decision_context).normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
   if (decisionContext.length > 1_000) throw new ContractError("INVALID_REQUEST", "decision_context must be at most 1,000 characters", "decision_context");
-  const packetId = producerPacketId(bundle.sources, { bundleId });
-  const result = producerEngine.create({ sources: bundle.sources, packetId, bundleId, bundleManifestHash: bundle.manifest_hash, decisionContext });
+  const targetRegion = String(body.target_region || "Singapore").normalize("NFKC").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  if (!targetRegion || targetRegion.length > 100) throw new ContractError("INVALID_REQUEST", "target_region must be a bounded non-empty string", "target_region");
+  const packetId = producerPacketId(bundle.sources, { bundleId, targetRegion });
+  const result = producerEngine.create({ sources: bundle.sources, packetId, bundleId, bundleManifestHash: bundle.manifest_hash, decisionContext, targetRegion });
   return sendJson(res, result.created ? 202 : 200, projectProducerRun(result.run, store), { location: `/v1/producer-packets/${packetId}` });
 }
 
@@ -535,10 +537,35 @@ function producerHandoffJson(packet) {
     schema_version: "producer-read-only-handoff@1",
     packet_id: packet.packet_id,
     bundle_id: packet.bundle_id || packet.bundle?.bundle_id || null,
+    target_region: packet.target_region || packet.provenance?.target_region || "Singapore",
     status: packet.handoff?.status || "review_required",
     source_manifest: (packet.source_manifest || packet.source_inventory || []).map((source) => ({ ...source })),
     exact_facts: (packet.exact_facts || []).slice(0, 24),
-    scene_index: (packet.scene_index || []).slice(0, 24),
+    scene_index: (packet.scene_index || []).slice(0, 24).map((scene) => ({
+      scene_id: scene.scene_id,
+      scene_reference: scene.scene_reference,
+      scene_heading: scene.scene_heading,
+      scene_summary: scene.scene_summary,
+      narrative_summary: scene.narrative_summary,
+      setting: scene.setting,
+      int_ext: scene.int_ext,
+      time_of_day: scene.time_of_day,
+      actor_count: scene.actor_count,
+      actor_count_basis: scene.actor_count_basis,
+      dialogue_characters: scene.dialogue_characters || [],
+      dialogue: scene.dialogue || [],
+      actions: scene.actions || [],
+      character_analysis: scene.character_analysis || [],
+      atmosphere: scene.atmosphere,
+      classification: scene.classification,
+      evidence_state: scene.evidence_state,
+      source_ids: scene.source_ids || [],
+      citation_ids: scene.citation_ids || [],
+      limitations: scene.limitations || [],
+    })),
+    production_elements: (packet.production_elements || []).slice(0, 240),
+    budget_risk_observations: (packet.budget_risk_observations || []).slice(0, 120),
+    coverage_gaps: (packet.coverage_gaps || []).slice(0, 120),
     budget_inputs: (packet.budget_inputs || []).slice(0, 24),
     rights_access_logistics: (packet.rights_access_logistics || []).slice(0, 24),
     conflicts: (packet.conflicts || []).slice(0, 24),
@@ -558,6 +585,7 @@ function markdownHandoff(packet) {
     "",
     `Packet: ${handoff.packet_id}`,
     `Bundle: ${handoff.bundle_id || "not supplied"}`,
+    `Target region: ${handoff.target_region}`,
     "",
     "## Source inventory",
     ...handoff.source_manifest.map((source) => `- ${source.source_id} | ${source.filename} | ${source.source_kind} | ${source.content_hash || "hash unavailable"}${source.version_label ? ` | version ${source.version_label}` : ""}`),
@@ -566,7 +594,16 @@ function markdownHandoff(packet) {
     ...handoff.exact_facts.map((fact) => `- [${fact.classification}] [${fact.evidence_state}] ${fact.value || fact.text} (citations: ${(fact.citation_ids || []).join(", ") || "none"})`),
     "",
     "## Scene index",
-    ...handoff.scene_index.map((scene) => `- ${scene.scene_heading || scene.scene_reference} [${scene.classification}; ${scene.evidence_state}] (citations: ${(scene.citation_ids || []).join(", ") || "none"})`),
+    ...handoff.scene_index.map((scene) => `- ${scene.scene_heading || scene.scene_reference} | summary: ${scene.scene_summary || "not established"} | actors: ${scene.actor_count ?? "not established"} | dialogue: ${(scene.dialogue || []).map((line) => line.text).join(" ") || "not established"} | actions: ${(scene.actions || []).map((line) => line.text).join(" ") || "not established"} | atmosphere: ${JSON.stringify(scene.atmosphere || {})} | ${scene.classification}; ${scene.evidence_state} (citations: ${(scene.citation_ids || []).join(", ") || "none"})`),
+    "",
+    "## Production elements",
+    ...handoff.production_elements.map((item) => `- [${item.category}] ${item.value || item.text} | count: ${item.count ?? "not established"} | complexity: ${item.complexity || "not established"} | ${item.classification}; ${item.evidence_state} (citations: ${(item.citation_ids || []).join(", ") || "none"})`),
+    "",
+    "## Budget-risk observations",
+    ...(handoff.budget_risk_observations.length ? handoff.budget_risk_observations.map((item) => `- [${item.evidence_state}] ${item.text} | owner: ${item.owner || "unset"} | next action: ${item.next_action || "human review required"}`) : ["- No source-grounded budget-risk observation was recorded."]),
+    "",
+    "## Coverage gaps",
+    ...(handoff.coverage_gaps.length ? handoff.coverage_gaps.map((item) => `- [${item.field || item.category}] ${item.question || item.text} | owner: ${item.owner || "unset"} | next action: ${item.next_action || "human review required"}`) : ["- No coverage gap was recorded."]),
     "",
     "## Budget inputs",
     ...handoff.budget_inputs.map((input) => `- ${input.value || input.original_wording} | ${input.currency || "currency unset"} | ${input.unit || "unit unset"} | ${input.evidence_state} | no total calculated`),
@@ -606,7 +643,16 @@ function csvHandoff(packet) {
     rows.push(csvRow(["exact_facts", fact.field || fact.fact_id || "", fact.classification || "", fact.evidence_state || "", fact.value || fact.text || "", "", "", (fact.citation_ids || []).join("; ")]));
   }
   for (const scene of handoff.scene_index) {
-    rows.push(csvRow(["scene_index", scene.scene_id || "", scene.classification || "", scene.evidence_state || "", scene.scene_heading || scene.scene_reference || "", "", "", (scene.citation_ids || []).join("; ")]));
+    rows.push(csvRow(["scene_index", scene.scene_id || "", scene.classification || "", scene.evidence_state || "", `${scene.scene_heading || scene.scene_reference || ""} | summary: ${scene.scene_summary || "not established"} | actors: ${scene.actor_count ?? "not established"} | dialogue: ${JSON.stringify(scene.dialogue || [])} | actions: ${JSON.stringify(scene.actions || [])} | character analysis: ${JSON.stringify(scene.character_analysis || [])} | atmosphere: ${JSON.stringify(scene.atmosphere || {})}`, "", "", (scene.citation_ids || []).join("; ")]));
+  }
+  for (const item of handoff.production_elements) {
+    rows.push(csvRow(["production_elements", item.element_id || "", item.classification || "", item.evidence_state || "", `${item.category || "other"}: ${item.value || item.text || ""} | count: ${item.count ?? "not established"} | complexity: ${item.complexity || "not established"}`, item.owner || "", item.priority || "", (item.citation_ids || []).join("; ")]));
+  }
+  for (const item of handoff.budget_risk_observations) {
+    rows.push(csvRow(["budget_risk_observations", item.element_id || "", item.classification || "", item.evidence_state || "", item.text || item.value || "", item.owner || "", item.priority || "", (item.citation_ids || []).join("; ")]));
+  }
+  for (const item of handoff.coverage_gaps) {
+    rows.push(csvRow(["coverage_gaps", item.gap_id || "", item.classification || "", item.evidence_state || "", item.question || item.text || "", item.owner || "", item.priority || "", (item.citation_ids || []).join("; ")]));
   }
   for (const input of handoff.budget_inputs) {
     rows.push(csvRow(["budget_inputs", input.input_id || "", input.classification || "", input.evidence_state || "", `${input.value || input.original_wording || ""} ${input.unit || ""} ${input.currency || ""}`.trim(), "", "", (input.citation_ids || []).join("; ")]));

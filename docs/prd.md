@@ -303,11 +303,12 @@ The target request is `producer-intake-request@1`. Its minimum shape is:
 {
   "schema_version": "producer-intake-request@1",
   "bundle_id": "bdl_...",
-  "decision_context": "Prepare the next production conversation about scale, access, and department readiness."
+  "decision_context": "Prepare the next production conversation about scale, access, and department readiness.",
+  "target_region": "Singapore"
 }
 ```
 
-Only `schema_version`, `bundle_id`, and optional normalized decision intent are client-controlled. The server supplies the fixed output sections, safety policy, evidence taxonomy, provider mode, model configuration, thresholds, tool catalog, deadlines, and retention. Unknown fields, authority fields, URLs, credentials, provider names, model names, tools, thresholds, approval requests, publishing requests, or external destinations are rejected.
+Only `schema_version`, `bundle_id`, optional normalized decision intent, and bounded `target_region` are client-controlled. `target_region` scopes external research only; it does not establish a location, permit, legal rule, safety conclusion, rate, or budget. The server supplies the fixed output sections, safety policy, evidence taxonomy, provider mode, model configuration, thresholds, tool catalog, deadlines, and retention. Unknown fields, authority fields, URLs, credentials, provider names, model names, tools, thresholds, approval requests, publishing requests, or external destinations are rejected.
 
 ### Result schema
 
@@ -325,6 +326,9 @@ The target result is `producer-intake-decision-packet@1`. A successful result mu
   "exact_facts": [],
   "scene_index": [],
   "production_elements": [],
+  "budget_risk_observations": [],
+  "coverage_gaps": [],
+  "target_region": "Singapore",
   "locations_and_timing": [],
   "cast_role_demands": [],
   "department_requirements": [],
@@ -346,7 +350,7 @@ The minimum sections have the following contract:
 2. **Source and version manifest** - the packet's source inventory. It has one row per source with `source_id`, safe filename, media type, byte size, content hash, source kind, department when supplied, `version_label` and `status_label` only when supplied, relationships, ingestion state, truncation, provenance, and source limitations. It must expose missing or competing version authority.
 3. **Exact fact register** - atomic source facts and externally supplied facts with their original bounded wording, classification, evidence state, source IDs, provenance, and citation IDs. It is the packet's answer to "what do we know exactly?" and cannot upgrade a supplied claim into verified operational truth.
 4. **Scene index** - each row has a scene reference or source location, script source ID, scene description, setting, interior or exterior marker, time marker, page or section location when established, classification, evidence state, and citation IDs. `shooting_order`, `day_break`, `page_count`, or `unit` are included only when supplied or explicitly source-grounded.
-4. **Production-element index** - each row has a controlled category, label, scene references, classification, evidence state, source IDs, citation IDs, and optional department. Categories include cast or role, extras, location or set, props, set dressing, wardrobe, makeup and hair, vehicles, animals, stunts, VFX/SFX, special equipment, sound, music, graphics, and other. A source-implied row is visibly distinct from a source fact.
+4. **Production-element index** - each row has a controlled category, label, scene references, classification, evidence state, source IDs, citation IDs, and optional department. Categories include cast or role, extras, location or set, props, set dressing, wardrobe, makeup and hair, vehicles, animals, stunts, VFX/SFX, special equipment, sound, music, graphics, legal or rights clearance, minor or child-labor requirements, miscellaneous, and other. Where the source establishes them, rows preserve item count, specification, VFX complexity and execution description, and the explicitly stated stunt-double boolean. A source-implied row is visibly distinct from a source fact.
 5. **Locations and timing** - reports only established settings, INT/EXT, day/night, travel or timing language, and explicitly supplied candidate or access records. Script settings are never labelled booked, permitted, available, or approved without supplied evidence.
 6. **Cast and role demands** - roles, speaking or named-character evidence, extras, minors, physical or continuity demands, and supplied candidate or availability records. A role demand is not a cast commitment and an actor name is not availability or contract status.
 7. **Department requirements** - department, scene or element, required preparation or question, classification, evidence state, owner when supplied, and citations. Stunts and physical action are routed to specialist safety review and never labelled safe or approved.
@@ -357,6 +361,7 @@ The minimum sections have the following contract:
 13. **Decision and question register** - an `entry_type` of `decision` or `open_question`, the related scene or element, owner only when supplied, decision maker only when supplied, due date only when supplied, `priority` as a supplied value or explicitly `unset`, `priority_basis`, evidence state, citations, and a handoff-ready next action. A generated recommendation is never written as a decision, owner, due date, or priority.
 14. **Gaps and handoff-ready next steps** - missing source or metadata, suggested human owner or department only when the role is evident or supplied, why it matters, its priority state, and what evidence would close it. Next steps are read-only instructions, not tasks sent to anyone.
 15. **Citations and limitations** - every material claim resolves to a bounded citation containing `citation_id`, `source_id`, `chunk_id`, source locations, and a safe source label. Limitations state truncation, unreadable or missing material, unverified external inputs, retention limits, and the fact that the packet does not grant rights, approval, booking, safety clearance, or permission to publish.
+16. **External evidence and budget-risk observations** - when enabled by server-owned Parallel configuration, region-scoped location suggestions, permit lead times, minor-labor guidance, stunt/turnaround guidance, and vendor/day-rate ranges are cited external evidence with `externally_researched_not_verified` state and a human verification action. `target_region` defaults to Singapore but is configurable. The packet may also include source-grounded budget-risk observations and coverage gaps, both routed to humans. It never emits an authoritative budget total, tier verdict, booking, permit approval, legal conclusion, safety certification, or cost approval.
 
 A packet may be `succeeded` while containing conflicts and open questions. `source_gap` means the required source was unreadable, absent, or outside the safe bound; `failed` means no verified result was produced; `expired` means source retention no longer permits citation access. A partial or malformed packet is never presented as succeeded.
 

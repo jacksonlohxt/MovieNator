@@ -11,14 +11,13 @@ When configured, the packet builder deterministically detects up to a few bundle
 topics from the already-built strict `producer-intake-decision-packet@1` packet (never from a live
 model, never randomly):
 
-- **Location permit lead time** - when the primary screenplay's scene index establishes a setting or
-  scene heading.
-- **Minor labor rules** - when a cast or role demand references a minor (child, kid, or teenager).
-- **Stunt safety and turnaround rules** - when a production element is classified `stunts`.
-- **Vendor or day-rate ranges** - when the bundle supplies a budget input.
+- **Location suggestions and permit lead time** - when the primary screenplay's scene index establishes a setting or scene heading. The request uses the configurable `target_region` packet field, defaulting to Singapore.
+- **Minor labor rules** - when a cast or role demand references a minor (child, kid, or teenager), with the configured target region included in the cited request.
+- **Stunt safety and turnaround rules** - when a production element is classified `stunts`, with the configured target region included in the cited request.
+- **Vendor or day-rate ranges** - when the bundle supplies a budget input. These are external estimate ranges only and never a computed total or tier decision.
 
 For each selected topic it issues one Parallel Search call (`objective` plus 2-3 short keyword
-`search_queries`) and maps every returned result into a new `external_evidence` row on the packet:
+`search_queries`) and maps every returned result into a new `external_evidence` row on the packet. Location suggestions, permit guidance, minor-labor material, stunt/turnaround guidance, and vendor/day-rate ranges remain externally supplied evidence for a human to verify.
 
 - `classification: "externally_researched_fact"`
 - `evidence_state: "externally_researched_not_verified"`
@@ -76,7 +75,7 @@ local development, and CI.
   `AbortSignal` to prove the genuine import-and-call path works without any network I/O.
 - The strict packet schema (`schemas/producer-intake-decision-packet@1.json`) adds an optional
   `external_evidence` array (reusing the existing `canonical_item` shape), two new `provenance` fields
-  (`external_evidence_enabled`, `external_evidence_provider`), a `text/html` citation `media_type`, and
+  (`external_evidence_enabled`, `external_evidence_provider`), a `target_region` packet field, a `text/html` citation `media_type`, and
   two new evidence values (`externally_researched_fact` classification,
   `externally_researched_not_verified` evidence state). `src/contracts.d.ts` mirrors these additions. The
   older `producer-decision-packet@1` legacy compatibility contract is untouched; enrichment is a no-op

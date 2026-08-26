@@ -470,7 +470,7 @@ export class FileStore {
    * stream can address the run from acceptance through its terminal state without a separate run ID space.
    * The run record is never mutated after it reaches a terminal state; retries only ever create a new run.
    */
-  createProducerRun({ packetId, bundleId = null, bundleManifestHash = null, decisionContext = "", sources, parentPacketId = null, retryCount = 0, provenance = null }) {
+  createProducerRun({ packetId, bundleId = null, bundleManifestHash = null, decisionContext = "", targetRegion = "Singapore", sources, parentPacketId = null, retryCount = 0, provenance = null }) {
     const existing = this.state.producerRuns[packetId];
     if (existing) return { run: clone(existing), created: false };
     const now = nowIso(this.clock);
@@ -481,6 +481,7 @@ export class FileStore {
       bundle_id: bundleId,
       bundle_manifest_hash: bundleManifestHash,
       decision_context: decisionContext,
+      target_region: targetRegion,
       sources: clone(sources),
       parent_packet_id: parentPacketId,
       retry_count: retryCount,

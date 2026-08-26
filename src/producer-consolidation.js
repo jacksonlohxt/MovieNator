@@ -655,10 +655,13 @@ export function isCanonicalProducerIntent(sources) {
 // itself later hashes. The async producer packet run queues under this identity before the packet body
 // is built, so a run can be tracked, polled, and streamed at `/v1/producer-packets/{packet_id}` from the
 // moment it is accepted through its terminal state.
-export function producerPacketId(sources, { bundleId = undefined } = {}) {
+export function producerPacketId(sources, { bundleId = undefined, targetRegion = PRODUCER_DEFAULT_TARGET_REGION } = {}) {
   if (isCanonicalProducerIntent(sources)) {
     const normalizedBundleId = bundleId || producerBundleId(sources);
-    return `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA, bundle_id: normalizedBundleId })).slice(0, 32)}`;
+    const normalizedTargetRegion = normalizeProducerTargetRegion(targetRegion);
+    const identity = { schema_version: PRODUCER_PACKET_SCHEMA, bundle_id: normalizedBundleId };
+    if (normalizedTargetRegion !== PRODUCER_DEFAULT_TARGET_REGION) identity.target_region = normalizedTargetRegion;
+    return `packet_${hashValue(stableStringify(identity)).slice(0, 32)}`;
   }
   return `packet_${hashValue(stableStringify({ schema_version: PRODUCER_PACKET_SCHEMA_LEGACY, source_ids: sources.map((source) => source.source_id).sort() })).slice(0, 32)}`;
 }
@@ -690,12 +693,55 @@ export const PRODUCTION_ELEMENT_LABELS = Object.freeze({
   sound: "sound",
   music: "music",
   graphics: "graphics",
+  legal_clearance: "legal or rights clearance",
+  child_labor: "minor or child-labor requirements",
+  miscellaneous: "miscellaneous production requirements",
   other: "other",
 });
 export const PRODUCTION_ELEMENT_CATEGORIES = Object.freeze(Object.keys(PRODUCTION_ELEMENT_LABELS));
+export const PRODUCER_DEFAULT_TARGET_REGION = "Singapore";
 const MAX_PRODUCTION_ELEMENT_ROWS = 60;
 const MAX_CAST_ROLE_ROWS = 40;
 const MAX_DEPARTMENT_REQUIREMENT_ROWS = 60;
+const MAX_SCENE_ROWS = 240;
+const MAX_COVERAGE_GAPS = 120;
+const MAX_BUDGET_RISK_ROWS = 120;
+const COVERAGE_DEPARTMENTS = Object.freeze({
+  cast_or_role: "casting lead",
+  extras: "production manager",
+  location_or_set: "locations lead",
+  props: "art department",
+  set_dressing: "art department",
+  wardrobe: "costume department",
+  makeup_hair: "makeup and hair department",
+  vehicles: "transport department",
+  animals: "animal coordinator",
+  stunts: "stunt coordinator and safety lead",
+  vfx_sfx: "VFX/SFX supervisor",
+  special_equipment: "production manager",
+  sound: "sound department",
+  music: "music supervisor",
+  graphics: "graphics department",
+  legal_clearance: "legal or business affairs",
+  child_labor: "producer and casting lead",
+  miscellaneous: "producer",
+  other: "producer",
+  dialogue: "script supervisor or producer",
+  actions: "script supervisor or producer",
+  character_analysis: "director or producer",
+  atmosphere: "1st AD or locations lead",
+});
+const COVERAGE_LABELS = Object.freeze({
+  dialogue: "dialogue cues",
+  actions: "physical actions",
+  character_analysis: "character analysis",
+  atmosphere: "atmosphere details",
+});
+
+export function normalizeProducerTargetRegion(value) {
+  const normalized = boundedText(value || PRODUCER_DEFAULT_TARGET_REGION, 100);
+  return normalized || PRODUCER_DEFAULT_TARGET_REGION;
+}
 
 // Explicit category-labelled lines (e.g. "PROPS: a hunting knife") are a bounded, literal source
 // statement, so they are recorded as `source_fact`. They may appear in any source kind: a companion
@@ -713,6 +759,9 @@ const PRODUCTION_ELEMENT_EXPLICIT_PATTERNS = Object.freeze([
   { category: "sound", pattern: /^sound\s*[:=-]\s*(.+)$/i },
   { category: "music", pattern: /^music\s*[:=-]\s*(.+)$/i },
   { category: "graphics", pattern: /^graphics?\s*[:=-]\s*(.+)$/i },
+  { category: "legal_clearance", pattern: /^(?:legal|clearance|rights|release|brand)\s*[:=-]\s*(.+)$/i },
+  { category: "child_labor", pattern: /^(?:child|minor|minor labor|child actor)\s*[:=-]\s*(.+)$/i },
+  { category: "miscellaneous", pattern: /^(?:misc|miscellaneous|special requirement)\s*[:=-]\s*(.+)$/i },
   { category: "extras", pattern: /^extras?\s*[:=-]\s*(.+)$/i },
   { category: "location_or_set", pattern: /^(?:location|set|venue)\s*[:=-]\s*(.+)$/i },
 ]);
@@ -732,26 +781,153 @@ const PRODUCTION_ELEMENT_INFERENCE_PATTERNS = Object.freeze([
   { category: "music", pattern: /\b(?:music plays|soundtrack|hums? a tune|song plays)\b/i, basis: "Action line references music." },
   { category: "animals", pattern: /\b(?:dog|cat|horse|bird|snake|monkey)\b/i, basis: "Action line names an animal." },
   { category: "extras", pattern: /\b(?:crowd|crowds|dozens of|hundreds of|onlookers|bystanders)\b/i, basis: "Action line describes a crowd, implying extras." },
+  { category: "child_labor", pattern: /\b(?:child(?:ren)?|kid|teen(?:ager)?|minor)\b/i, basis: "Action line references a minor performer or child character; applicable requirements remain for human verification." },
 ]);
 
 function isScreenplaySource(source) {
   return source.source_kind === "primary_screenplay" || source.source_kind === "screenplay_revision";
 }
 
+function sceneHeadingParts(text) {
+  const value = boundedText(text, 700);
+  const match = value.match(/^(?:(?:SCENE|SEQ(?:UENCE)?)\s+[^-:]+\s*[-:]\s*)?(INT\.?\s*\/\s*EXT\.?|I\/E\.?|INT\.?|EXT\.?)\s+(.+?)(?:\s+[-:]\s*(DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|AFTERNOON|LATER|CONTINUOUS))?$/i);
+  if (!match) return null;
+  return { int_ext: match[1].replace(/\s+/g, "").replace(/\.$/, "").toUpperCase(), setting: boundedText(match[2], 240), time_of_day: match[3]?.toUpperCase() || null };
+}
+
+function isSceneHeading(text) {
+  return /^SCENE\s+[^-:]+\s*[-:]\s*(?:INT\.?|EXT\.?|I\/E\.?)/i.test(text) || /^(?:INT\.?\s*\/\s*EXT\.?|I\/E\.?|INT\.?|EXT\.?)\s+/i.test(text);
+}
+
+function lineCitationIds(lines) {
+  return [...new Set(lines.map((line) => line.citation_id).filter(Boolean))].slice(0, 8);
+}
+
+function dialogueSpeaker(text) {
+  const match = boundedText(text, 120).match(/^([A-Z][A-Z0-9 &'._-]{1,48})(?:\s*\([^)]{1,80}\))?$/);
+  if (!match || /^(?:INT|EXT|SCENE|FADE|CUT|CONTINUED|THE END|MONTAGE|LATER|DAY|NIGHT)$/i.test(match[1])) return null;
+  return match[1].trim();
+}
+
+function sceneWeatherLines(lines) {
+  return lines.filter((line) => /\b(?:rain|raining|storm|sun|sunny|wind|windy|fog|mist|snow|heat|humid|cold|weather|thunder|lightning)\b/i.test(line.text));
+}
+
+function sceneAmbientLines(lines) {
+  return lines.filter((line) => /\b(?:sound|sfx|audio|silence|quiet|noise|horn|sirens?|music|radio|ambient|traffic|crowd|birds?|wind)\b/i.test(line.text));
+}
+
+function deriveSceneRows(script) {
+  const lines = canonicalLineEntries(script);
+  const headings = lines.map((line, index) => ({ line, index, parts: sceneHeadingParts(line.text) })).filter((item) => item.parts && isSceneHeading(item.line.text));
+  const rows = [];
+  for (const [headingIndex, heading] of headings.entries()) {
+    if (rows.length >= MAX_SCENE_ROWS) break;
+    const body = lines.filter((line) => line.citation_id === heading.line.citation_id && line.text !== heading.line.text);
+    const speakers = [...new Set(body.map((line) => dialogueSpeaker(line.text)).filter(Boolean))];
+    const dialogueLines = body.filter((line) => dialogueSpeaker(line.text));
+    const actionLines = body.filter((line) => !dialogueSpeaker(line.text) && !/^\s*\([^)]*\)\s*$/.test(line.text) && !/^(?:CONTINUED|CUT TO|FADE OUT|FADE IN)\.?$/i.test(line.text)).slice(0, 12);
+    const weather = sceneWeatherLines(body);
+    const ambient = sceneAmbientLines(body);
+    const citationIds = lineCitationIds([heading.line, ...body]);
+    const headingParts = heading.parts;
+    const summaryText = actionLines.slice(0, 3).map((line) => line.text).join(" ");
+    const characterAnalysis = speakers.map((character) => {
+      const speakerLine = body.find((line) => dialogueSpeaker(line.text) === character);
+      const parenthetical = speakerLine?.text.match(/\(([^)]+)\)/)?.[1];
+      return {
+        character,
+        physical_traits: parenthetical ? [boundedText(parenthetical, 180)] : [],
+        personality_traits: [],
+        narrative_arc: null,
+        classification: "source_fact",
+        evidence_state: "established",
+        citation_ids: lineCitationIds([speakerLine].filter(Boolean)),
+      };
+    });
+    rows.push({
+      scene_id: `scene_${hashValue(stableStringify({ heading: heading.line.text, source_id: script.source_id, index: heading.index })).slice(0, 32)}`,
+      scene_reference: boundedText(heading.line.text, 700),
+      scene_heading: boundedText(heading.line.text, 700),
+      scene_summary: summaryText || null,
+      narrative_summary: summaryText || null,
+      setting: headingParts.setting,
+      int_ext: headingParts.int_ext,
+      time_of_day: headingParts.time_of_day,
+      actor_count: speakers.length || null,
+      actor_count_basis: speakers.length ? "Count of distinct screenplay dialogue speaker cues in this scene." : "No dialogue speaker cue is established in this scene.",
+      dialogue_characters: speakers,
+      dialogue: dialogueLines.slice(0, 12).map((line) => ({ text: boundedText(line.text, 420), citation_ids: [line.citation_id] })),
+      actions: actionLines.map((line) => ({ text: boundedText(line.text, 420), citation_ids: [line.citation_id] })),
+      character_analysis: characterAnalysis,
+      atmosphere: {
+        time_of_day: headingParts.time_of_day,
+        weather: weather.length ? weather.map((line) => line.text) : [],
+        ambient_considerations: ambient.length ? ambient.map((line) => line.text) : [],
+        citation_ids: lineCitationIds([...weather, ...ambient]),
+      },
+      location: heading.line.source.locations.find((location) => location.section === heading.line.text) || null,
+      classification: "source_fact",
+      evidence_state: "established",
+      source_ids: [script.source_id],
+      citation_ids: citationIds,
+      limitations: [],
+    });
+  }
+  if (rows.length) return rows;
+  const citation = lines[0];
+  return [{
+    scene_id: `scene_gap_${hashValue(script.source_id).slice(0, 32)}`,
+    scene_reference: "the primary screenplay",
+    scene_heading: null,
+    scene_summary: null,
+    narrative_summary: null,
+    setting: null,
+    int_ext: null,
+    time_of_day: null,
+    actor_count: null,
+    actor_count_basis: "No scene heading or dialogue speaker cue is established in the primary screenplay.",
+    dialogue_characters: [], dialogue: [], actions: [], character_analysis: [],
+    atmosphere: { time_of_day: null, weather: [], ambient_considerations: [], citation_ids: [] },
+    location: null,
+    classification: "open_question",
+    evidence_state: "not_established",
+    source_ids: [script.source_id],
+    citation_ids: citation ? [citation.citation_id] : [],
+    limitations: ["A scene-by-scene breakdown could not be established from the primary screenplay."],
+  }];
+}
+
+function productionElementDetails(value, category) {
+  const text = boundedText(value, 420);
+  const countMatch = text.match(/^(\d+)\s+(?:x\s*)?/i);
+  const complexity = text.match(/\b(?:complexity|level)\s*[:=-]\s*(low|medium|high)\b/i)?.[1]?.toLowerCase() || null;
+  const mandatory = category === "stunts" ? (/\bstunt double\b[^.]{0,50}\b(?:mandatory|required|must)\b|\b(?:mandatory|required)\b[^.]{0,50}\bstunt double\b/i.test(text) ? true : /\b(?:no|not)\s+(?:professional\s+)?stunt double\b/i.test(text) ? false : null) : null;
+  return {
+    count: countMatch ? Number(countMatch[1]) : null,
+    specification: boundedText(countMatch ? text.slice(countMatch[0].length).trim() : text, 420),
+    complexity,
+    execution_description: category === "vfx_sfx" ? text : null,
+    stunt_double_mandatory: mandatory,
+  };
+}
+
 function productionElementRow({ category, value, classification, evidenceState, source, citationId, inferenceBasis }) {
   const text = boundedText(value, 420);
+  const details = productionElementDetails(text, category);
   return {
     element_id: `element_${hashValue(stableStringify({ category, text, source_id: source.source_id, citation_id: citationId || null })).slice(0, 32)}`,
     category,
     department: source.department || null,
     value: text,
     text,
+    ...details,
     classification,
     evidence_state: evidenceState,
     source_ids: [source.source_id],
     citation_ids: citationId ? [citationId] : [],
     ...(inferenceBasis ? { inference_basis: inferenceBasis } : {}),
-    limitations: [],
+    limitations: category === "stunts" ? ["Physical action is not a safety approval or a determination that a stunt double is required."] : [],
   };
 }
 
@@ -770,6 +946,10 @@ function deriveProductionElements(sources) {
   for (const source of sources) {
     for (const line of canonicalLineEntries(source)) {
       let matchedExplicit = false;
+      if (isScreenplaySource(source) && sceneHeadingParts(line.text)) {
+        matchedExplicit = true;
+        push(productionElementRow({ category: "location_or_set", value: line.text, classification: "source_fact", evidenceState: "established", source: line.source, citationId: line.citation_id }));
+      }
       for (const { category, pattern } of PRODUCTION_ELEMENT_EXPLICIT_PATTERNS) {
         const match = line.text.match(pattern);
         if (!match) continue;
@@ -946,6 +1126,105 @@ function deriveExplicitDecisions(sources) {
   return results;
 }
 
+function coverageGapRow({ category, scene, source }) {
+  const label = PRODUCTION_ELEMENT_LABELS[category] || category;
+  const citationId = scene?.citation_ids?.[0];
+  const text = `No ${label} requirement is established for ${scene?.scene_heading || "the supplied screenplay"}.`;
+  return {
+    gap_id: `coverage_gap_${hashValue(stableStringify({ category, scene_id: scene?.scene_id, source_id: source.source_id })).slice(0, 32)}`,
+    field: category,
+    category: "coverage_gap",
+    related_to: scene?.scene_heading || null,
+    question: text,
+    value: text,
+    text,
+    classification: "open_question",
+    evidence_state: "not_established",
+    source_ids: [source.source_id],
+    citation_ids: citationId ? [citationId] : [],
+    owner: COVERAGE_DEPARTMENTS[category] || "producer",
+    priority: ["stunts", "animals", "minors", "vfx_sfx", "location_or_set"].includes(category) ? "high" : "unset",
+    priority_basis: "No supplied priority; category is routed for human review because the source does not establish it.",
+    next_action: `Route to ${COVERAGE_DEPARTMENTS[category] || "the producer"} to confirm whether ${label} is required and record the evidence.`,
+    evidence_needed: `A source-grounded scene breakdown or department note confirming or excluding ${label}.`,
+    limitations: ["Absence from the bounded source is not evidence that the requirement is absent from production."],
+  };
+}
+
+function deriveCoverageGaps({ scenes, productionElements, script }) {
+  const categories = PRODUCTION_ELEMENT_CATEGORIES.filter((category) => category !== "other");
+  const gaps = [];
+  for (const scene of scenes) {
+    for (const category of categories) {
+      if (gaps.length >= MAX_COVERAGE_GAPS) return gaps;
+      const hasCategory = productionElements.some((item) => item.category === category);
+      if (!hasCategory) gaps.push(coverageGapRow({ category, scene, source: script }));
+    }
+    const sceneCoverage = [
+      ["dialogue", scene.dialogue?.length > 0],
+      ["actions", scene.actions?.length > 0],
+      ["character_analysis", scene.character_analysis?.length > 0],
+      ["atmosphere", Boolean(scene.time_of_day || scene.atmosphere?.weather?.length || scene.atmosphere?.ambient_considerations?.length)],
+    ];
+    for (const [field, established] of sceneCoverage) {
+      if (gaps.length >= MAX_COVERAGE_GAPS) return gaps;
+      if (established) continue;
+      const label = COVERAGE_LABELS[field];
+      const text = `No ${label} are established for ${scene.scene_heading || "the supplied screenplay"}.`;
+      gaps.push({
+        gap_id: `coverage_gap_${hashValue(stableStringify({ field, scene_id: scene.scene_id, source_id: script.source_id })).slice(0, 32)}`,
+        field,
+        category: "coverage_gap",
+        related_to: scene.scene_heading || null,
+        question: text,
+        value: text,
+        text,
+        classification: "open_question",
+        evidence_state: "not_established",
+        source_ids: [script.source_id],
+        citation_ids: scene.citation_ids?.slice(0, 8) || [],
+        owner: COVERAGE_DEPARTMENTS[field],
+        priority: field === "atmosphere" ? "medium" : "unset",
+        priority_basis: "No supplied priority; the bounded screenplay does not establish this coverage field.",
+        next_action: `Route to ${COVERAGE_DEPARTMENTS[field]} to confirm whether ${label} are required and record the evidence.`,
+        evidence_needed: `A source-grounded scene breakdown or department note confirming or excluding ${label}.`,
+        limitations: ["Absence from the bounded source is not evidence that the requirement is absent from production."],
+      });
+    }
+  }
+  return gaps;
+}
+
+function deriveBudgetRiskObservations({ scenes, productionElements, script }) {
+  const riskyCategories = new Set(["stunts", "vfx_sfx", "animals", "vehicles", "extras", "special_equipment", "location_or_set"]);
+  const risks = [];
+  for (const element of productionElements) {
+    if (!riskyCategories.has(element.category) || risks.length >= MAX_BUDGET_RISK_ROWS) continue;
+    const scene = scenes.find((candidate) => candidate.citation_ids?.some((id) => element.citation_ids?.includes(id)));
+    const label = PRODUCTION_ELEMENT_LABELS[element.category];
+    const text = `Budget-risk observation: ${label} source signal${scene ? ` in ${scene.scene_heading}` : ""} may require additional prep, specialist resources, access, or schedule coordination. MovieInator does not estimate or approve a cost.`;
+    risks.push({
+      element_id: `budget_risk_${hashValue(stableStringify({ element_id: element.element_id })).slice(0, 32)}`,
+      category: "budget_risk_observation",
+      field: element.category,
+      related_to: scene?.scene_heading || null,
+      value: text,
+      text,
+      classification: "source_implied_inference",
+      evidence_state: "established",
+      source_ids: [script.source_id, ...(element.source_ids || [])].filter((id, index, all) => all.indexOf(id) === index).slice(0, 8),
+      citation_ids: element.citation_ids?.slice(0, 8) || [],
+      owner: "line producer or production accountant",
+      priority: ["stunts", "vfx_sfx", "animals", "location_or_set"].includes(element.category) ? "high" : "medium",
+      priority_basis: "Bounded observation from a source-grounded production signal; human review is required.",
+      next_action: `Ask the ${COVERAGE_DEPARTMENTS[element.category] || "responsible department lead"} to scope the requirement and supply any estimate or constraint for human review.`,
+      impact: "The source signal may create a scheduling, access, specialist, or preparation dependency; no financial conclusion is made.",
+      limitations: ["This is a source-grounded observation, not a budget amount, tier verdict, or approval."],
+    });
+  }
+  return risks;
+}
+
 // Retention lifecycle: local demo mode declares no server-owned TTL by default (docs/prd.md's
 // "local demo ... has no external retention"), so `retentionLifecycle` is a no-op unless a caller
 // supplies an explicit bounded `retentionTtlMs` policy. When a TTL is supplied, evidence ages through
@@ -1049,7 +1328,7 @@ export function applyProducerPacketRetention(packet, { now = new Date().toISOStr
   return next;
 }
 
-function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "", bundleManifestHash = undefined, overridePacketId = undefined } = {}) {
+function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().toISOString(), bundleId = undefined, decisionContext = "", targetRegion = PRODUCER_DEFAULT_TARGET_REGION, bundleManifestHash = undefined, overridePacketId = undefined } = {}) {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > MAX_PRODUCER_SOURCES) {
     throw new DocumentContractError("BUNDLE_LIMIT_EXCEEDED", `A producer bundle must contain 1 to ${MAX_PRODUCER_SOURCES} sources`, "sources");
   }
@@ -1060,23 +1339,12 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const orderedSources = sources.map((source) => ({ ...source, chunks: source.chunks.slice(0, 240) }));
   const citationsById = canonicalCitations(orderedSources);
   const script = primary[0];
-  const scene = firstCanonicalLine(script, /^SCENE\s+7\s*-\s*INT\.\s*MILL\s*-\s*NIGHT$/i) || firstCanonicalLine(script, /^SCENE\s+\d+\s*-/i);
-  const sceneHeading = scene?.text || "Scene heading is not established in the primary screenplay.";
-  const sceneCitationId = scene?.citation_id;
+  const sceneRows = deriveSceneRows(script);
+  const sceneRow = sceneRows[0];
+  const scene = sceneRow.scene_heading ? { text: sceneRow.scene_heading, citation_id: sceneRow.citation_ids[0], location: sceneRow.location } : null;
+  const sceneHeading = sceneRow.scene_heading || "Scene heading is not established in the primary screenplay.";
+  const sceneCitationId = sceneRow.citation_ids[0];
   const sceneReferenceLabel = scene ? boundedText(sceneHeading, 160) : "the primary screenplay's referenced scene";
-  const sceneRow = {
-    scene_id: `scene_${hashValue(stableStringify({ sceneHeading, source_id: script.source_id })).slice(0, 32)}`,
-    scene_reference: sceneHeading,
-    scene_heading: sceneHeading,
-    setting: sceneHeading.match(/-\s*(?:INT\.|EXT\.|I\/E\.)\s*([^ -].*?)\s*-\s*(?:DAY|NIGHT)\s*$/i)?.[1]?.trim() || null,
-    int_ext: sceneHeading.match(/\b(INT\.|EXT\.|I\/E\.)/i)?.[1]?.toUpperCase() || null,
-    time_of_day: sceneHeading.match(/-\s*(DAY|NIGHT)\s*$/i)?.[1]?.toUpperCase() || null,
-    location: scene?.location || script.locations.find((location) => location.section === sceneHeading) || null,
-    classification: scene ? "source_fact" : "open_question",
-    evidence_state: scene ? "established" : "not_established",
-    source_ids: [script.source_id],
-    citation_ids: sceneCitationId ? [sceneCitationId] : [],
-  };
 
   const locationSource = orderedSources.find((source) => source.source_kind === "location_access");
   const scheduleSource = orderedSources.find((source) => source.source_kind === "schedule_assumptions");
@@ -1182,6 +1450,9 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const productionElementRows = deriveProductionElements(orderedSources);
   const castRoleDemandRows = deriveCastRoleDemands(orderedSources);
   const departmentRequirementRows = deriveDepartmentRequirements(orderedSources, productionElementRows);
+  const coverageGaps = deriveCoverageGaps({ scenes: sceneRows, productionElements: productionElementRows, script });
+  const budgetRiskObservations = deriveBudgetRiskObservations({ scenes: sceneRows, productionElements: productionElementRows, script });
+  gapsAndNextSteps.push(...coverageGaps);
   const explicitDecisionEntries = deriveExplicitDecisions(orderedSources).map((item) => canonicalRegister({
     entryType: "decision",
     title: "Recorded decision supplied in the source bundle",
@@ -1195,7 +1466,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     evidenceState: "recorded_decision",
   }));
   const decisionQuestionRegister = [...explicitDecisionEntries, openQuestion];
-  const allItems = [...exactFacts, sceneRow, ...locationsAndTiming, ...budgetInputs, ...scheduleInputs, ...conflicts, ...decisionQuestionRegister, ...gapsAndNextSteps, ...productionElementRows, ...castRoleDemandRows, ...departmentRequirementRows];
+  const allItems = [...exactFacts, ...sceneRows, ...locationsAndTiming, ...budgetInputs, ...scheduleInputs, ...conflicts, ...decisionQuestionRegister, ...gapsAndNextSteps, ...coverageGaps, ...budgetRiskObservations, ...productionElementRows, ...castRoleDemandRows, ...departmentRequirementRows];
   const citedIds = canonicalCitationIds(allItems);
 
   // A required source's content is unreadable, absent, or outside the safe bound only in the narrow
@@ -1216,7 +1487,8 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
   const sourceManifestHash = `sha256:${hashValue(stableStringify(sourceManifest))}`;
   const normalizedBundleId = bundleId || producerBundleId(orderedSources);
   const normalizedBundleManifestHash = bundleManifestHash || producerBundleManifestHash(orderedSources);
-  const packetId = overridePacketId || producerPacketId(orderedSources, { bundleId: normalizedBundleId });
+  const normalizedTargetRegion = normalizeProducerTargetRegion(targetRegion);
+  const packetId = overridePacketId || producerPacketId(orderedSources, { bundleId: normalizedBundleId, targetRegion: normalizedTargetRegion });
   const summaryText = boundedText(`The supplied bundle contains ${orderedSources.length} labelled sources. ${scene ? `The primary screenplay establishes ${sceneHeading}.` : "The primary screenplay does not establish a scene heading."} ${conflict ? "Schedule and location access records remain in conflict." : "No schedule and location access conflict was established."} ${budgetInputs.length ? "An access rate is supplied but not independently verified; no total is calculated." : "No access rate is established."} ${productionElementRows.length || castRoleDemandRows.length || departmentRequirementRows.length ? `${productionElementRows.length} production element(s), ${castRoleDemandRows.length} cast or role demand(s), and ${departmentRequirementRows.length} department requirement(s) were identified.` : "No production element, cast or role demand, or department requirement was identified."}`, 700);
   return {
     schema_version: PRODUCER_PACKET_SCHEMA,
@@ -1233,8 +1505,11 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     source_manifest: sourceManifest,
     source_inventory: sourceManifest,
     exact_facts: exactFacts,
-    scene_index: [sceneRow],
+    target_region: normalizedTargetRegion,
+    scene_index: sceneRows,
     production_elements: productionElementRows,
+    budget_risk_observations: budgetRiskObservations,
+    coverage_gaps: coverageGaps,
     locations_and_timing: locationsAndTiming,
     cast_role_demands: castRoleDemandRows,
     department_requirements: departmentRequirementRows,
@@ -1255,7 +1530,7 @@ function buildCanonicalProducerDecisionPacket(sources, { createdAt = new Date().
     handoff: { schema_version: PRODUCER_HANDOFF_SCHEMA, audience: ["producer"], status: "review_required", next_owner: ownerValue || null, source_ids: orderedSources.map((source) => source.source_id), open_register_ids: decisionQuestionRegister.map((entry) => entry.entry_id), prioritized_register_ids: [], next_action: "obtain or record the access evidence", claim_type: "inference", citation_ids: openQuestion.citation_ids },
     cited_citation_ids: citedIds,
     citations: citedIds.map((citationId) => citationsById.get(citationId)).filter(Boolean).slice(0, MAX_PACKET_CITATIONS),
-    provenance: { schema_version: "producer-provenance@1", contract_version: PRODUCER_PACKET_SCHEMA, mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieInator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", bundle_manifest_hash: normalizedBundleManifestHash, source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local" },
+    provenance: { schema_version: "producer-provenance@1", contract_version: PRODUCER_PACKET_SCHEMA, mode: "demo", backend: "local-deterministic-consolidation", provider: "MovieInator uploaded production sources", external: false, read_only: true, grounding_strategy: "bounded_source_manifest_and_deterministic_reconciliation", bundle_manifest_hash: normalizedBundleManifestHash, source_manifest_hash: sourceManifestHash, fallback_used: false, retention_state: "local", target_region: normalizedTargetRegion },
     limitations: ["This packet only reports what the bounded uploaded bundle establishes.", "Externally supplied rates and statuses are not independently verified.", "Conflicts and open questions remain for human resolution; no booking, approval, permission, safety clearance, rights conclusion, or budget total was created.", ...(decisionContext ? [`Decision context supplied by the producer: ${boundedText(decisionContext, 1_000)}`] : [])],
   };
 }
@@ -1355,6 +1630,7 @@ export function safeProducerPacketProjection(packet) {
     status: packet.status,
     packet_id: packet.packet_id,
     bundle_id: packet.bundle_id ?? packet.bundle?.bundle_id ?? null,
+    target_region: packet.target_region || packet.provenance?.target_region || PRODUCER_DEFAULT_TARGET_REGION,
     created_at: packet.created_at,
     generated_at: packet.generated_at || packet.created_at,
     bundle: packet.bundle,
@@ -1366,6 +1642,8 @@ export function safeProducerPacketProjection(packet) {
     exact_facts: packet.exact_facts?.map(safeEvidenceItem),
     scene_index: packet.scene_index?.map(safeEvidenceItem),
     production_elements: packet.production_elements?.map(safeEvidenceItem),
+    budget_risk_observations: packet.budget_risk_observations?.map(safeEvidenceItem),
+    coverage_gaps: packet.coverage_gaps?.map(safeEvidenceItem),
     schedule_inputs: packet.schedule_inputs?.map(safeEvidenceItem),
     budget_inputs: packet.budget_inputs?.map(safeEvidenceItem),
     rights_access_logistics: packet.rights_access_logistics?.map(safeEvidenceItem),

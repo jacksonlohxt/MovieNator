@@ -179,6 +179,7 @@ test("buildParallelEnrichmentRequests deterministically selects topics relevant 
   const packet = canonicalPacket();
   const requests = buildParallelEnrichmentRequests(packet, { maxTopics: 2 });
   assert.deepEqual(requests.map((request) => request.topic), ["location_permit", "vendor_day_rate"]);
+  assert.ok(requests.every((request) => request.objective.includes("Singapore")));
   for (const request of requests) {
     assert.ok(request.objective.length > 0);
     assert.ok(request.searchQueries.length >= 1 && request.searchQueries.length <= 3);
@@ -191,6 +192,11 @@ test("buildParallelEnrichmentRequests deterministically selects topics relevant 
   assert.deepEqual(minorStuntRequests.map((request) => request.topic), ["location_permit", "minor_labor_rules", "stunt_turnaround"]);
 
   assert.deepEqual(buildParallelEnrichmentRequests(packet, { maxTopics: 1 }).map((request) => request.topic), ["location_permit"]);
+
+  const regionalPacket = { ...packet, target_region: "United Kingdom" };
+  const regionalLocationRequest = buildParallelEnrichmentRequests(regionalPacket, { maxTopics: 1 })[0];
+  assert.match(regionalLocationRequest.objective, /United Kingdom/);
+  assert.ok(regionalLocationRequest.searchQueries.every((query) => query.includes("United Kingdom")));
 });
 
 test("mapParallelResultsToEvidence produces cited, clearly-labelled external evidence and drops unsafe URLs", () => {
