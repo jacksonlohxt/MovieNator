@@ -93,6 +93,8 @@ const producerSourceKinds = [
 ];
 const groundingEventNames = ["script.accepted", "script.queued", "script.grounding_started", "script.grounding_gap", "script.composing", "script.writer_fallback", "script.verifying", "script.succeeded", "script.failed"];
 const groundingTerminalStates = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
+const producerRunEventNames = ["producer_run.accepted", "producer_run.queued", "producer_run.reconciling", "producer_run.verifying", "producer_run.succeeded", "producer_run.failed"];
+const producerRunTerminalStates = new Set(["succeeded", "failed"]);
 const runLive = $("#run-live");
 const progressLabels = ["Accepted", "Queued", "Planning", "Resolving asset", "Quality evidence", "Governance evidence", "Lineage evidence", "Composing", "Validating"];
 const terminalStates = new Set(["needs_input", "succeeded", "canceled", "expired", "failed"]);
@@ -110,6 +112,11 @@ let groundingEventSource = null;
 let groundingPollTimer = null;
 let groundingReconnectTimer = null;
 let groundingLastEventSeq = 0;
+let producerPacketEventSource = null;
+let producerPacketPollTimer = null;
+let producerPacketReconnectTimer = null;
+let producerLastEventSeq = 0;
+let currentProducerPacketId = null;
 const groundingFallbackRuns = new Set();
 const readinessFallbackRuns = new Set();
 let runtimeStatus = { state: "not-yet-checked" };
@@ -1299,6 +1306,108 @@ async function uploadProducerBundle(event) {
   }
 }
 
+function closeProducerPacketStream() {
+  if (producerPacketEventSource) producerPacketEventSource.close();
+  producerPacketEventSource = null;
+  if (producerPacketPollTimer) clearInterval(producerPacketPollTimer);
+  producerPacketPollTimer = null;
+  if (producerPacketReconnectTimer) clearTimeout(producerPacketReconnectTimer);
+  producerPacketReconnectTimer = null;
+}
+
+function startProducerPacketPolling(packetId) {
+  if (producerPacketPollTimer) return;
+  producerPacketPollTimer = setInterval(() => refreshProducerPacketRun(packetId), 300);
+}
+
+function subscribeProducerPacket(packetId) {
+  closeProducerPacketStream();
+  if ("EventSource" in window) {
+    producerPacketEventSource = new EventSource(`/v1/producer-packets/${encodeURIComponent(packetId)}/events?cursor=${encodeURIComponent(producerLastEventSeq)}`);
+    for (const name of producerRunEventNames) producerPacketEventSource.addEventListener(name, (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        producerLastEventSeq = Math.max(producerLastEventSeq, Number(event.lastEventId || payload.seq || 0));
+      } catch {
+        // A malformed event still triggers a safe refresh below.
+      }
+      refreshProducerPacketRun(packetId);
+    });
+    producerPacketEventSource.onerror = () => {
+      if (producerPacketEventSource) producerPacketEventSource.close();
+      producerPacketEventSource = null;
+      startProducerPacketPolling(packetId);
+      if (!producerPacketReconnectTimer) producerPacketReconnectTimer = setTimeout(() => { producerPacketReconnectTimer = null; if (currentProducerPacketId === packetId) subscribeProducerPacket(packetId); }, 1000);
+    };
+  }
+  startProducerPacketPolling(packetId);
+}
+
+async function refreshProducerPacketRun(packetId) {
+  if (!packetId) return;
+  try {
+    const response = await fetch(`/v1/producer-packets/${encodeURIComponent(packetId)}`);
+    if (!response.ok) throw new Error("Producer packet run is no longer available");
+    const data = await response.json();
+    producerLastEventSeq = Math.max(producerLastEventSeq, data.last_event_seq || 0);
+    renderProducerRun(data);
+    if (producerRunTerminalStates.has(data.state)) closeProducerPacketStream();
+  } catch {
+    // Keep the last safe projection visible while polling resumes.
+  }
+}
+
+function renderProducerRunFailure(run) {
+  show(producerResult, false);
+  producerFailure.replaceChildren();
+  const message = document.createElement("p");
+  message.textContent = run.recovery?.message || "The producer packet could not be consolidated.";
+  producerFailure.append(message);
+  if (run.recovery?.recoverable) {
+    const retry = document.createElement("button");
+    retry.className = "button button-secondary";
+    retry.type = "button";
+    retry.textContent = "Try again";
+    retry.addEventListener("click", () => retryProducerPacketRun(run.packet_id));
+    producerFailure.append(retry);
+  }
+  show(producerFailure, true);
+}
+
+async function retryProducerPacketRun(packetId) {
+  try {
+    const response = await fetch(`/v1/producer-packets/${encodeURIComponent(packetId)}/retry`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "The producer packet retry could not be accepted");
+    currentProducerPacketId = data.packet_id;
+    producerLastEventSeq = data.last_event_seq || 0;
+    show(producerFailure, false);
+    renderProducerRun(data);
+    if (!producerRunTerminalStates.has(data.state)) subscribeProducerPacket(data.packet_id);
+  } catch (error) {
+    setText(producerError, error.message);
+    producerError.hidden = false;
+  }
+}
+
+function renderProducerRun(run) {
+  if (run.state === "succeeded") {
+    show(producerRun, false);
+    renderProducerPacket(run);
+    producerResult.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (run.state === "failed") {
+    show(producerRun, false);
+    renderProducerRunFailure(run);
+    return;
+  }
+  show(producerFailure, false);
+  show(producerRun, true);
+  const phase = { accepted: "Preparing your packet", queued: "Reconciling source records", running: "Reconciling source records" }[run.state] || "Reconciling source records";
+  setText("#producer-phase", phase);
+}
+
 async function requestProducerPacket() {
   if (!currentProducerBundle) {
     setText(producerError, "Upload a source bundle before preparing the packet.");
@@ -1316,9 +1425,10 @@ async function requestProducerPacket() {
     const response = await fetch(`/v1/producer-source-bundles/${encodeURIComponent(currentProducerBundle.bundle_id)}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "The producer packet could not be consolidated");
-    renderProducerPacket(data);
-    show(producerRun, false);
-    producerResult.scrollIntoView({ behavior: "smooth", block: "start" });
+    currentProducerPacketId = data.packet_id;
+    producerLastEventSeq = data.last_event_seq || 0;
+    renderProducerRun(data);
+    if (!producerRunTerminalStates.has(data.state)) subscribeProducerPacket(data.packet_id);
   } catch (error) {
     show(producerRun, false);
     producerFailure.replaceChildren();
