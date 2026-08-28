@@ -41,7 +41,8 @@ npm start
 # open http://127.0.0.1:4173
 npm run smoke:deployment
 
-# Optional explicitly enabled ADC-backed Gemini model path, using ignored .env.local
+# Optional explicitly enabled ADC-backed Gemini model path: copy .env.local.example to
+# .env.local (already git-ignored), fill in the operator values, then:
 npm run start:google
 
 # Operator-only: proves the live Gemini call path with real credentials; not part of check/test

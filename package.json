@@ -10,7 +10,7 @@
     "start:google": "sh -c 'set -a; if [ -f .env.local ]; then . ./.env.local; fi; set +a; exec node src/server.js'",
     "smoke:deployment": "node scripts/deployment-smoke.js",
     "smoke": "node scripts/deployment-smoke.js",
-    "google:preflight": "node scripts/google-preflight.js",
+    "google:preflight": "sh -c 'set -a; if [ -f .env.local ]; then . ./.env.local; fi; set +a; exec node scripts/google-preflight.js'",
     "eval": "node eval/run.js",
     "test": "node --test",
     "check:docs": "node src/check-docs.js",
