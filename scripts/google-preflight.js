@@ -3,12 +3,18 @@
 // This script makes a real, credentialed request to Vertex AI when Google
 // Gemini is explicitly enabled and fully configured. It is not part of
 // `npm test`, `npm run check`, or `npm run check:docs`, all of which remain
-// network-free. Run this yourself, with your own credentials, before you
-// claim or rely on a live Gemini call path:
+// network-free. `npm run google:preflight` sources `.env.local` first (same
+// loader as `npm run start:google`), so fill in `.env.local` from
+// `.env.local.example` and run:
+//
+//   npm run google:preflight
+//
+// Equivalently, without a `.env.local` file, export the same variables
+// directly and run this script yourself, with your own credentials:
 //
 //   GOOGLE_GEMINI_ENABLED=true MODEL_BACKEND=google_rest \
 //   GOOGLE_PROJECT_ID=<project> GOOGLE_LOCATION=<region> GOOGLE_MODEL_ID=<model> \
-//   GOOGLE_AUTH_MODE=adc npm run google:preflight
+//   GOOGLE_AUTH_MODE=adc node scripts/google-preflight.js
 //
 // On Cloud Run or another environment with an attached identity, set
 // GOOGLE_AUTH_MODE=workload_identity or attached_identity instead of adc;

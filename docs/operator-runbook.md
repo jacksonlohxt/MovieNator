@@ -18,18 +18,7 @@ Read first: [`docs/google-setup.md`](google-setup.md) for the required Captain/o
      --member="serviceAccount:$RUNTIME_SERVICE_ACCOUNT" --role="roles/aiplatform.user"
    ```
 
-3. **Set server configuration.** Local ADC example (`.env.local`, already git-ignored):
-
-   ```sh
-   RUNTIME_MODE=adc_local
-   DEPLOYMENT_TARGET=local
-   MODEL_BACKEND=google_rest
-   GOOGLE_GEMINI_ENABLED=true
-   GOOGLE_PROJECT_ID=<your project id>
-   GOOGLE_LOCATION=<your region, e.g. us-central1 or global>
-   GOOGLE_MODEL_ID=<your exact model id>
-   GOOGLE_AUTH_MODE=adc
-   ```
+3. **Set server configuration.** Copy [`.env.local.example`](../.env.local.example) at the repo root to `.env.local` (already git-ignored) and fill in `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`, and `GOOGLE_MODEL_ID`; it already sets `RUNTIME_MODE=adc_local`, `DEPLOYMENT_TARGET=local`, `MODEL_BACKEND=google_rest`, `GOOGLE_GEMINI_ENABLED=true`, and `GOOGLE_AUTH_MODE=adc` for you.
 
    On Cloud Run, the equivalent variables are already declared in [`deploy/cloud-run.yaml`](../deploy/cloud-run.yaml) with `GOOGLE_AUTH_MODE=workload_identity` and `RUNTIME_MODE=deployed_identity`; only the `<OPERATOR_SELECTED_...>` placeholders need real values.
 
@@ -39,7 +28,7 @@ Read first: [`docs/google-setup.md`](google-setup.md) for the required Captain/o
    npm run google:preflight
    ```
 
-   This is the one command in this repository that makes a real network call, and only when `GOOGLE_GEMINI_ENABLED=true` and the configuration is complete; it is not part of `npm test` or `npm run check`. It prints one bounded JSON result and exits `0` only when the live `generateContent` preflight actually passed:
+   This command sources `.env.local` itself (same loader as `npm run start:google`), so no manual `set -a; . ./.env.local` step is needed. It is the one command in this repository that makes a real network call, and only when `GOOGLE_GEMINI_ENABLED=true` and the configuration is complete; it is not part of `npm test` or `npm run check`. It prints one bounded JSON result and exits `0` only when the live `generateContent` preflight actually passed:
 
    ```json
    { "preflight": "passed", "state": "passed", "checked_at": "...", "project_id": "...", "location": "...", "model_id": "...", "auth_mode": "adc" }
