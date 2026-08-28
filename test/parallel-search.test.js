@@ -16,7 +16,7 @@ import {
   readParallelConfig,
 } from "../src/parallel-search.js";
 
-function tempPath(prefix = "movie-inator-parallel") {
+function tempPath(prefix = "movieinator-parallel") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
   return path.join(directory, "runs.json");
 }

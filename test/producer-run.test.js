@@ -6,7 +6,7 @@ import test from "node:test";
 import { createApp } from "../src/server.js";
 import { PRODUCER_PACKET_SCHEMA_LEGACY, buildProducerDecisionPacket } from "../src/producer-consolidation.js";
 
-function tempPath(prefix = "movie-inator-producer-run") {
+function tempPath(prefix = "movieinator-producer-run") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
   return path.join(directory, "runs.json");
 }

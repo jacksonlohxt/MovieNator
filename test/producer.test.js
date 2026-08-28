@@ -18,7 +18,7 @@ import {
 } from "../src/producer-consolidation.js";
 import { MAX_DOCUMENT_BYTES, parseGroundingDocument } from "../src/documents.js";
 
-function tempPath(prefix = "movie-inator-producer") {
+function tempPath(prefix = "movieinator-producer") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
   return path.join(directory, "runs.json");
 }
