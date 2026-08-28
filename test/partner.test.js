@@ -231,7 +231,7 @@ test("future IBM-compatible shape stays pending and credential-gated", () => {
 });
 
 test("server-owned capability configuration registers a future adapter without vendor semantics", async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movie-inator-live-seam-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "movieinator-live-seam-"));
   const secretRef = "projects/demo-project/secrets/partner-auth/versions/latest";
   const capability = createPartnerCapability({
     provider: { provider_id: "future.configured", display_name: "Future configured partner", product_ref: "exact-product-record-pending", confirmation_state: "confirmed" },
