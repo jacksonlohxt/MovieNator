@@ -311,10 +311,25 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   assert.equal(app.store.getProducerPacket(packet.packet_id).provenance.external, false);
 });
 
+test("producer trust disclosure distinguishes local-only mode from configured external evidence", () => {
+  const html = fs.readFileSync(path.join(process.cwd(), "web/index.html"), "utf8");
+  assert.doesNotMatch(html, /nothing is sent to an external service/i);
+  assert.match(html, /local-only mode, no external research request is made/i);
+  assert.match(html, /configured and enabled Parallel Search/i);
+  assert.match(html, /bounded research queries and receive clearly labelled, unverified external evidence/i);
+  assert.match(html, /credentials remain server-side and never appear in the browser/i);
+});
+
 test("producer browser DOM contract exposes proof sections, citation focus hooks, safe copy, and exports", () => {
   const html = fs.readFileSync(path.join(process.cwd(), "web/index.html"), "utf8");
   const app = fs.readFileSync(path.join(process.cwd(), "web/app.js"), "utf8");
-  for (const id of ["producer-source-inventory", "producer-facts", "producer-scenes", "producer-budget-inputs", "producer-access", "producer-conflicts", "producer-questions", "producer-next-steps", "copy-producer-handoff", "export-producer-markdown", "export-producer-json", "export-producer-csv", "evidence-drawer"]) assert.match(html, new RegExp(`id="${id}"`), id);
+  for (const id of ["producer-source-inventory", "producer-facts", "producer-scenes", "producer-budget-inputs", "producer-access", "producer-conflicts", "producer-questions", "producer-next-steps", "producer-user-result", "producer-user-priorities", "producer-developer-details", "producer-activity-summary", "producer-developer-run-evidence", "copy-producer-handoff", "export-producer-markdown", "export-producer-json", "export-producer-csv", "evidence-drawer"]) assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(html, /role="radiogroup" aria-label="Producer presentation mode"/);
+  assert.match(html, /data-producer-mode="user" aria-checked="true"/);
+  assert.match(html, /data-producer-mode="developer" aria-checked="false"/);
+  assert.match(app, /producerPresentationModes/);
+  assert.match(app, /SESSION_KEYS\.producerPresentationMode/);
+  assert.match(app, /producerPriorityItems/);
   assert.match(app, /openProducerCitation/);
   assert.match(app, /lastFocused = document\.activeElement/);
   assert.match(app, /copyProducerHandoff/);
