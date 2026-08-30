@@ -311,6 +311,15 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   assert.equal(app.store.getProducerPacket(packet.packet_id).provenance.external, false);
 });
 
+test("producer trust disclosure distinguishes local-only mode from configured external evidence", () => {
+  const html = fs.readFileSync(path.join(process.cwd(), "web/index.html"), "utf8");
+  assert.doesNotMatch(html, /nothing is sent to an external service/i);
+  assert.match(html, /local-only mode, no external research request is made/i);
+  assert.match(html, /configured and enabled Parallel Search/i);
+  assert.match(html, /bounded research queries and receive clearly labelled, unverified external evidence/i);
+  assert.match(html, /credentials remain server-side and never appear in the browser/i);
+});
+
 test("producer browser DOM contract exposes proof sections, citation focus hooks, safe copy, and exports", () => {
   const html = fs.readFileSync(path.join(process.cwd(), "web/index.html"), "utf8");
   const app = fs.readFileSync(path.join(process.cwd(), "web/app.js"), "utf8");
