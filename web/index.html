@@ -42,6 +42,16 @@
 
       <section id="producer-section" class="panel grounding-panel producer-panel" data-workflow-surface="producer" aria-labelledby="producer-title">
         <div class="section-heading"><div><p class="section-kicker">Start here</p><h2 id="producer-title">Upload your production source bundle.</h2></div><span class="step-badge">1 · Upload &amp; label</span></div>
+        <div class="producer-mode-control">
+          <fieldset>
+            <legend>Presentation mode</legend>
+            <div class="producer-mode-options" role="radiogroup" aria-label="Producer presentation mode">
+              <button class="producer-mode-button is-selected" type="button" role="radio" data-producer-mode="user" aria-checked="true" aria-controls="producer-presentations">User mode</button>
+              <button class="producer-mode-button" type="button" role="radio" data-producer-mode="developer" aria-checked="false" aria-controls="producer-presentations">Developer mode</button>
+            </div>
+            <p id="producer-mode-description" class="field-help">Focused view: the most consequential conflicts and gaps appear first.</p>
+          </fieldset>
+        </div>
         <p class="state-copy">Upload the primary screenplay and up to eleven companion production sources your team already uses: location and access, schedule assumptions, budget inputs, rights and clearance, department notes, and more. MovieInator keeps every source's exact page or section and line locations and its own citation.</p>
         <div class="producer-trust" role="note" aria-live="polite">
           <strong>A label does not verify a fact.</strong>
@@ -64,30 +74,47 @@
           <div class="field-group"><label for="producer-decision-context">Decision context <span class="required">Optional</span></label><textarea id="producer-decision-context" rows="3" maxlength="1000" placeholder="e.g. We need to confirm Mill access before locking Scene 7's shoot date."></textarea><span class="field-help">A plain-language note only. It cannot select a provider, model, tool, threshold, or approval.</span></div>
           <button id="submit-producer-packet" class="button button-primary" type="submit"><span>Prepare intake packet</span><span aria-hidden="true">→</span></button>
         </form>
-        <div id="producer-run" class="grounding-run" aria-live="polite" hidden><div class="run-status-row"><div><span class="status-icon status-icon-running" aria-hidden="true">◌</span><span id="producer-phase">Reconciling source records</span></div></div></div>
+        <div id="producer-run" class="grounding-run" aria-live="polite" hidden>
+          <div class="run-status-row"><div><span class="status-icon status-icon-running" aria-hidden="true">◌</span><span id="producer-phase">Reconciling source records</span></div></div>
+          <p id="producer-activity-summary" class="producer-activity-summary" role="status" aria-live="polite">We are reconciling the supplied records. No approval, booking, clearance, budget decision, or producer decision is being made.</p>
+          <section id="producer-developer-run-evidence" class="producer-developer-run-evidence" aria-labelledby="producer-developer-run-title" hidden>
+            <div class="producer-developer-subheading"><h4 id="producer-developer-run-title">Run evidence</h4><span class="field-help">Safe status and timing only</span></div>
+            <dl class="producer-run-meta"><div><dt>State</dt><dd id="producer-run-state">Accepted</dd></div><div><dt>Phase</dt><dd id="producer-run-phase">Intake</dd></div><div><dt>Last event</dt><dd id="producer-run-event-seq">0</dd></div><div><dt>Updated</dt><dd id="producer-run-updated">Not available</dd></div></dl>
+            <ol id="producer-stage-events" class="producer-stage-events" aria-label="Producer packet stage transitions"></ol>
+          </section>
+        </div>
         <div id="producer-failure" class="grounding-failure" role="alert" hidden></div>
         <article id="producer-result" class="producer-result" aria-labelledby="producer-result-title" hidden>
           <div class="result-heading"><p class="section-kicker">3 · Review · Source-grounded packet</p><h3 id="producer-result-title">Producer Intake Decision Packet</h3></div>
-          <p id="producer-result-summary" class="producer-summary"></p>
-          <div class="brief-actions"><button id="copy-producer-handoff" class="button button-secondary" type="button">Copy read-only handoff</button><a id="export-producer-markdown" class="button button-secondary" href="#" download>Export Markdown</a><a id="export-producer-json" class="button button-secondary" href="#" download>Export JSON</a><a id="export-producer-csv" class="button button-secondary" href="#" download>Export CSV</a><span id="producer-copy-status" class="field-help" role="status" aria-live="polite"></span></div>
-          <div id="producer-handoff" class="producer-handoff" role="status"></div>
-          <section class="brief-section"><h4>Source and version manifest</h4><div id="producer-source-manifest" class="producer-table-wrap"></div></section>
-          <section class="brief-section"><h4>Exact facts</h4><div id="producer-facts" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Scene breakdown and atmosphere</h4><p class="field-help">Scene summaries, dialogue/action cues, actor counts, character signals, time/weather, and ambient cues are source-grounded. Unestablished details remain open questions.</p><div id="producer-scenes" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Production elements</h4><div id="producer-elements" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Budget-risk observations</h4><p class="field-help">These are bounded observations from source signals, not budget amounts, tier decisions, forecasts, or approvals. Route them to a human line producer or department lead.</p><div id="producer-budget-risks" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Coverage gaps</h4><div id="producer-coverage-gaps" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Locations and timing</h4><div id="producer-locations" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Cast and role demands</h4><div id="producer-cast" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Department requirements</h4><div id="producer-departments" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Schedule and budget inputs</h4><div id="producer-budget-inputs" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Rights, access, and logistics</h4><div id="producer-access" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Conflicts – both source sides</h4><div id="producer-conflicts" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Decision and question register</h4><div id="producer-questions" class="brief-list"></div></section>
-          <section class="brief-section"><h4>Gaps and next steps</h4><div id="producer-next-steps" class="brief-list"></div></section>
-          <section class="brief-section"><h4>External evidence (Parallel Search)</h4><p class="field-help">Externally researched findings, not verified against the uploaded sources. Each row cites the exact Parallel Search result and routes to a human for verification; none of this is a legal conclusion, approval, or booking.</p><div id="producer-external-evidence" class="brief-list"></div></section>
-          <details class="citation-details"><summary>Source citations</summary><div id="producer-citations" class="grounding-citations"></div></details>
-          <p id="producer-limitations" class="limitation-note"></p>
+          <div class="brief-actions"><button id="copy-producer-handoff" class="button button-secondary" type="button">Copy read-only handoff</button><a id="export-producer-markdown" class="button button-secondary developer-only-action" href="#" download>Export Markdown</a><a id="export-producer-json" class="button button-secondary developer-only-action" href="#" download>Export JSON</a><a id="export-producer-csv" class="button button-secondary developer-only-action" href="#" download>Export CSV</a><span id="producer-copy-status" class="field-help" role="status" aria-live="polite"></span></div>
+          <div id="producer-presentations">
+            <section id="producer-user-result" data-producer-presentation="user" aria-labelledby="producer-user-title">
+              <div class="producer-user-intro"><p class="section-kicker">User mode · Focused review</p><h4 id="producer-user-title">What needs attention first</h4><p class="producer-ready-status" role="status">Packet ready for human review. No approval, booking, clearance, budget decision, or producer decision was made.</p><p id="producer-user-summary" class="producer-summary"></p></div>
+              <p class="producer-user-guidance">These are the packet's existing conflicts and gaps, ordered for a quick human review. Each item keeps its evidence state, owner, priority, reason, next action, and source citation when available.</p>
+              <div id="producer-user-priorities" class="brief-list"></div>
+            </section>
+            <section id="producer-developer-details" data-producer-presentation="developer" aria-labelledby="producer-developer-title" hidden>
+              <div class="producer-developer-intro"><p class="section-kicker">Developer mode · Detailed packet</p><h4 id="producer-developer-title">Inspect the complete source-grounded record</h4><p id="producer-result-summary" class="producer-summary"></p></div>
+              <div id="producer-handoff" class="producer-handoff" role="status"></div>
+              <section class="brief-section"><h4>Source and version manifest</h4><div id="producer-source-manifest" class="producer-table-wrap"></div></section>
+              <section class="brief-section"><h4>Exact facts</h4><div id="producer-facts" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Scene breakdown and atmosphere</h4><p class="field-help">Scene summaries, dialogue/action cues, actor counts, character signals, time/weather, and ambient cues are source-grounded. Unestablished details remain open questions.</p><div id="producer-scenes" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Production elements</h4><div id="producer-elements" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Budget-risk observations</h4><p class="field-help">These are bounded observations from source signals, not budget amounts, tier decisions, forecasts, or approvals. Route them to a human line producer or department lead.</p><div id="producer-budget-risks" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Coverage gaps</h4><div id="producer-coverage-gaps" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Locations and timing</h4><div id="producer-locations" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Cast and role demands</h4><div id="producer-cast" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Department requirements</h4><div id="producer-departments" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Schedule and budget inputs</h4><div id="producer-budget-inputs" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Rights, access, and logistics</h4><div id="producer-access" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Conflicts – both source sides</h4><div id="producer-conflicts" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Decision and question register</h4><div id="producer-questions" class="brief-list"></div></section>
+              <section class="brief-section"><h4>Gaps and next steps</h4><div id="producer-next-steps" class="brief-list"></div></section>
+              <section class="brief-section"><h4>External evidence (Parallel Search)</h4><p class="field-help">Externally researched findings, not verified against the uploaded sources. Each row cites the exact Parallel Search result and routes to a human for verification; none of this is a legal conclusion, approval, or booking.</p><div id="producer-external-evidence" class="brief-list"></div></section>
+              <details class="citation-details"><summary>Source citations</summary><div id="producer-citations" class="grounding-citations"></div></details>
+              <p id="producer-limitations" class="limitation-note"></p>
+            </section>
+          </div>
         </article>
       </section>
 

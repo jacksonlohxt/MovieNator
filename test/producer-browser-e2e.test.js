@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createApp } from "../src/server.js";
+import { buildProducerDecisionPacket } from "../src/producer-consolidation.js";
 
 const ACTION_TIMEOUT_MS = 8_000;
 const TEST_TIMEOUT_MS = 45_000;
@@ -76,7 +77,13 @@ test(
   "producer browser E2E renders the four-file fixture, both-sided conflict, ledger, citation focus return, and safe copy/export",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
-    const app = createApp({ dataPath: tempPath() });
+    const app = createApp({
+      dataPath: tempPath(),
+      producerBuilder: async (sources, options) => {
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        return buildProducerDecisionPacket(sources, options);
+      },
+    });
     await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
     t.after(() => app.server.close());
     const base = `http://127.0.0.1:${app.server.address().port}`;
@@ -102,13 +109,15 @@ test(
 
     await page.goto(base, { waitUntil: "domcontentloaded" });
 
-    // The Producer Intake Decision Packet is the default primary tab: no click
-    // through "Developer details" or any other surface is required to reach it.
+    // The Producer Intake Decision Packet is the default primary tab and User mode
+    // is selected without requiring a technical details surface.
     await assert.doesNotReject(page.waitForSelector("#producer-section:not([hidden])", { timeout: ACTION_TIMEOUT_MS }));
     const heroTitle = await page.textContent("#page-title");
     assert.match(heroTitle, /decision packet/i);
     const producerTabPressed = await page.getAttribute('[data-workflow="producer"]', "aria-pressed");
     assert.equal(producerTabPressed, "true");
+    assert.equal(await page.locator("[data-producer-mode]").count(), 2);
+    assert.equal(await page.getAttribute('[data-producer-mode="user"]', "aria-checked"), "true");
 
     // Step 1: upload and label the four-file bundle.
     await page.setInputFiles("#producer-files", northlineFixtureFiles());
@@ -128,8 +137,36 @@ test(
 
     // Step 2: optional decision context, then generate the packet.
     await page.fill("#producer-decision-context", "Confirm Mill access before locking Scene 7's shoot date.");
+    // Changing presentation while the run is pending must not restart or alter it.
+    await page.click('[data-producer-mode="developer"]');
     await page.click("#submit-producer-packet");
+    await page.waitForSelector("#producer-developer-run-evidence:not([hidden])");
     await page.waitForSelector("#producer-result:not([hidden])");
+    await page.waitForSelector("#producer-developer-details:not([hidden])");
+    assert.equal(await page.getAttribute('[data-producer-mode="developer"]', "aria-checked"), "true");
+
+    // User mode keeps the same result but focuses it on consequential gaps.
+    await page.click('[data-producer-mode="user"]');
+    await page.waitForSelector("#producer-user-result:not([hidden])");
+    assert.equal(await page.getAttribute('[data-producer-mode="user"]', "aria-checked"), "true");
+    assert.match(await page.textContent("#producer-user-result"), /Packet ready for human review/);
+    const userPriorityText = await page.textContent("#producer-user-priorities");
+    assert.match(userPriorityText, /Evidence state|Owner|Why it matters|Next action/);
+    assert.match(userPriorityText, /Schedule assumption conflicts with location access evidence/);
+    assert.match(userPriorityText, /Inspect citation/);
+    assert.equal(await page.locator("#producer-developer-details").isHidden(), true);
+    assert.equal(await page.locator(".developer-only-action").first().isHidden(), true);
+
+    // The focused view remains understandable at a narrow responsive width.
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.match(await page.textContent("#producer-user-result"), /What needs attention first/);
+    assert.ok(await page.locator('[data-producer-mode="user"]').isVisible());
+    await page.setViewportSize({ width: 1280, height: 960 });
+
+    // Developer mode keeps the complete packet available without changing the result.
+    await page.click('[data-producer-mode="developer"]');
+    await page.waitForSelector("#producer-developer-details:not([hidden])");
+    assert.equal(await page.getAttribute('[data-producer-mode="developer"]', "aria-checked"), "true");
 
     // Scene 7 is present with its exact source heading.
     const sceneText = await page.textContent("#producer-scenes");

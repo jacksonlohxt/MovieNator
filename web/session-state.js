@@ -2,6 +2,7 @@ export const SESSION_KEYS = Object.freeze({
   readinessRun: "movieinator-readiness-run-id",
   groundingDocument: "movieinator-grounding-document-id",
   groundingRun: "movieinator-grounding-run-id",
+  producerPresentationMode: "movieinator-producer-presentation-mode",
 });
 
 // Keep both previously shipped key families readable while old sessions expire.

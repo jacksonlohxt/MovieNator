@@ -95,6 +95,11 @@ const groundingEventNames = ["script.accepted", "script.queued", "script.groundi
 const groundingTerminalStates = new Set(["succeeded", "grounding_gap", "failed", "canceled"]);
 const producerRunEventNames = ["producer_run.accepted", "producer_run.queued", "producer_run.reconciling", "producer_run.verifying", "producer_run.succeeded", "producer_run.failed"];
 const producerRunTerminalStates = new Set(["succeeded", "failed"]);
+const producerPresentationModes = new Set(["user", "developer"]);
+const producerModeCopy = {
+  user: "Focused view: the most consequential conflicts and gaps appear first.",
+  developer: "Detailed view: the complete packet, provenance, limitations, exports, and safe run evidence remain available.",
+};
 const runLive = $("#run-live");
 const progressLabels = ["Accepted", "Queued", "Planning", "Resolving asset", "Quality evidence", "Governance evidence", "Lineage evidence", "Composing", "Validating"];
 const terminalStates = new Set(["needs_input", "succeeded", "canceled", "expired", "failed"]);
@@ -117,6 +122,9 @@ let producerPacketPollTimer = null;
 let producerPacketReconnectTimer = null;
 let producerLastEventSeq = 0;
 let currentProducerPacketId = null;
+let producerPresentationMode = "user";
+let producerRunEvents = [];
+let producerLatestEvent = null;
 const groundingFallbackRuns = new Set();
 const readinessFallbackRuns = new Set();
 let runtimeStatus = { state: "not-yet-checked" };
@@ -172,6 +180,36 @@ function resetStatePanels() {
   show(runSection, false);
   show(resultSection, false);
   show(recoverySection, false);
+}
+
+function applyProducerMode() {
+  const mode = producerPresentationMode;
+  document.querySelectorAll("[data-producer-mode]").forEach((button) => {
+    const selected = button.dataset.producerMode === mode;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-checked", String(selected));
+  });
+  setText("#producer-mode-description", producerModeCopy[mode]);
+  const result = $("#producer-result");
+  if (result) result.dataset.presentationMode = mode;
+  document.querySelectorAll("[data-producer-presentation]").forEach((surface) => {
+    const selected = surface.dataset.producerPresentation === mode;
+    show(surface, selected);
+    surface.setAttribute("aria-hidden", String(!selected));
+  });
+  document.querySelectorAll(".developer-only-action").forEach((action) => show(action, mode === "developer"));
+  show($("#producer-developer-run-evidence"), mode === "developer" && Boolean($("#producer-run") && !producerRun.hidden));
+}
+
+function setProducerMode(mode) {
+  if (!producerPresentationModes.has(mode)) return;
+  producerPresentationMode = mode;
+  try {
+    writeSessionValue(sessionStorage, SESSION_KEYS.producerPresentationMode, mode);
+  } catch {
+    // Presentation preference is optional and must not interrupt the workflow.
+  }
+  applyProducerMode();
 }
 
 function setWorkflow(mode) {
@@ -1039,7 +1077,7 @@ function appendProducerMetaRow(list, label, value) {
   list.append(row);
 }
 
-function appendProducerCitationButtons(parent, citationIds, packetId) {
+function appendProducerCitationButtons(parent, citationIds, packetId, { labelPrefix = "Source" } = {}) {
   if (!citationIds?.length) return;
   const links = document.createElement("div");
   links.className = "brief-citations";
@@ -1047,7 +1085,7 @@ function appendProducerCitationButtons(parent, citationIds, packetId) {
     const button = document.createElement("button");
     button.className = "evidence-button";
     button.type = "button";
-    button.textContent = `Source ${citationId.slice(-8)}`;
+    button.textContent = `${labelPrefix} ${citationId.slice(-8)}`;
     button.addEventListener("click", () => openProducerCitation(packetId, citationId));
     links.append(button);
   }
@@ -1185,6 +1223,108 @@ function renderProducerEvidenceList(selector, items, emptyText, packetId) {
   }
 }
 
+function producerPriorityItems(packet) {
+  const candidates = [
+    ...(packet.conflicts || []).map((item) => ({ item, kind: "conflict", rank: 0 })),
+    ...(packet.coverage_gaps || []).map((item) => ({ item, kind: "gap", rank: 1 })),
+    ...(packet.gaps_and_next_steps || []).map((item) => ({ item, kind: "gap", rank: 1 })),
+  ];
+  const priorityRank = { high: 0, medium: 1, low: 2, unset: 3 };
+  const seen = new Set();
+  return candidates
+    .filter(({ item }) => {
+      const key = item.gap_id || item.conflict_id || item.entry_id || `${item.related_to || ""}|${item.next_action || ""}|${item.question || item.text || item.title || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => left.rank - right.rank || (priorityRank[left.item.priority] ?? 3) - (priorityRank[right.item.priority] ?? 3))
+    .slice(0, 6)
+    .map(({ item }) => item);
+}
+
+function producerUserValue(item, field, packet) {
+  if (field === "priority" && item.priority === "unset") return "Not supplied";
+  if (item[field] !== undefined && item[field] !== null && item[field] !== "") return item[field];
+  if (field === "owner") return packet.handoff?.next_owner || "Not assigned in the packet";
+  if (field === "priority") return "Not recorded in the packet";
+  if (field === "why_it_matters") return item.impact || "The packet does not record why this item matters.";
+  if (field === "next_action") {
+    const related = [...(packet.gaps_and_next_steps || []), ...(packet.decision_question_register || [])].find((candidate) => candidate.next_action || candidate.question === item.question);
+    return related?.next_action || packet.handoff?.next_action || "Review the open decision register with a human owner.";
+  }
+  return "Not established in the packet";
+}
+
+function appendProducerUserDetail(parent, label, value) {
+  const row = document.createElement("div");
+  row.className = "producer-user-detail";
+  const name = document.createElement("strong");
+  name.textContent = label;
+  const detail = document.createElement("span");
+  detail.textContent = Array.isArray(value) ? value.join(", ") : value;
+  row.append(name, detail);
+  parent.append(row);
+}
+
+function renderProducerUserPriorities(packet) {
+  const list = $("#producer-user-priorities");
+  list.replaceChildren();
+  const items = producerPriorityItems(packet);
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "field-help";
+    empty.textContent = "No conflicts or missing-input gaps were recorded in the supplied packet.";
+    list.append(empty);
+    return;
+  }
+  for (const item of items) {
+    const card = document.createElement("article");
+    card.className = "brief-card producer-user-priority-card";
+    const title = document.createElement("h5");
+    title.textContent = item.title || item.question || item.text || "Open packet item";
+    card.append(title);
+    const badges = document.createElement("div");
+    badges.className = "producer-badge-row";
+    const state = document.createElement("span");
+    state.className = "producer-evidence-state";
+    state.textContent = `Evidence state: ${titleCase(item.evidence_state || "not_established")}`;
+    badges.append(state);
+    const priority = document.createElement("span");
+    priority.className = `producer-priority producer-priority-${item.priority || "unset"}`;
+    priority.textContent = `Priority: ${titleCase(producerUserValue(item, "priority", packet))}`;
+    badges.append(priority);
+    card.append(badges);
+    const details = document.createElement("div");
+    details.className = "producer-user-details";
+    appendProducerUserDetail(details, "What is recorded", item.text || item.question || item.value || item.impact || "Not established in the packet");
+    appendProducerUserDetail(details, "Why it matters", producerUserValue(item, "why_it_matters", packet));
+    appendProducerUserDetail(details, "Owner", producerUserValue(item, "owner", packet));
+    appendProducerUserDetail(details, "Next action", producerUserValue(item, "next_action", packet));
+    card.append(details);
+    if (item.assertions?.length) {
+      const heading = document.createElement("strong");
+      heading.className = "producer-assertions-heading";
+      heading.textContent = "Both source sides:";
+      card.append(heading);
+      const assertions = document.createElement("ul");
+      assertions.className = "producer-assertion-list";
+      for (const assertion of item.assertions) {
+        const entry = document.createElement("li");
+        const assertionText = document.createElement("span");
+        assertionText.className = "producer-assertion-text";
+        assertionText.textContent = `${titleCase(assertion.classification || "source record")}: ${assertion.text}`;
+        entry.append(assertionText);
+        appendProducerCitationButtons(entry, assertion.citation_ids, packet.packet_id, { labelPrefix: "Inspect citation" });
+        assertions.append(entry);
+      }
+      card.append(assertions);
+    }
+    appendProducerCitationButtons(card, item.citation_ids, packet.packet_id, { labelPrefix: "Inspect citation" });
+    list.append(card);
+  }
+}
+
 function renderProducerLedger(selector, budgetInputs, scheduleInputs, emptyText, packetId) {
   renderProducerEvidenceList(selector, [...(scheduleInputs || []), ...(budgetInputs || [])], emptyText, packetId);
 }
@@ -1192,7 +1332,10 @@ function renderProducerLedger(selector, budgetInputs, scheduleInputs, emptyText,
 function renderProducerPacket(packet) {
   currentProducerPacket = packet;
   show(producerResult, true);
-  setText("#producer-result-summary", packet.executive_summary?.text || "No source-grounded executive summary was established.");
+  const summary = packet.executive_summary?.text || "No source-grounded executive summary was established.";
+  setText("#producer-result-summary", summary);
+  setText("#producer-user-summary", summary);
+  renderProducerUserPriorities(packet);
   const handoff = $("#producer-handoff");
   handoff.textContent = `${packet.handoff?.status || "review_required"} · Handoff owner: ${packet.handoff?.next_owner || "producer"}. ${packet.handoff?.next_action || "Review the open decision register."}`;
   renderProducerSourceTable("#producer-source-manifest", packet.source_inventory);
@@ -1226,6 +1369,7 @@ function renderProducerPacket(packet) {
   $("#export-producer-markdown").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=markdown`;
   $("#export-producer-json").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=json`;
   $("#export-producer-csv").href = `/v1/producer-packets/${encodeURIComponent(packet.packet_id)}/handoff?format=csv`;
+  applyProducerMode();
 }
 
 function formatProducerCitationLocations(sourceLocations) {
@@ -1361,6 +1505,7 @@ function subscribeProducerPacket(packetId) {
       try {
         const payload = JSON.parse(event.data);
         producerLastEventSeq = Math.max(producerLastEventSeq, Number(event.lastEventId || payload.seq || 0));
+        recordProducerRunEvent({ ...payload, seq: Number(event.lastEventId || payload.seq || 0) });
       } catch {
         // A malformed event still triggers a safe refresh below.
       }
@@ -1390,6 +1535,51 @@ async function refreshProducerPacketRun(packetId) {
   }
 }
 
+function recordProducerRunEvent(event) {
+  if (!event || typeof event !== "object") return;
+  const sequence = Number(event.seq || event.lastEventId || 0);
+  if (sequence && producerRunEvents.some((item) => Number(item.seq) === sequence)) return;
+  producerRunEvents.push({ ...event, seq: sequence });
+  producerRunEvents.sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
+  producerLatestEvent = event;
+  renderProducerRunDetails(currentProducerPacketId ? { packet_id: currentProducerPacketId } : {});
+}
+
+function formatProducerRunTime(value) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function producerActivityText(run) {
+  const eventType = producerLatestEvent?.type;
+  if (eventType === "producer_run.verifying") return "We are checking the supplied citations and safe packet fields.";
+  if (eventType === "producer_run.queued") return "We are organizing the supplied material for reconciliation.";
+  if (eventType === "producer_run.failed") return "The packet needs a safe recovery. No approval, booking, clearance, budget decision, or producer decision was made.";
+  if (run.state === "accepted") return "Your request was received. We are starting a read-only review of the supplied material.";
+  if (run.state === "queued") return "We are reading the supplied material and organizing its records.";
+  return "We are reconciling the supplied records. No approval, booking, clearance, budget decision, or producer decision is being made.";
+}
+
+function renderProducerRunDetails(run = {}) {
+  setText("#producer-run-state", titleCase(run.state || producerLatestEvent?.state || "accepted"));
+  setText("#producer-run-phase", titleCase(run.phase || producerLatestEvent?.step || "intake"));
+  setText("#producer-run-event-seq", run.last_event_seq || producerLatestEvent?.seq || producerRunEvents.at(-1)?.seq || "0");
+  setText("#producer-run-updated", formatProducerRunTime(run.updated_at || producerLatestEvent?.occurred_at));
+  const list = $("#producer-stage-events");
+  if (!list) return;
+  list.replaceChildren();
+  for (const event of producerRunEvents) {
+    const item = document.createElement("li");
+    const eventName = document.createElement("strong");
+    eventName.textContent = titleCase(event.type || "run update");
+    const eventDetail = document.createElement("span");
+    eventDetail.textContent = `${event.display || "Safe run update"} · ${formatProducerRunTime(event.occurred_at)}`;
+    item.append(eventName, eventDetail);
+    list.append(item);
+  }
+}
+
 function renderProducerRunFailure(run) {
   show(producerResult, false);
   producerFailure.replaceChildren();
@@ -1414,6 +1604,8 @@ async function retryProducerPacketRun(packetId) {
     if (!response.ok) throw new Error(data.error?.message || "The producer packet retry could not be accepted");
     currentProducerPacketId = data.packet_id;
     producerLastEventSeq = data.last_event_seq || 0;
+    producerRunEvents = [];
+    producerLatestEvent = null;
     show(producerFailure, false);
     renderProducerRun(data);
     if (!producerRunTerminalStates.has(data.state)) subscribeProducerPacket(data.packet_id);
@@ -1424,6 +1616,9 @@ async function retryProducerPacketRun(packetId) {
 }
 
 function renderProducerRun(run) {
+  renderProducerRunDetails(run);
+  setText("#producer-activity-summary", producerActivityText(run));
+  applyProducerMode();
   if (run.state === "succeeded") {
     show(producerRun, false);
     renderProducerPacket(run);
@@ -1437,8 +1632,11 @@ function renderProducerRun(run) {
   }
   show(producerFailure, false);
   show(producerRun, true);
-  const phase = { accepted: "Preparing your packet", queued: "Reconciling source records", running: "Reconciling source records" }[run.state] || "Reconciling source records";
+  const phase = { accepted: "Preparing your packet", queued: "Reading supplied material", running: "Reconciling source records" }[run.state] || "Reconciling source records";
   setText("#producer-phase", phase);
+  setText("#producer-activity-summary", producerActivityText(run));
+  renderProducerRunDetails(run);
+  applyProducerMode();
 }
 
 async function requestProducerPacket() {
@@ -1450,6 +1648,8 @@ async function requestProducerPacket() {
   show(producerFailure, false);
   show(producerResult, false);
   show(producerRun, true);
+  producerRunEvents = [];
+  producerLatestEvent = null;
   setText("#producer-phase", "Reconciling source records");
   $("#submit-producer-packet").disabled = true;
   try {
@@ -1585,6 +1785,7 @@ producerForm.addEventListener("submit", uploadProducerBundle);
 producerGenerateForm.addEventListener("submit", generateProducerPacket);
 producerFiles.addEventListener("change", renderProducerFileLabels);
 document.querySelectorAll("[data-workflow]").forEach((button) => button.addEventListener("click", () => setWorkflow(button.dataset.workflow)));
+document.querySelectorAll("[data-producer-mode]").forEach((button) => button.addEventListener("click", () => setProducerMode(button.dataset.producerMode)));
 problem.addEventListener("input", updateCount);
 document.querySelectorAll("[data-example]").forEach((button) => button.addEventListener("click", () => applyExample(button.dataset.example)));
 $("#cancel-run").addEventListener("click", cancelRun);
@@ -1614,6 +1815,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+try {
+  const savedProducerMode = sessionStorage.getItem(SESSION_KEYS.producerPresentationMode);
+  if (producerPresentationModes.has(savedProducerMode)) producerPresentationMode = savedProducerMode;
+} catch {
+  // A missing session store simply uses the safe User mode default.
+}
+applyProducerMode();
 setWorkflow("producer");
 loadToolReadiness();
 restoreGroundingSession();
