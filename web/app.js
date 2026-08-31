@@ -1130,13 +1130,12 @@ function renderProducerEvidenceList(selector, items, emptyText, packetId) {
     const text = document.createElement("p");
     text.textContent = baseText;
     card.append(text);
-    if (item.setting || item.int_ext || item.time_of_day || item.actor_count !== undefined) {
+    if (item.setting || item.int_ext || item.time_of_day || item.dialogue_characters?.length || item.atmosphere) {
       const sceneMeta = document.createElement("div");
       sceneMeta.className = "producer-meta-list";
       appendProducerMetaRow(sceneMeta, "Setting", item.setting);
       appendProducerMetaRow(sceneMeta, "Interior / exterior", item.int_ext);
       appendProducerMetaRow(sceneMeta, "Time", item.time_of_day);
-      appendProducerMetaRow(sceneMeta, "Actor count", item.actor_count ?? "Not established");
       appendProducerMetaRow(sceneMeta, "Dialogue characters", item.dialogue_characters?.join(", "));
       appendProducerMetaRow(sceneMeta, "Weather", item.atmosphere?.weather?.join(" "));
       appendProducerMetaRow(sceneMeta, "Ambient", item.atmosphere?.ambient_considerations?.join(" "));

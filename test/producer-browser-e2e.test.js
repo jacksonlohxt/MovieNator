@@ -149,6 +149,7 @@ test(
     await page.click('[data-producer-mode="user"]');
     await page.waitForSelector("#producer-user-result:not([hidden])");
     assert.equal(await page.getAttribute('[data-producer-mode="user"]', "aria-checked"), "true");
+    assert.doesNotMatch(await page.textContent("#producer-user-result"), /actor count|actors:/i);
     assert.match(await page.textContent("#producer-user-result"), /Packet ready for human review/);
     const userPriorityText = await page.textContent("#producer-user-priorities");
     assert.match(userPriorityText, /Evidence state|Owner|Why it matters|Next action/);
@@ -171,7 +172,8 @@ test(
     // Scene 7 is present with its exact source heading.
     const sceneText = await page.textContent("#producer-scenes");
     assert.match(sceneText, /SCENE 7 - INT\. MILL - NIGHT/);
-    assert.match(sceneText, /Actor count|not established/i);
+    assert.doesNotMatch(sceneText, /actor count|actors:/i);
+    assert.doesNotMatch(await page.textContent("#producer-developer-details"), /actor counts?|actors:/i);
     const elementText = await page.textContent("#producer-elements");
     assert.match(elementText, /location_or_set|Location or set|SCENE 7/i);
     const budgetRiskText = await page.textContent("#producer-budget-risks");
@@ -241,6 +243,8 @@ test(
       const body = await response.text();
       assert.ok(body.length > 0, `${format} export is non-empty`);
       assert.doesNotMatch(body, /<img[^>]*onerror/i, `${format} export never carries live markup`);
+      assert.doesNotMatch(body, /actor_count|actor count|actors:/i, `${format} export omits actor-count presentation`);
+      if (format === "json") assert.equal(Object.hasOwn(JSON.parse(body).scene_index[0], "actor_count"), false);
     }
 
     // Never render source text as HTML anywhere in the rendered result.
