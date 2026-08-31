@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync } from "node:zlib";
 import { createApp } from "../src/server.js";
 import { buildProducerDecisionPacket } from "../src/producer-consolidation.js";
 
@@ -31,14 +32,17 @@ function tempPath() {
 // (see src/documents.js), so this line also proves the safety pipeline never
 // stores literal markup, on top of the browser only ever assigning excerpt text
 // via `.textContent`.
+function northlinePdf() {
+  const stream = deflateSync(Buffer.from("BT (SHOOTING DRAFT 3) Tj (SCENE 7 - INT. MILL - NIGHT) Tj (Mara enters the mill.) Tj (Note: <img src=x onerror=window.__pwned=true> should never render as a live element.) Tj ET"));
+  return Buffer.concat([Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`), stream, Buffer.from("\nendstream\nendobj\n%%EOF")]);
+}
+
 function northlineFixtureFiles() {
   return [
     {
-      name: "northline-shooting-script.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from(
-        "SHOOTING DRAFT 3\nSCENE 7 - INT. MILL - NIGHT\nMara enters the mill.\nNote: <img src=x onerror=window.__pwned=true> should never render as a live element.",
-      ),
+      name: "northline-shooting-script.pdf",
+      mimeType: "application/pdf",
+      buffer: northlinePdf(),
     },
     {
       name: "northline-location-access.txt",
@@ -131,7 +135,7 @@ test(
     const inventoryRows = page.locator("#producer-source-inventory tbody tr");
     assert.equal(await inventoryRows.count(), 4);
     const inventoryText = await page.textContent("#producer-source-inventory");
-    for (const filename of ["northline-shooting-script.txt", "northline-location-access.txt", "northline-schedule-assumption.txt", "northline-budget-input.txt"]) {
+    for (const filename of ["northline-shooting-script.pdf", "northline-location-access.txt", "northline-schedule-assumption.txt", "northline-budget-input.txt"]) {
       assert.match(inventoryText, new RegExp(filename.replace(/\./g, "\\.")));
     }
 

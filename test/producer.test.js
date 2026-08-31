@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync } from "node:zlib";
 import { createApp } from "../src/server.js";
 import {
   MAX_PRODUCER_SOURCES,
@@ -259,6 +260,26 @@ test("Northline Producer Intake proof preserves classifications, hashes, both co
   const safe = safeProducerPacketProjection(packet);
   assert.equal(safe.schema_version, PRODUCER_PACKET_SCHEMA);
   assert.equal(safe.bundle_id, packet.bundle_id);
+});
+
+test("strict Producer Intake accepts a compressed PDF screenplay and preserves cited page evidence", async (t) => {
+  const content = deflateSync(Buffer.from("BT (SCENE 7 - INT. MILL - NIGHT) Tj (Mara enters the mill.) Tj ET"));
+  const form = new FormData();
+  form.append("manifest", JSON.stringify({ schema_version: "producer-source-bundle@1", sources: [{ input_ref: "pdf_script", filename: "northline.pdf", source_kind: "primary_screenplay" }] }));
+  form.append("file", new Blob([Buffer.concat([Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length ${content.length} /Filter /FlateDecode >>\nstream\n`), content, Buffer.from("\nendstream\nendobj\n%%EOF")])], { type: "application/pdf" }), "northline.pdf");
+  const { app, base } = await startApp(t);
+  const bundleResponse = await fetch(`${base}/v1/producer-source-bundles`, { method: "POST", body: form });
+  assert.equal(bundleResponse.status, 201, await bundleResponse.clone().text());
+  const bundle = await bundleResponse.json();
+  const accepted = await fetch(`${base}/v1/producer-source-bundles/${bundle.bundle_id}/packets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schema_version: "producer-intake-request@1", bundle_id: bundle.bundle_id }) });
+  const pending = await accepted.json();
+  await app.producerEngine.waitForIdle(pending.packet_id);
+  const packet = await (await fetch(`${base}/v1/producer-packets/${pending.packet_id}`)).json();
+  assert.equal(packet.status, "succeeded");
+  const citation = packet.citations.find((item) => item.excerpt.includes("Mara enters the mill"));
+  assert.ok(citation);
+  assert.equal(citation.source_locations[0].page, 1);
+  assert.match(JSON.stringify(packet.scene_index), /SCENE 7 - INT. MILL - NIGHT/);
 });
 
 test("strict Producer Intake bundle and handoff routes provide safe failures, citations, copy/export projections", async (t) => {

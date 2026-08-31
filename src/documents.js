@@ -1,4 +1,5 @@
 import { TextDecoder } from "node:util";
+import { inflateSync } from "node:zlib";
 import { ContractError, hashValue, redactText, stableStringify } from "./contracts.js";
 import { PRODUCT_DISPLAY_NAME } from "./product-identity.js";
 
@@ -102,15 +103,18 @@ function decodePdfHex(value) {
   if (!/^[0-9a-f]*$/i.test(compact)) return "";
   const padded = compact.length % 2 ? `${compact}0` : compact;
   const bytes = Buffer.from(padded, "hex");
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder("utf-16be", { fatal: false }).decode(bytes.subarray(2));
+  }
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 function extractPdfOperators(value) {
   const text = value.toString("latin1");
   const strings = [];
-  for (const match of text.matchAll(/\(((?:\\.|[^\\])*)\)\s*Tj/g)) strings.push(decodePdfLiteral(match[1]));
+  for (const match of text.matchAll(/\(((?:\\.|[^\\()])*)\)\s*Tj/g)) strings.push(decodePdfLiteral(match[1]));
   for (const match of text.matchAll(/\[((?:.|\n|\r)*?)\]\s*TJ/g)) {
-    for (const literal of match[1].matchAll(/\(((?:\\.|[^\\])*)\)|<([0-9a-f\s]+)>/gi)) {
+    for (const literal of match[1].matchAll(/\(((?:\\.|[^\\()])*)\)|<([0-9a-f\s]+)>/gi)) {
       strings.push(literal[1] !== undefined ? decodePdfLiteral(literal[1]) : decodePdfHex(literal[2]));
     }
   }
@@ -118,22 +122,41 @@ function extractPdfOperators(value) {
   return strings.map((item) => normalizeDocumentText(item)).filter(Boolean);
 }
 
+function decodePdfStream(object) {
+  const streamStart = object.indexOf("stream");
+  if (streamStart < 0) return Buffer.from(object, "latin1");
+  let start = streamStart + 6;
+  if (object[start] === "\r") start += object[start + 1] === "\n" ? 2 : 1;
+  else if (object[start] === "\n") start += 1;
+  const end = object.lastIndexOf("endstream");
+  if (end < start) throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file");
+  let stream = Buffer.from(object.slice(start, end), "latin1");
+  if (/\/FlateDecode(?:\s|\/|>|\])/.test(object.slice(0, streamStart))) {
+    try { stream = inflateSync(stream); } catch { throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file"); }
+  } else if (/\/ASCIIHexDecode(?:\s|\/|>|\])/.test(object.slice(0, streamStart))) {
+    const hex = stream.toString("latin1").replace(/>[^]*$/, "").replace(/\s/g, "");
+    if (!/^[0-9a-f]*$/i.test(hex)) throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file");
+    stream = Buffer.from(hex.length % 2 ? `${hex}0` : hex, "hex");
+  }
+  return stream;
+}
+
 function parsePdf(bytes) {
   const header = bytes.subarray(0, 5).toString("latin1");
   if (header !== "%PDF-") throw new DocumentContractError("INVALID_PDF", "The uploaded file is not a PDF", "file");
   const text = bytes.toString("latin1");
-  const pageMarkers = [...text.matchAll(/\/Type\s*\/Page(?:\s|\/|>)/g)].map((match) => match.index);
+  const objects = new Map();
+  for (const match of text.matchAll(/(?:^|\n)\s*(\d+)\s+\d+\s+obj\s([\s\S]*?)\s*endobj/g)) objects.set(match[1], match[2]);
+  const pages = [...objects.values()].filter((object) => /\/Type\s*\/Page(?:\s|\/|>)/.test(object));
   const segments = [];
-  if (pageMarkers.length) {
-    for (let index = 0; index < pageMarkers.length; index += 1) {
-      const start = pageMarkers[index];
-      const end = pageMarkers[index + 1] ?? text.length;
-      const pageText = extractPdfOperators(Buffer.from(text.slice(start, end), "latin1")).join("\n");
-      if (pageText) segments.push({ text: pageText, location: { kind: "page", page: index + 1 } });
-    }
-  } else {
-    const pageText = extractPdfOperators(bytes).join("\n");
-    if (pageText) segments.push({ text: pageText, location: { kind: "page", page: 1 } });
+  for (let index = 0; index < pages.length; index += 1) {
+    const page = pages[index];
+    const contents = page.match(/\/Contents\s*(?:\[([\s\S]*?)\]|(\d+\s+\d+\s+R))/);
+    const references = contents ? [...(contents[1] || contents[2]).matchAll(/(\d+)\s+\d+\s+R/g)].map((match) => match[1]) : [];
+    const contentObjects = references.map((reference) => objects.get(reference)).filter(Boolean);
+    const streams = contentObjects.length ? contentObjects : [page];
+    const pageText = streams.flatMap((object) => extractPdfOperators(decodePdfStream(object))).join("\n");
+    if (pageText) segments.push({ text: pageText, location: { kind: "page", page: index + 1 } });
   }
   if (!segments.length) throw new DocumentContractError("PDF_NO_TEXT", "The PDF did not contain readable text", "file");
   return segments;
