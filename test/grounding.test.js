@@ -9,6 +9,7 @@ import { FileStore } from "../src/store.js";
 import {
   MAX_DOCUMENT_BYTES,
   MAX_CHUNK_CHARS,
+  MAX_PDF_STREAM_OUTPUT_BYTES,
   DocumentContractError,
   parseGroundingDocument,
   citationForChunk,
@@ -109,6 +110,19 @@ test("production-style compressed multi-page PDF ingestion maps every page and r
   const cited = await citation.json();
   assert.match(cited.excerpt, /signal changes across pages/);
   assert.equal(cited.source_locations[0].page, 2);
+});
+
+test("PDF expansion beyond the stream output bound fails as a safe invalid-PDF error", () => {
+  const expanded = deflateSync(Buffer.from(`BT (${"safe text ".repeat(MAX_PDF_STREAM_OUTPUT_BYTES)}) Tj ET`));
+  const bytes = Buffer.concat([
+    Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length ${expanded.length} /Filter /FlateDecode >>\nstream\n`),
+    expanded,
+    Buffer.from("\nendstream\nendobj\n%%EOF"),
+  ]);
+  assert.throws(
+    () => parseGroundingDocument({ filename: "expanded.pdf", contentType: "application/pdf", bytes }),
+    (error) => error instanceof DocumentContractError && error.code === "INVALID_PDF",
+  );
 });
 
 test("synthetic PDF ingestion preserves page citations and rejects malformed or oversized inputs", () => {

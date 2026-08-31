@@ -14,6 +14,7 @@ export const DOCUMENT_MEDIA_TYPES = Object.freeze({
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 export const MAX_FILENAME_CHARS = 120;
 export const MAX_EXTRACTED_CHARS = 120_000;
+export const MAX_PDF_STREAM_OUTPUT_BYTES = MAX_EXTRACTED_CHARS;
 export const MAX_CHUNK_CHARS = 900;
 export const MAX_DOCUMENT_CHUNKS = 240;
 // A brief is condensed from the whole bounded source, not just a handful of
@@ -132,7 +133,11 @@ function decodePdfStream(object) {
   if (end < start) throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file");
   let stream = Buffer.from(object.slice(start, end), "latin1");
   if (/\/FlateDecode(?:\s|\/|>|\])/.test(object.slice(0, streamStart))) {
-    try { stream = inflateSync(stream); } catch { throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file"); }
+    try {
+      stream = inflateSync(stream, { maxOutputLength: MAX_PDF_STREAM_OUTPUT_BYTES });
+    } catch {
+      throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file");
+    }
   } else if (/\/ASCIIHexDecode(?:\s|\/|>|\])/.test(object.slice(0, streamStart))) {
     const hex = stream.toString("latin1").replace(/>[^]*$/, "").replace(/\s/g, "");
     if (!/^[0-9a-f]*$/i.test(hex)) throw new DocumentContractError("INVALID_PDF", "The PDF contains an unreadable text stream", "file");
