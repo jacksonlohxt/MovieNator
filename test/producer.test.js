@@ -286,12 +286,16 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   assert.equal((await fetch(`${base}/v1/producer-packets/${packet.packet_id}/citations/${citation.citation_id}`)).status, 200);
   const markdown = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=markdown`);
   assert.equal(markdown.status, 200);
-  assert.match(await markdown.text(), /obtain or record the access evidence/);
+  const markdownText = await markdown.text();
+  assert.match(markdownText, /obtain or record the access evidence/);
+  assert.doesNotMatch(markdownText, /actor_count|actor count|actors:/i);
   const jsonHandoff = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=json`);
   assert.equal(jsonHandoff.status, 200);
   const handoff = await jsonHandoff.json();
   assert.equal(handoff.schema_version, "producer-read-only-handoff@1");
   assert.match(JSON.stringify(handoff), /Mara enters/);
+  assert.equal(Object.hasOwn(handoff.scene_index[0], "actor_count"), false);
+  assert.equal(Object.hasOwn(handoff.scene_index[0], "actor_count_basis"), false);
   const csvHandoff = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=csv`);
   assert.equal(csvHandoff.status, 200);
   assert.match(csvHandoff.headers.get("content-type") || "", /text\/csv/);
@@ -299,6 +303,7 @@ test("strict Producer Intake bundle and handoff routes provide safe failures, ci
   assert.match(csvText, /^"section","label","classification","evidence_state","value","owner","priority","citation_ids"/);
   assert.match(csvText, /obtain or record the access evidence/);
   assert.match(csvText, /Mara enters/);
+  assert.doesNotMatch(csvText, /actor_count|actor count|actors:/i);
   const badFormat = await fetch(`${base}/v1/producer-packets/${packet.packet_id}/handoff?format=xml`);
   assert.equal(badFormat.status, 400);
   assert.equal((await badFormat.json()).error.code, "UNSUPPORTED_EXPORT_FORMAT");

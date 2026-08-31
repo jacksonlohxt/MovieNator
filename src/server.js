@@ -550,8 +550,6 @@ function producerHandoffJson(packet) {
       setting: scene.setting,
       int_ext: scene.int_ext,
       time_of_day: scene.time_of_day,
-      actor_count: scene.actor_count,
-      actor_count_basis: scene.actor_count_basis,
       dialogue_characters: scene.dialogue_characters || [],
       dialogue: scene.dialogue || [],
       actions: scene.actions || [],
@@ -594,7 +592,7 @@ function markdownHandoff(packet) {
     ...handoff.exact_facts.map((fact) => `- [${fact.classification}] [${fact.evidence_state}] ${fact.value || fact.text} (citations: ${(fact.citation_ids || []).join(", ") || "none"})`),
     "",
     "## Scene index",
-    ...handoff.scene_index.map((scene) => `- ${scene.scene_heading || scene.scene_reference} | summary: ${scene.scene_summary || "not established"} | actors: ${scene.actor_count ?? "not established"} | dialogue: ${(scene.dialogue || []).map((line) => line.text).join(" ") || "not established"} | actions: ${(scene.actions || []).map((line) => line.text).join(" ") || "not established"} | atmosphere: ${JSON.stringify(scene.atmosphere || {})} | ${scene.classification}; ${scene.evidence_state} (citations: ${(scene.citation_ids || []).join(", ") || "none"})`),
+    ...handoff.scene_index.map((scene) => `- ${scene.scene_heading || scene.scene_reference} | summary: ${scene.scene_summary || "not established"} | dialogue: ${(scene.dialogue || []).map((line) => line.text).join(" ") || "not established"} | actions: ${(scene.actions || []).map((line) => line.text).join(" ") || "not established"} | atmosphere: ${JSON.stringify(scene.atmosphere || {})} | ${scene.classification}; ${scene.evidence_state} (citations: ${(scene.citation_ids || []).join(", ") || "none"})`),
     "",
     "## Production elements",
     ...handoff.production_elements.map((item) => `- [${item.category}] ${item.value || item.text} | count: ${item.count ?? "not established"} | complexity: ${item.complexity || "not established"} | ${item.classification}; ${item.evidence_state} (citations: ${(item.citation_ids || []).join(", ") || "none"})`),
@@ -643,7 +641,7 @@ function csvHandoff(packet) {
     rows.push(csvRow(["exact_facts", fact.field || fact.fact_id || "", fact.classification || "", fact.evidence_state || "", fact.value || fact.text || "", "", "", (fact.citation_ids || []).join("; ")]));
   }
   for (const scene of handoff.scene_index) {
-    rows.push(csvRow(["scene_index", scene.scene_id || "", scene.classification || "", scene.evidence_state || "", `${scene.scene_heading || scene.scene_reference || ""} | summary: ${scene.scene_summary || "not established"} | actors: ${scene.actor_count ?? "not established"} | dialogue: ${JSON.stringify(scene.dialogue || [])} | actions: ${JSON.stringify(scene.actions || [])} | character analysis: ${JSON.stringify(scene.character_analysis || [])} | atmosphere: ${JSON.stringify(scene.atmosphere || {})}`, "", "", (scene.citation_ids || []).join("; ")]));
+    rows.push(csvRow(["scene_index", scene.scene_id || "", scene.classification || "", scene.evidence_state || "", `${scene.scene_heading || scene.scene_reference || ""} | summary: ${scene.scene_summary || "not established"} | dialogue: ${JSON.stringify(scene.dialogue || [])} | actions: ${JSON.stringify(scene.actions || [])} | character analysis: ${JSON.stringify(scene.character_analysis || [])} | atmosphere: ${JSON.stringify(scene.atmosphere || {})}`, "", "", (scene.citation_ids || []).join("; ")]));
   }
   for (const item of handoff.production_elements) {
     rows.push(csvRow(["production_elements", item.element_id || "", item.classification || "", item.evidence_state || "", `${item.category || "other"}: ${item.value || item.text || ""} | count: ${item.count ?? "not established"} | complexity: ${item.complexity || "not established"}`, item.owner || "", item.priority || "", (item.citation_ids || []).join("; ")]));
