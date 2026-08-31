@@ -3,13 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync } from "node:zlib";
 import { createApp } from "../src/server.js";
 import { FileStore } from "../src/store.js";
 import {
   MAX_DOCUMENT_BYTES,
   MAX_CHUNK_CHARS,
+  MAX_PDF_STREAM_OUTPUT_BYTES,
   DocumentContractError,
   parseGroundingDocument,
+  citationForChunk,
 } from "../src/documents.js";
 import {
   GroundingSource,
@@ -47,6 +50,17 @@ endobj
 %%EOF`, "latin1");
 }
 
+function compressedPdf() {
+  const content = (value) => deflateSync(Buffer.from(`BT /F1 12 Tf (${value}) Tj ET`));
+  const first = content("EXT. HARBOR - NIGHT: Mara enters the observatory.");
+  const second = content("INT. CONTROL ROOM - DAY: The signal changes across pages.");
+  return Buffer.concat([
+    Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /Page /Contents 3 0 R >>\nendobj\n2 0 obj\n<< /Type /Page /Contents 4 0 R >>\nendobj\n3 0 obj\n<< /Length ${first.length} /Filter [/FlateDecode] >>\nstream\n`), first,
+    Buffer.from(`\nendstream\nendobj\n4 0 obj\n<< /Length ${second.length} /Filter /FlateDecode >>\nstream\n`), second,
+    Buffer.from("\nendstream\nendobj\n%%EOF"),
+  ]);
+}
+
 function uploadForm(filename, type, bytes) {
   const form = new FormData();
   form.append("file", new Blob([bytes], { type }), filename);
@@ -76,6 +90,39 @@ test("plain text ingestion is bounded, deterministic, safe, and location-mapped"
   assert.equal(first.chunks.every((chunk) => chunk.source_locations.length > 0), true);
   const secret = parseGroundingDocument({ filename: "secret.txt", contentType: "text/plain", bytes: Buffer.from("The dialogue says api_key=do-not-leak and then the hero leaves.") });
   assert.equal(JSON.stringify(secret).includes("do-not-leak"), false);
+});
+
+test("production-style compressed multi-page PDF ingestion maps every page and remains bounded", async (t) => {
+  const bytes = compressedPdf();
+  const document = parseGroundingDocument({ filename: "production.pdf", contentType: "application/pdf", bytes });
+  assert.deepEqual(document.chunks.map((chunk) => chunk.source_locations[0].page), [1, 2]);
+  assert.match(document.chunks[0].excerpt, /Mara enters the observatory/);
+  assert.match(document.chunks[1].excerpt, /signal changes across pages/);
+  assert.equal(document.chunks.every((chunk) => chunk.excerpt.length <= MAX_CHUNK_CHARS), true);
+  const { base } = await startApp(t);
+  const response = await upload(base, "production.pdf", "application/pdf", bytes);
+  assert.equal(response.status, 201);
+  const projection = await response.json();
+  assert.equal(projection.media_type, "application/pdf");
+  const citationId = citationForChunk(document, document.chunks[1]).citation_id;
+  const citation = await fetch(`${base}/v1/documents/${projection.document_id}/citations/${citationId}`);
+  assert.equal(citation.status, 200);
+  const cited = await citation.json();
+  assert.match(cited.excerpt, /signal changes across pages/);
+  assert.equal(cited.source_locations[0].page, 2);
+});
+
+test("PDF expansion beyond the stream output bound fails as a safe invalid-PDF error", () => {
+  const expanded = deflateSync(Buffer.from(`BT (${"safe text ".repeat(MAX_PDF_STREAM_OUTPUT_BYTES)}) Tj ET`));
+  const bytes = Buffer.concat([
+    Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length ${expanded.length} /Filter /FlateDecode >>\nstream\n`),
+    expanded,
+    Buffer.from("\nendstream\nendobj\n%%EOF"),
+  ]);
+  assert.throws(
+    () => parseGroundingDocument({ filename: "expanded.pdf", contentType: "application/pdf", bytes }),
+    (error) => error instanceof DocumentContractError && error.code === "INVALID_PDF",
+  );
 });
 
 test("synthetic PDF ingestion preserves page citations and rejects malformed or oversized inputs", () => {
